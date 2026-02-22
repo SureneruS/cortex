@@ -52,7 +52,17 @@ def handle_session_start(
     context = "[Nova] Relevant knowledge from previous sessions:\n\n" + "\n".join(
         summaries
     )
-    return {"additionalContext": context}
+    return _wrap_context(context, "SessionStart")
+
+
+def _wrap_context(context: str, event_name: str) -> dict:
+    return {
+        "additionalContext": context,
+        "hookSpecificOutput": {
+            "hookEventName": event_name,
+            "additionalContext": context,
+        },
+    }
 
 
 def main():

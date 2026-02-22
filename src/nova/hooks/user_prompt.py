@@ -136,7 +136,17 @@ def handle_user_prompt(
             lines.append(f"- **{path.stem}**: {first_line}")
 
     context = "[Nova] Relevant context for your goal:\n\n" + "\n".join(lines)
-    return {"additionalContext": context}
+    return _wrap_context(context, "UserPromptSubmit")
+
+
+def _wrap_context(context: str, event_name: str) -> dict:
+    return {
+        "additionalContext": context,
+        "hookSpecificOutput": {
+            "hookEventName": event_name,
+            "additionalContext": context,
+        },
+    }
 
 
 def main():
