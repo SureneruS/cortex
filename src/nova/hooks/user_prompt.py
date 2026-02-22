@@ -73,7 +73,7 @@ def handle_user_prompt(
         state_file = nova_dir / "state.json"
 
     session_id = hook_input.get("session_id", "")
-    prompt_content = hook_input.get("prompt", {}).get("content", "")
+    prompt_content = hook_input.get("prompt", "")
 
     if not state_file.exists():
         return {}

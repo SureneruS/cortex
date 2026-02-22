@@ -1,4 +1,5 @@
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import TypedDict
 
@@ -8,6 +9,8 @@ class SessionState(TypedDict):
     transcript_path: str
     memory_injected: bool
     goal: str | None
+    started_at: str
+    last_active_at: str
 
 
 class NovaState:
@@ -26,18 +29,22 @@ class NovaState:
         self.sessions: dict[str, SessionState] = data.get("sessions", {})
 
     def register_session(self, session_id: str, repos: list[str], transcript_path: str):
+        now = datetime.now(timezone.utc).isoformat()
         if session_id not in self.sessions:
             self.sessions[session_id] = SessionState(
                 repos=repos,
                 transcript_path=transcript_path,
                 memory_injected=False,
                 goal=None,
+                started_at=now,
+                last_active_at=now,
             )
 
     def mark_injected(self, session_id: str, goal: str):
         if session_id in self.sessions:
             self.sessions[session_id]["memory_injected"] = True
             self.sessions[session_id]["goal"] = goal
+            self.sessions[session_id]["last_active_at"] = datetime.now(timezone.utc).isoformat()
 
     def save(self):
         """Atomic write via tmp file + rename. Last writer wins on concurrent access,

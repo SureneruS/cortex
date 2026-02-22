@@ -33,7 +33,7 @@ def test_first_prompt_injects_context(tmp_path):
 
     hook_input = {
         "session_id": "sess1",
-        "prompt": {"content": "fix the OAuth token refresh bug"},
+        "prompt": "fix the OAuth token refresh bug",
     }
 
     output = handle_user_prompt(hook_input, nova_dir=tmp_path, state_file=state_file)
@@ -53,13 +53,13 @@ def test_second_prompt_noop(tmp_path):
 
     hook_input = {
         "session_id": "sess1",
-        "prompt": {"content": "fix OAuth bug"},
+        "prompt": "fix OAuth bug",
     }
     handle_user_prompt(hook_input, nova_dir=tmp_path, state_file=state_file)
 
     hook_input2 = {
         "session_id": "sess1",
-        "prompt": {"content": "now fix the database migration"},
+        "prompt": "now fix the database migration",
     }
     output = handle_user_prompt(hook_input2, nova_dir=tmp_path, state_file=state_file)
     assert output == {}
@@ -70,7 +70,7 @@ def test_unregistered_session_does_not_crash(tmp_path):
 
     hook_input = {
         "session_id": "unknown_session",
-        "prompt": {"content": "fix OAuth"},
+        "prompt": "fix OAuth",
     }
 
     output = handle_user_prompt(hook_input, nova_dir=tmp_path, state_file=state_file)
@@ -82,7 +82,7 @@ def test_no_matching_knowledge(tmp_path):
 
     hook_input = {
         "session_id": "sess1",
-        "prompt": {"content": "set up kubernetes deployment"},
+        "prompt": "set up kubernetes deployment",
     }
 
     output = handle_user_prompt(hook_input, nova_dir=tmp_path, state_file=state_file)
@@ -97,7 +97,7 @@ def test_empty_prompt_noop(tmp_path):
 
     hook_input = {
         "session_id": "sess1",
-        "prompt": {"content": ""},
+        "prompt": "",
     }
 
     output = handle_user_prompt(hook_input, nova_dir=tmp_path, state_file=state_file)
@@ -110,7 +110,7 @@ def test_captures_scored_by_content_fallback(tmp_path):
 
     hook_input = {
         "session_id": "sess1",
-        "prompt": {"content": "OAuth token refresh race condition"},
+        "prompt": "OAuth token refresh race condition",
     }
 
     output = handle_user_prompt(hook_input, nova_dir=tmp_path, state_file=state_file)
@@ -128,7 +128,7 @@ def test_malformed_file_skipped(tmp_path):
 
     hook_input = {
         "session_id": "sess1",
-        "prompt": {"content": "fix OAuth token refresh"},
+        "prompt": "fix OAuth token refresh",
     }
 
     output = handle_user_prompt(hook_input, nova_dir=tmp_path, state_file=state_file)
