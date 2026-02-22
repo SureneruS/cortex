@@ -1,0 +1,23 @@
+version: 1
+type: capture
+fields:
+  session:
+    type: string
+    required: true
+    description: Claude Code session ID
+  repos:
+    type: list[string]
+    required: true
+    description: Repositories worked on in this session
+  transcript:
+    type: string
+    required: true
+    description: Path to the JSONL transcript file
+  captured_at:
+    type: datetime
+    required: true
+    description: ISO 8601 timestamp of capture
+  schema_version:
+    type: integer
+    required: true
+    description: Schema version number
