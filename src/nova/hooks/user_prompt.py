@@ -8,11 +8,37 @@ from nova.lib.state import NovaState
 NOVA_DIR = Path.home() / ".nova"
 MAX_RESULTS = 5
 
-STOP_WORDS = frozenset({
-    "the", "a", "an", "is", "are", "was", "were", "be", "been",
-    "to", "of", "in", "for", "on", "with", "at", "by", "from",
-    "it", "this", "that", "and", "or", "not", "but", "if", "do",
-})
+STOP_WORDS = frozenset(
+    {
+        "the",
+        "a",
+        "an",
+        "is",
+        "are",
+        "was",
+        "were",
+        "be",
+        "been",
+        "to",
+        "of",
+        "in",
+        "for",
+        "on",
+        "with",
+        "at",
+        "by",
+        "from",
+        "it",
+        "this",
+        "that",
+        "and",
+        "or",
+        "not",
+        "but",
+        "if",
+        "do",
+    }
+)
 
 
 def _tokenize(text: str) -> set[str]:
@@ -25,12 +51,14 @@ def _tokenize(text: str) -> set[str]:
 
 
 def _score_file(meta: dict, query_tokens: set[str]) -> int:
-    searchable = " ".join([
-        meta.get("title", ""),
-        meta.get("summary", ""),
-        " ".join(meta.get("tags", [])),
-        " ".join(meta.get("repos", [])),
-    ]).lower()
+    searchable = " ".join(
+        [
+            meta.get("title", ""),
+            meta.get("summary", ""),
+            " ".join(meta.get("tags", [])),
+            " ".join(meta.get("repos", [])),
+        ]
+    ).lower()
     return sum(1 for token in query_tokens if token in searchable)
 
 
@@ -47,6 +75,8 @@ def handle_user_prompt(
     session_id = hook_input.get("session_id", "")
     prompt_content = hook_input.get("prompt", {}).get("content", "")
 
+    if not state_file.exists():
+        return {}
     state = NovaState(state_file)
     session = state.sessions.get(session_id, {})
     if session.get("memory_injected", False):
@@ -100,7 +130,9 @@ def handle_user_prompt(
         if summary:
             lines.append(f"- **{title}**: {summary}")
         else:
-            first_line = content.strip().split("\n")[0][:200] if content.strip() else path.stem
+            first_line = (
+                content.strip().split("\n")[0][:200] if content.strip() else path.stem
+            )
             lines.append(f"- **{path.stem}**: {first_line}")
 
     context = "[Nova] Relevant context for your goal:\n\n" + "\n".join(lines)

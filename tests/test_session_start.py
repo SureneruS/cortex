@@ -26,7 +26,9 @@ def test_injects_knowledge_summaries(tmp_path):
         "cwd": "/Users/suren/workspace/cercli/recruitment-backend",
     }
 
-    output = handle_session_start(hook_input, knowledge_dir=knowledge_dir, state_file=state_file)
+    output = handle_session_start(
+        hook_input, knowledge_dir=knowledge_dir, state_file=state_file
+    )
 
     assert "additionalContext" in output
     ctx = output["additionalContext"]
@@ -51,7 +53,9 @@ def test_no_knowledge_returns_empty(tmp_path):
         "cwd": "/Users/suren/workspace/cercli/some-new-repo",
     }
 
-    output = handle_session_start(hook_input, knowledge_dir=knowledge_dir, state_file=state_file)
+    output = handle_session_start(
+        hook_input, knowledge_dir=knowledge_dir, state_file=state_file
+    )
     assert output == {}
 
 
@@ -80,7 +84,9 @@ def test_malformed_knowledge_file_skipped(tmp_path):
     global_dir = knowledge_dir / "global"
     global_dir.mkdir(parents=True)
 
-    (global_dir / "good.md").write_text("---\ntitle: Good\nsummary: Works fine\n---\nContent.\n")
+    (global_dir / "good.md").write_text(
+        "---\ntitle: Good\nsummary: Works fine\n---\nContent.\n"
+    )
     (global_dir / "bad.md").write_text("No frontmatter here, just text.")
 
     state_file = tmp_path / "state.json"
@@ -88,5 +94,7 @@ def test_malformed_knowledge_file_skipped(tmp_path):
 
     hook_input = {"session_id": "s1", "transcript_path": "/p", "cwd": "/some/repo"}
 
-    output = handle_session_start(hook_input, knowledge_dir=knowledge_dir, state_file=state_file)
+    output = handle_session_start(
+        hook_input, knowledge_dir=knowledge_dir, state_file=state_file
+    )
     assert "Good" in output.get("additionalContext", "")

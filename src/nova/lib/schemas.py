@@ -42,6 +42,8 @@ def validate_frontmatter(metadata: dict, schema: dict) -> list[str]:
 
         expected = spec.get("type")
         if expected and not _check_type(metadata[name], expected):
-            errors.append(f"Field '{name}' expected {expected}, got {type(metadata[name]).__name__}")
+            errors.append(
+                f"Field '{name}' expected {expected}, got {type(metadata[name]).__name__}"
+            )
 
     return errors

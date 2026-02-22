@@ -1,3 +1,5 @@
+import pytest
+
 from nova.lib.state import NovaState
 
 
@@ -44,8 +46,15 @@ def test_atomic_write(tmp_path):
     assert state_file.exists()
 
 
-def test_nonexistent_state_file(tmp_path):
-    """Loading from nonexistent file should give empty state."""
-    state = NovaState(tmp_path / "missing.json")
-    assert state.sessions == {}
-    assert state.last_dream_run is None
+def test_nonexistent_state_file_raises(tmp_path):
+    """Missing state file should raise FileNotFoundError."""
+    with pytest.raises(FileNotFoundError, match="nova-setup"):
+        NovaState(tmp_path / "missing.json")
+
+
+def test_malformed_state_file_raises(tmp_path):
+    """Malformed JSON should raise ValueError."""
+    state_file = tmp_path / "state.json"
+    state_file.write_text("not json at all")
+    with pytest.raises(ValueError, match="Malformed"):
+        NovaState(state_file)

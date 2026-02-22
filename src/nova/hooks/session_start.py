@@ -40,7 +40,7 @@ def handle_session_start(
             except Exception:
                 continue
 
-    if session_id:
+    if session_id and state_file.exists():
         repos = [repo_name] if repo_name else []
         state = NovaState(state_file)
         state.register_session(session_id, repos=repos, transcript_path=transcript_path)
@@ -49,7 +49,9 @@ def handle_session_start(
     if not summaries:
         return {}
 
-    context = "[Nova] Relevant knowledge from previous sessions:\n\n" + "\n".join(summaries)
+    context = "[Nova] Relevant knowledge from previous sessions:\n\n" + "\n".join(
+        summaries
+    )
     return {"additionalContext": context}
 
 

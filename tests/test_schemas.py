@@ -27,7 +27,9 @@ def test_valid_capture_frontmatter():
 
 def test_missing_required_field():
     schema = load_schema(SCHEMAS_DIR / "capture-v1.yaml")
-    meta = {"session": "abc123"}  # missing repos, transcript, captured_at, schema_version
+    meta = {
+        "session": "abc123"
+    }  # missing repos, transcript, captured_at, schema_version
     errors = validate_frontmatter(meta, schema)
     assert len(errors) >= 4
     assert any("repos" in e for e in errors)

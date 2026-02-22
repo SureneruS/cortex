@@ -3,7 +3,10 @@ from pathlib import Path
 
 import pytest
 
-from nova.cli.transcripts import extract_compact_summaries, extract_post_compact_messages
+from nova.cli.transcripts import (
+    extract_compact_summaries,
+    extract_post_compact_messages,
+)
 
 
 def _write_transcript(path: Path, records: list[dict]):
@@ -14,9 +17,22 @@ def test_extract_compact_summary(tmp_path):
     transcript = tmp_path / "session.jsonl"
     records = [
         {"type": "user", "message": {"content": "Fix the bug"}},
-        {"type": "assistant", "message": {"content": [{"type": "text", "text": "Working on it."}]}},
-        {"type": "system", "subtype": "compact_boundary", "compactMetadata": {"trigger": "auto", "preTokens": 150000}, "timestamp": "2026-02-22T10:00:00Z"},
-        {"type": "user", "message": {"content": "This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion.\n\nWorked on OAuth bug. Key finding: token locking needed."}},
+        {
+            "type": "assistant",
+            "message": {"content": [{"type": "text", "text": "Working on it."}]},
+        },
+        {
+            "type": "system",
+            "subtype": "compact_boundary",
+            "compactMetadata": {"trigger": "auto", "preTokens": 150000},
+            "timestamp": "2026-02-22T10:00:00Z",
+        },
+        {
+            "type": "user",
+            "message": {
+                "content": "This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion.\n\nWorked on OAuth bug. Key finding: token locking needed."
+            },
+        },
         {"type": "user", "message": {"content": "Now continue with the next task"}},
     ]
     _write_transcript(transcript, records)
@@ -31,7 +47,10 @@ def test_no_compact_summary(tmp_path):
     transcript = tmp_path / "session.jsonl"
     records = [
         {"type": "user", "message": {"content": "Hello"}},
-        {"type": "assistant", "message": {"content": [{"type": "text", "text": "Hi!"}]}},
+        {
+            "type": "assistant",
+            "message": {"content": [{"type": "text", "text": "Hi!"}]},
+        },
     ]
     _write_transcript(transcript, records)
     summaries = extract_compact_summaries(transcript)
@@ -42,10 +61,22 @@ def test_extract_post_compact_messages(tmp_path):
     transcript = tmp_path / "session.jsonl"
     records = [
         {"type": "user", "message": {"content": "old message"}},
-        {"type": "system", "subtype": "compact_boundary", "compactMetadata": {"trigger": "auto", "preTokens": 100000}},
-        {"type": "user", "message": {"content": "This session is being continued...summary here"}},
+        {
+            "type": "system",
+            "subtype": "compact_boundary",
+            "compactMetadata": {"trigger": "auto", "preTokens": 100000},
+        },
+        {
+            "type": "user",
+            "message": {"content": "This session is being continued...summary here"},
+        },
         {"type": "user", "message": {"content": "Do the new thing"}},
-        {"type": "assistant", "message": {"content": [{"type": "text", "text": "Working on the new thing."}]}},
+        {
+            "type": "assistant",
+            "message": {
+                "content": [{"type": "text", "text": "Working on the new thing."}]
+            },
+        },
     ]
     _write_transcript(transcript, records)
     messages = extract_post_compact_messages(transcript)
@@ -58,11 +89,25 @@ def test_multiple_compacts(tmp_path):
     transcript = tmp_path / "session.jsonl"
     records = [
         {"type": "user", "message": {"content": "first era"}},
-        {"type": "system", "subtype": "compact_boundary", "compactMetadata": {"trigger": "auto", "preTokens": 100000}},
-        {"type": "user", "message": {"content": "This session is being continued...first summary"}},
+        {
+            "type": "system",
+            "subtype": "compact_boundary",
+            "compactMetadata": {"trigger": "auto", "preTokens": 100000},
+        },
+        {
+            "type": "user",
+            "message": {"content": "This session is being continued...first summary"},
+        },
         {"type": "user", "message": {"content": "second era work"}},
-        {"type": "system", "subtype": "compact_boundary", "compactMetadata": {"trigger": "manual", "preTokens": 170000}},
-        {"type": "user", "message": {"content": "This session is being continued...second summary"}},
+        {
+            "type": "system",
+            "subtype": "compact_boundary",
+            "compactMetadata": {"trigger": "manual", "preTokens": 170000},
+        },
+        {
+            "type": "user",
+            "message": {"content": "This session is being continued...second summary"},
+        },
         {"type": "user", "message": {"content": "third era work"}},
     ]
     _write_transcript(transcript, records)
@@ -80,10 +125,17 @@ def test_file_history_snapshots_skipped(tmp_path):
     transcript = tmp_path / "session.jsonl"
     records = [
         {"type": "user", "message": {"content": "work"}},
-        {"type": "system", "subtype": "compact_boundary", "compactMetadata": {"trigger": "auto", "preTokens": 100000}},
+        {
+            "type": "system",
+            "subtype": "compact_boundary",
+            "compactMetadata": {"trigger": "auto", "preTokens": 100000},
+        },
         {"type": "file-history-snapshot", "files": {"foo.py": "abc"}},
         {"type": "file-history-snapshot", "files": {"bar.py": "def"}},
-        {"type": "user", "message": {"content": "This session is being continued...the summary"}},
+        {
+            "type": "user",
+            "message": {"content": "This session is being continued...the summary"},
+        },
         {"type": "user", "message": {"content": "new work after compact"}},
     ]
     _write_transcript(transcript, records)
@@ -103,9 +155,14 @@ def test_malformed_json_lines_skipped(tmp_path):
 
 def test_real_transcript():
     """Test against an actual Claude Code transcript if available."""
-    real_path = Path.home() / ".claude/projects/-Users-suren-workspace-cercli/8472b362-015a-4015-99e0-6de083c93004.jsonl"
+    real_path = (
+        Path.home()
+        / ".claude/projects/-Users-suren-workspace-cercli/8472b362-015a-4015-99e0-6de083c93004.jsonl"
+    )
     if not real_path.exists():
         pytest.skip("Real transcript not available")
     summaries = extract_compact_summaries(real_path)
     assert len(summaries) >= 1
-    assert any("Nova" in s["content"] or "session" in s["content"].lower() for s in summaries)
+    assert any(
+        "Nova" in s["content"] or "session" in s["content"].lower() for s in summaries
+    )

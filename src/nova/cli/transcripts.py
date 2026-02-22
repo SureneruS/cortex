@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import json
+import logging
 import sys
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 COMPACT_SUMMARY_PREFIX = "This session is being continued"
 
@@ -10,13 +13,14 @@ COMPACT_SUMMARY_PREFIX = "This session is being continued"
 def _parse_records(transcript_path: Path) -> list[dict]:
     records = []
     with open(transcript_path) as f:
-        for line in f:
+        for line_num, line in enumerate(f, 1):
             line = line.strip()
             if not line:
                 continue
             try:
                 records.append(json.loads(line))
             except (json.JSONDecodeError, ValueError):
+                logger.warning("Skipping malformed JSON at %s:%d", transcript_path, line_num)
                 continue
     return records
 
@@ -58,12 +62,14 @@ def extract_compact_summaries(transcript_path: Path) -> list[dict]:
                 if next_rec.get("type") == "user":
                     content = _extract_message_content(next_rec)
                     if content and content.startswith(COMPACT_SUMMARY_PREFIX):
-                        summaries.append({
-                            "trigger": trigger,
-                            "pre_tokens": pre_tokens,
-                            "timestamp": timestamp,
-                            "content": content,
-                        })
+                        summaries.append(
+                            {
+                                "trigger": trigger,
+                                "pre_tokens": pre_tokens,
+                                "timestamp": timestamp,
+                                "content": content,
+                            }
+                        )
                 break
             i = j + 1 if j < len(records) else i + 1
         else:
@@ -93,7 +99,11 @@ def extract_post_compact_messages(transcript_path: Path) -> list[dict]:
         content = _extract_message_content(rec)
         if content is None:
             continue
-        if not skipped_summary and role == "user" and content.startswith(COMPACT_SUMMARY_PREFIX):
+        if (
+            not skipped_summary
+            and role == "user"
+            and content.startswith(COMPACT_SUMMARY_PREFIX)
+        ):
             skipped_summary = True
             continue
         messages.append({"role": role, "content": content})
@@ -102,7 +112,10 @@ def extract_post_compact_messages(transcript_path: Path) -> list[dict]:
 
 def main():
     if len(sys.argv) < 3:
-        print("Usage: nova-transcripts <list-summaries|post-compact> <path>", file=sys.stderr)
+        print(
+            "Usage: nova-transcripts <list-summaries|post-compact> <path>",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     command = sys.argv[1]
@@ -117,7 +130,10 @@ def main():
     elif command == "post-compact":
         result = extract_post_compact_messages(path)
     else:
-        print(f"Unknown command: {command}. Use 'list-summaries' or 'post-compact'.", file=sys.stderr)
+        print(
+            f"Unknown command: {command}. Use 'list-summaries' or 'post-compact'.",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     json.dump(result, sys.stdout, indent=2)
