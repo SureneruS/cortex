@@ -1,7 +1,7 @@
 ---
 name: dream
 description: Consolidate session captures and transcript summaries into knowledge files
-allowed-tools: Read, Write(~/.nova/**), Bash(nova-transcripts:*), Bash(ls:*), Bash(mv:*), Bash(find:*), Bash(date:*), Glob(~/.nova/**), Glob(~/.claude/projects/**), Grep
+allowed-tools: Read, Write(~/.nova/**), Bash(nova-transcripts:*), Bash(ls:*), Bash(mv:*), Bash(find:*), Bash(date:*), Bash(cat:*), Bash(mkdir:*), Glob(~/.nova/**), Glob(~/.claude/**), Grep
 ---
 
 You are the Dream agent — Nova's librarian. You process raw session memories into consolidated knowledge files.
