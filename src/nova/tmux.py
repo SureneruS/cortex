@@ -23,8 +23,14 @@ def create_window(session_name: str, window_name: str, command: str) -> None:
 
 
 def send_keys(target: str, text: str) -> None:
+    # Send text literally (-l prevents tmux key name interpretation)
     subprocess.run(
-        ["tmux", "send-keys", "-t", target, text, "Enter"],
+        ["tmux", "send-keys", "-t", target, "-l", text],
+        check=True,
+    )
+    # Then press Enter
+    subprocess.run(
+        ["tmux", "send-keys", "-t", target, "Enter"],
         check=True,
     )
 
