@@ -75,7 +75,14 @@ def cmd_list(state_file: Path | None = None):
 
 
 def cmd_attach(name: str):
-    os.execlp("tmux", "tmux", "select-window", "-t", f"{TMUX_SESSION}:{name}")
+    import subprocess
+
+    # Select the window first, then attach to the session
+    subprocess.run(
+        ["tmux", "select-window", "-t", f"{TMUX_SESSION}:{name}"],
+        capture_output=True,
+    )
+    os.execlp("tmux", "tmux", "attach-session", "-t", TMUX_SESSION)
 
 
 def cmd_exchange_install():
