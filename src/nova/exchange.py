@@ -73,6 +73,7 @@ class ExchangeHandler:
             return False
 
         send_keys(tmux_target, text)
+        print(f"[exchange] Routed reply to {tmux_window}: {text[:80]}")
 
         if self._poster:
             try:
@@ -130,10 +131,15 @@ def run_exchange(state_file: Path | None = None, config_path: Path | None = None
         )
 
     client.socket_mode_request_listeners.append(process)
-    client.connect()
 
-    logger.info("Nova exchange running. Press Ctrl+C to stop.")
+    print("Connecting to Slack...")
+    client.connect()
+    print("Nova exchange running. Press Ctrl+C to stop.")
 
     import signal
 
-    signal.pause()
+    try:
+        signal.pause()
+    except KeyboardInterrupt:
+        print("\nShutting down.")
+        client.close()
