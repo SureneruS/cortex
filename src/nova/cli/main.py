@@ -1,5 +1,7 @@
 import argparse
 import os
+import shutil
+import sys
 from pathlib import Path
 
 from nova.lib.state import NovaState
@@ -76,6 +78,22 @@ def cmd_attach(name: str):
     os.execlp("tmux", "tmux", "select-window", "-t", f"{TMUX_SESSION}:{name}")
 
 
+def cmd_exchange_install():
+    plist_src = Path(__file__).parent.parent.parent.parent / "resources" / "com.nova.exchange.plist"
+    plist_dst = Path.home() / "Library" / "LaunchAgents" / "com.nova.exchange.plist"
+    logs_dir = Path.home() / ".nova" / "logs"
+
+    logs_dir.mkdir(parents=True, exist_ok=True)
+
+    if not plist_src.exists():
+        print(f"Plist template not found at {plist_src}", file=sys.stderr)
+        sys.exit(1)
+
+    shutil.copy2(plist_src, plist_dst)
+    print(f"Installed plist to {plist_dst}")
+    print(f"Run: launchctl load {plist_dst}")
+
+
 def cmd_dream():
     os.execlp("claude", "claude", "--agent", "dream")
 
@@ -137,6 +155,6 @@ def main():
 
             exchange.run_exchange()
         elif args.exchange_command == "install":
-            print("Exchange install not yet implemented")
+            cmd_exchange_install()
         else:
             print("Usage: nova exchange [start|install]")

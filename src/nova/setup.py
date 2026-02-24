@@ -4,6 +4,7 @@ from pathlib import Path
 def main():
     base = Path.home() / ".nova"
     dirs = [
+        base / "logs",
         base / "memory" / "captures",
         base / "memory" / "knowledge" / "global",
         base / "memory" / "archive" / "captures",

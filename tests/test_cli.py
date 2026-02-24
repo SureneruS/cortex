@@ -1,6 +1,7 @@
+from pathlib import Path
 from unittest.mock import patch, MagicMock
 
-from nova.cli.main import cmd_start, cmd_list, main
+from nova.cli.main import cmd_start, cmd_list, cmd_exchange_install, main
 
 
 @patch("nova.cli.main.create_window")
@@ -108,11 +109,47 @@ def test_main_exchange_start():
     mock_run.assert_called_once()
 
 
-def test_main_exchange_install(capsys):
-    with patch("sys.argv", ["nova", "exchange", "install"]):
-        main()
+def test_cmd_exchange_install(capsys, tmp_path):
+    # Set up fake project root at tmp_path (mimics src/nova/cli/main.py -> root)
+    fake_main = tmp_path / "src" / "nova" / "cli" / "main.py"
+    fake_main.parent.mkdir(parents=True)
+    fake_main.touch()
+
+    plist_src = tmp_path / "resources" / "com.nova.exchange.plist"
+    plist_src.parent.mkdir()
+    plist_src.write_text("<plist>test</plist>")
+
+    plist_dst = tmp_path / "Library" / "LaunchAgents" / "com.nova.exchange.plist"
+    plist_dst.parent.mkdir(parents=True)
+
+    logs_dir = tmp_path / ".nova" / "logs"
+
+    with (
+        patch.object(Path, "home", return_value=tmp_path),
+        patch("nova.cli.main.__file__", str(fake_main)),
+    ):
+        cmd_exchange_install()
+
     output = capsys.readouterr().out
-    assert "not yet implemented" in output.lower()
+    assert "Installed plist to" in output
+    assert "launchctl load" in output
+    assert plist_dst.exists()
+    assert plist_dst.read_text() == "<plist>test</plist>"
+    assert logs_dir.is_dir()
+
+
+def test_cmd_exchange_install_missing_plist(tmp_path):
+    fake_main = tmp_path / "src" / "nova" / "cli" / "main.py"
+    fake_main.parent.mkdir(parents=True)
+    fake_main.touch()
+
+    with (
+        patch.object(Path, "home", return_value=tmp_path),
+        patch("nova.cli.main.__file__", str(fake_main)),
+    ):
+        import pytest
+        with pytest.raises(SystemExit):
+            cmd_exchange_install()
 
 
 def test_main_exchange_no_subcommand(capsys):
