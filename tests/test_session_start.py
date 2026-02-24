@@ -98,3 +98,36 @@ def test_malformed_knowledge_file_skipped(tmp_path):
         hook_input, knowledge_dir=knowledge_dir, state_file=state_file
     )
     assert "Good" in output.get("additionalContext", "")
+
+
+def test_registers_tmux_target_from_env(tmp_path, monkeypatch):
+    monkeypatch.setenv("NOVA_SESSION_NAME", "recruitment-backend")
+    state_file = tmp_path / "state.json"
+    state_file.write_text('{"last_dream_run": null, "sessions": {}, "slack": {}}')
+
+    hook_input = {
+        "session_id": "sess1",
+        "transcript_path": "/tmp/t.jsonl",
+        "cwd": "/path/to/recruitment-backend",
+    }
+    handle_session_start(hook_input, knowledge_dir=tmp_path / "k", state_file=state_file)
+
+    data = json.loads(state_file.read_text())
+    assert data["sessions"]["sess1"]["tmux_target"] == "sessions:recruitment-backend"
+    assert data["sessions"]["sess1"]["tmux_window"] == "recruitment-backend"
+
+
+def test_no_tmux_when_env_not_set(tmp_path, monkeypatch):
+    monkeypatch.delenv("NOVA_SESSION_NAME", raising=False)
+    state_file = tmp_path / "state.json"
+    state_file.write_text('{"last_dream_run": null, "sessions": {}, "slack": {}}')
+
+    hook_input = {
+        "session_id": "sess1",
+        "transcript_path": "/tmp/t.jsonl",
+        "cwd": "/path/to/recruitment-backend",
+    }
+    handle_session_start(hook_input, knowledge_dir=tmp_path / "k", state_file=state_file)
+
+    data = json.loads(state_file.read_text())
+    assert data["sessions"]["sess1"].get("tmux_target") is None

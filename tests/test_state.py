@@ -58,3 +58,61 @@ def test_malformed_state_file_raises(tmp_path):
     state_file.write_text("not json at all")
     with pytest.raises(ValueError, match="Malformed"):
         NovaState(state_file)
+
+
+def test_register_session_with_tmux(tmp_path):
+    state_file = tmp_path / "state.json"
+    state_file.write_text('{"last_dream_run": null, "sessions": {}}')
+    state = NovaState(state_file)
+    state.register_session(
+        "sess1",
+        repos=["recruitment-backend"],
+        transcript_path="/tmp/t.jsonl",
+        tmux_target="sessions:recruitment-backend",
+        tmux_window="recruitment-backend",
+    )
+    assert state.sessions["sess1"]["tmux_target"] == "sessions:recruitment-backend"
+    assert state.sessions["sess1"]["tmux_window"] == "recruitment-backend"
+
+
+def test_set_slack_thread(tmp_path):
+    state_file = tmp_path / "state.json"
+    state_file.write_text('{"last_dream_run": null, "sessions": {}}')
+    state = NovaState(state_file)
+    state.register_session("sess1", repos=["rb"], transcript_path="/tmp/t.jsonl")
+    state.set_slack_thread("sess1", thread_ts="123.456", channel="D0ABC")
+    assert state.sessions["sess1"]["slack_thread_ts"] == "123.456"
+    assert state.sessions["sess1"]["slack_channel"] == "D0ABC"
+
+
+def test_find_session_by_thread(tmp_path):
+    state_file = tmp_path / "state.json"
+    state_file.write_text('{"last_dream_run": null, "sessions": {}}')
+    state = NovaState(state_file)
+    state.register_session("sess1", repos=["rb"], transcript_path="/tmp/t.jsonl")
+    state.set_slack_thread("sess1", thread_ts="123.456", channel="D0ABC")
+    state.save()
+
+    state2 = NovaState(state_file)
+    result = state2.find_session_by_thread("123.456")
+    assert result is not None
+    assert result[0] == "sess1"
+
+
+def test_find_session_by_thread_not_found(tmp_path):
+    state_file = tmp_path / "state.json"
+    state_file.write_text('{"last_dream_run": null, "sessions": {}}')
+    state = NovaState(state_file)
+    assert state.find_session_by_thread("999.999") is None
+
+
+def test_set_slack_global(tmp_path):
+    state_file = tmp_path / "state.json"
+    state_file.write_text('{"last_dream_run": null, "sessions": {}}')
+    state = NovaState(state_file)
+    state.set_slack_config(dm_channel="D0ABC", bot_user_id="U0BOT")
+    state.save()
+
+    state2 = NovaState(state_file)
+    assert state2.slack_config["dm_channel"] == "D0ABC"
+    assert state2.slack_config["bot_user_id"] == "U0BOT"
