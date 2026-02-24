@@ -89,10 +89,34 @@ class ExchangeHandler:
         return True
 
 
+def _setup_verbose_logging():
+    import sys
+
+    logging.basicConfig(
+        level=logging.DEBUG,
+        format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
+        datefmt="%H:%M:%S",
+        stream=sys.stdout,
+    )
+
+    # Socket Mode internals — connection lifecycle
+    logging.getLogger("slack_sdk.socket_mode.builtin.connection").setLevel(logging.DEBUG)
+    logging.getLogger("slack_sdk.socket_mode.builtin.internals").setLevel(logging.DEBUG)
+    logging.getLogger("slack_sdk.socket_mode.builtin").setLevel(logging.DEBUG)
+
+    # Web API calls
+    logging.getLogger("slack_sdk.web.base_client").setLevel(logging.INFO)
+
+    # Websocket frames (very noisy — keep at INFO to see connect/disconnect but not every frame)
+    logging.getLogger("websocket").setLevel(logging.INFO)
+
+
 def run_exchange(state_file: Path | None = None, config_path: Path | None = None):
     from slack_sdk.socket_mode import SocketModeClient
     from slack_sdk.socket_mode.request import SocketModeRequest
     from slack_sdk.socket_mode.response import SocketModeResponse
+
+    _setup_verbose_logging()
 
     config = load_config(config_path)
     app_token = config["slack"].get("app_token")
@@ -108,15 +132,18 @@ def run_exchange(state_file: Path | None = None, config_path: Path | None = None
         web_client=handler._poster._client if handler._poster else None,
         auto_reconnect_enabled=True,
         ping_interval=30,
+        trace_enabled=True,
     )
 
     def process(client: SocketModeClient, req: SocketModeRequest):
+        print(f"[exchange] << Event received: type={req.type} envelope={req.envelope_id[:12]}...")
         client.send_socket_mode_response(
             SocketModeResponse(envelope_id=req.envelope_id)
         )
+        print(f"[exchange] >> Ack sent for {req.envelope_id[:12]}")
 
         if req.type != "events_api":
-            print(f"[exchange] Ignoring non-events_api: {req.type}")
+            print(f"[exchange] Skipping non-events_api: {req.type}")
             return
 
         event = req.payload.get("event", {})
@@ -125,39 +152,48 @@ def run_exchange(state_file: Path | None = None, config_path: Path | None = None
         thread_ts = event.get("thread_ts")
         text = event.get("text", "")
         user = event.get("user", "")
+        channel = event.get("channel", "")
+        ts = event.get("ts", "")
+
+        print(f"[exchange] Event details: type={event_type} subtype={subtype} "
+              f"channel={channel} ts={ts} thread_ts={thread_ts} user={user}")
 
         if event_type != "message":
-            print(f"[exchange] Ignoring event type: {event_type}")
+            print(f"[exchange] Skipping: not a message event")
             return
         if subtype:
-            print(f"[exchange] Ignoring message subtype: {subtype}")
+            print(f"[exchange] Skipping: message subtype={subtype}")
             return
         if not thread_ts:
-            print(f"[exchange] Ignoring non-threaded message: {text[:50]}")
+            print(f"[exchange] Skipping: non-threaded message: {text[:50]}")
             return
 
-        print(f"[exchange] Received threaded message from {user}: {text[:80]}")
+        print(f"[exchange] Processing threaded reply from {user}: {text[:80]}")
 
-        message_ts = event.get("ts", "")
-
-        handler.handle_message(
-            channel=event["channel"],
+        routed = handler.handle_message(
+            channel=channel,
             thread_ts=thread_ts,
-            message_ts=message_ts,
+            message_ts=ts,
             text=text,
             user=user,
         )
+        print(f"[exchange] Route result: {'delivered' if routed else 'not matched'}")
 
     client.socket_mode_request_listeners.append(process)
 
-    print("Connecting to Slack...")
+    print("[exchange] Connecting to Slack Socket Mode...")
     client.connect()
-    print("Nova exchange running. Press Ctrl+C to stop.")
+    print("[exchange] Connected. Listening for messages.")
+    print(f"[exchange] Auto-reconnect: {client.auto_reconnect_enabled}")
+    print(f"[exchange] Ping interval: {client.ping_interval}s")
+    print(f"[exchange] Bot user ID filter: {handler._bot_user_id}")
+    print("[exchange] Press Ctrl+C to stop.\n")
 
     import signal
 
     try:
         signal.pause()
     except KeyboardInterrupt:
-        print("\nShutting down.")
+        print("\n[exchange] Shutting down...")
         client.close()
+        print("[exchange] Disconnected.")
