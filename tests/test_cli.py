@@ -99,11 +99,13 @@ def test_cmd_list_no_state_file(mock_list, capsys, tmp_path):
     assert "frontend" in output
 
 
-def test_main_exchange_start(capsys):
-    with patch("sys.argv", ["nova", "exchange", "start"]):
+def test_main_exchange_start():
+    with (
+        patch("sys.argv", ["nova", "exchange", "start"]),
+        patch("nova.exchange.run_exchange") as mock_run,
+    ):
         main()
-    output = capsys.readouterr().out
-    assert "not yet implemented" in output.lower()
+    mock_run.assert_called_once()
 
 
 def test_main_exchange_install(capsys):

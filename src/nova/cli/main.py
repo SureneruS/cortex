@@ -133,8 +133,10 @@ def main():
         cmd_meditate()
     elif args.command == "exchange":
         if args.exchange_command == "start":
-            print("Exchange not yet implemented")
+            from nova import exchange
+
+            exchange.run_exchange()
         elif args.exchange_command == "install":
-            print("Exchange not yet implemented")
+            print("Exchange install not yet implemented")
         else:
             print("Usage: nova exchange [start|install]")
