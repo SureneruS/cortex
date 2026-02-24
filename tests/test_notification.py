@@ -46,6 +46,27 @@ class TestFormatMessage:
         msg = _format_message({}, {})
         assert "*[unknown]*" in msg
 
+    def test_permission_prompt_shows_pane(self):
+        with patch(
+            "nova.hooks.notification._capture_pane_context",
+            return_value="Allow Bash: ls -la\n> (y/n)",
+        ):
+            msg = _format_message(
+                {"tmux_window": "rb", "tmux_target": "sessions:rb"},
+                {"notification_type": "permission_prompt", "message": "Claude needs your permission to use Bash"},
+            )
+        assert "Permission needed" in msg
+        assert "ls -la" in msg
+        assert "Reply *y* to allow" in msg
+
+    def test_permission_prompt_without_pane(self):
+        msg = _format_message(
+            {"tmux_window": "rb"},
+            {"notification_type": "permission_prompt", "message": "Claude needs your permission to use Bash"},
+        )
+        assert "Permission needed" in msg
+        assert "Reply *y* to allow" in msg
+
 
 class TestSkipConditions:
     def test_skips_empty_session_id(self, tmp_path):

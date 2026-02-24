@@ -1,14 +1,190 @@
+from __future__ import annotations
+
+import json
 import logging
+import sys
+import traceback
 from pathlib import Path
 
 from nova.config import load_config
 from nova.lib.state import NovaState
 from nova.slack import SlackPoster
-from nova.tmux import has_window, send_keys, TMUX_SESSION
+from nova.tmux import has_window, send_keys, send_raw_key, send_option_select, TMUX_SESSION
 
 logger = logging.getLogger(__name__)
 
+MAX_SLACK_TEXT = 3000
+
+
+def _log(msg: str) -> None:
+    print(msg, flush=True)
+
 NOVA_DIR = Path.home() / ".nova"
+
+
+class TranscriptWatcher:
+    def __init__(
+        self,
+        state_file: Path,
+        poster: SlackPoster,
+        prompt_tracker: PromptStateTracker | None = None,
+    ):
+        self._state_file = state_file
+        self._poster = poster
+        self._prompt_tracker = prompt_tracker or PromptStateTracker()
+        self._offsets: dict[str, int] = {}
+
+    def poll(self):
+        if not self._state_file.exists():
+            return
+
+        try:
+            state = NovaState(self._state_file)
+        except Exception:
+            return
+
+        for sid, session in state.sessions.items():
+            thread_ts = session.get("slack_thread_ts")
+            channel = session.get("slack_channel")
+            transcript_path = session.get("transcript_path")
+
+            if not thread_ts or not channel or not transcript_path:
+                continue
+
+            path = Path(transcript_path)
+            if not path.exists():
+                continue
+
+            current_size = path.stat().st_size
+
+            if sid not in self._offsets:
+                self._offsets[sid] = current_size
+                continue
+
+            if current_size <= self._offsets[sid]:
+                continue
+
+            try:
+                with open(path) as f:
+                    f.seek(self._offsets[sid])
+                    new_content = f.read()
+            except Exception:
+                continue
+
+            self._offsets[sid] = current_size
+            self._process_new_content(new_content, channel, thread_ts)
+
+    def _process_new_content(self, content: str, channel: str, thread_ts: str):
+        for line in content.strip().split("\n"):
+            if not line.strip():
+                continue
+            try:
+                entry = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+
+            msg = entry.get("message", {})
+            if msg.get("role") != "assistant":
+                continue
+
+            content_items = msg.get("content", [])
+
+            question = self._extract_ask_question(content_items)
+            if question:
+                self._handle_question(question, channel, thread_ts)
+                continue
+
+            if self._has_permission_tool_use(content_items):
+                self._prompt_tracker.set_permission(thread_ts, "permission requested")
+                continue
+
+            text = self._extract_text(content_items)
+            if not text:
+                continue
+
+            self._prompt_tracker.clear(thread_ts)
+
+            if len(text) > MAX_SLACK_TEXT:
+                text = text[:MAX_SLACK_TEXT] + "...(truncated)"
+
+            try:
+                self._poster.post_reply(
+                    channel=channel, thread_ts=thread_ts, text=text
+                )
+                _log(f"[watcher] Posted assistant response ({len(text)} chars)")
+            except Exception:
+                _log(f"[watcher] ERROR posting response:\n{traceback.format_exc()}")
+
+    def _handle_question(self, question: dict, channel: str, thread_ts: str):
+        options = question.get("options", [])
+        self._prompt_tracker.set_question(thread_ts, options)
+
+        lines = [f"*{question.get('question', 'Choose an option')}*", ""]
+        for i, opt in enumerate(options, 1):
+            label = opt.get("label", "")
+            desc = opt.get("description", "")
+            lines.append(f"*{i}.* {label}" + (f" — {desc}" if desc else ""))
+        lines.append(f"*{len(options) + 1}.* Other (type your answer)")
+        lines.append("\n_Reply with a number to select_")
+
+        try:
+            self._poster.post_reply(
+                channel=channel, thread_ts=thread_ts, text="\n".join(lines)
+            )
+            _log(f"[watcher] Posted question with {len(options)} options")
+        except Exception:
+            _log(f"[watcher] ERROR posting question:\n{traceback.format_exc()}")
+
+    @staticmethod
+    def _extract_ask_question(content: list) -> dict | None:
+        for item in content:
+            if not isinstance(item, dict) or item.get("type") != "tool_use":
+                continue
+            if item.get("name") != "AskUserQuestion":
+                continue
+            questions = item.get("input", {}).get("questions", [])
+            if questions:
+                return questions[0]
+        return None
+
+    @staticmethod
+    def _has_permission_tool_use(content: list) -> bool:
+        for item in content:
+            if not isinstance(item, dict) or item.get("type") != "tool_use":
+                continue
+            name = item.get("name", "")
+            if name in ("Bash", "Write", "Edit"):
+                return True
+        return False
+
+    @staticmethod
+    def _extract_text(content: list) -> str:
+        parts = []
+        for item in content:
+            if isinstance(item, dict) and item.get("type") == "text":
+                parts.append(item["text"])
+        return "\n".join(parts)
+
+
+class PromptStateTracker:
+    def __init__(self):
+        self._states: dict[str, dict] = {}
+
+    def set_question(self, thread_ts: str, options: list[dict]):
+        self._states[thread_ts] = {
+            "type": "question",
+            "options": options,
+            "option_count": len(options),
+        }
+
+    def set_permission(self, thread_ts: str, message: str):
+        self._states[thread_ts] = {"type": "permission", "message": message}
+
+    def clear(self, thread_ts: str):
+        self._states.pop(thread_ts, None)
+
+    def get(self, thread_ts: str) -> dict | None:
+        return self._states.get(thread_ts)
 
 
 class ExchangeHandler:
@@ -16,9 +192,11 @@ class ExchangeHandler:
         self,
         state_file: Path | None = None,
         config_path: Path | None = None,
+        prompt_tracker: PromptStateTracker | None = None,
     ):
         self._state_file = state_file or (NOVA_DIR / "state.json")
         self._poster: SlackPoster | None = None
+        self._prompt_tracker = prompt_tracker or PromptStateTracker()
 
         try:
             config = load_config(config_path)
@@ -73,8 +251,37 @@ class ExchangeHandler:
                 )
             return False
 
-        send_keys(tmux_target, text)
-        print(f"[exchange] Routed reply to {tmux_window}: {text[:80]}")
+        prompt_state = self._prompt_tracker.get(thread_ts)
+        self._send_input(tmux_target, text, prompt_state)
+        self._prompt_tracker.clear(thread_ts)
+        _log(f"[exchange] Routed reply to {tmux_window} (mode={prompt_state['type'] if prompt_state else 'text'}): {text[:80]}")
+
+        return True
+
+    def _send_input(self, target: str, text: str, prompt_state: dict | None):
+        if prompt_state and prompt_state["type"] == "question":
+            stripped = text.strip()
+            if stripped.isdigit():
+                idx = int(stripped) - 1
+                if 0 <= idx <= prompt_state["option_count"]:
+                    send_option_select(target, idx)
+                    return
+            # "other" or unrecognized → select Other (last), then type
+            option_count = prompt_state["option_count"]
+            send_option_select(target, option_count)  # Other is after all options
+            send_keys(target, text)
+            return
+
+        if prompt_state and prompt_state["type"] == "permission":
+            stripped = text.strip().lower()
+            if stripped in ("y", "yes", "allow"):
+                send_raw_key(target, "y")
+                return
+            if stripped in ("n", "no", "deny"):
+                send_raw_key(target, "n")
+                return
+
+        send_keys(target, text)
 
         if self._poster:
             try:
@@ -125,75 +332,101 @@ def run_exchange(state_file: Path | None = None, config_path: Path | None = None
             "Slack app_token required for exchange. Set NOVA_SLACK_APP_TOKEN."
         )
 
-    handler = ExchangeHandler(state_file=state_file, config_path=config_path)
+    prompt_tracker = PromptStateTracker()
+    handler = ExchangeHandler(
+        state_file=state_file,
+        config_path=config_path,
+        prompt_tracker=prompt_tracker,
+    )
 
     client = SocketModeClient(
         app_token=app_token,
         web_client=handler._poster._client if handler._poster else None,
         auto_reconnect_enabled=True,
-        ping_interval=30,
+        ping_interval=10,
         trace_enabled=True,
     )
 
     def process(client: SocketModeClient, req: SocketModeRequest):
-        print(f"[exchange] << Event received: type={req.type} envelope={req.envelope_id[:12]}...")
-        client.send_socket_mode_response(
-            SocketModeResponse(envelope_id=req.envelope_id)
-        )
-        print(f"[exchange] >> Ack sent for {req.envelope_id[:12]}")
+        try:
+            _log(f"[exchange] << Event received: type={req.type} envelope={req.envelope_id[:12]}...")
+            client.send_socket_mode_response(
+                SocketModeResponse(envelope_id=req.envelope_id)
+            )
+            _log(f"[exchange] >> Ack sent for {req.envelope_id[:12]}")
 
-        if req.type != "events_api":
-            print(f"[exchange] Skipping non-events_api: {req.type}")
-            return
+            if req.type != "events_api":
+                _log(f"[exchange] Skipping non-events_api: {req.type}")
+                return
 
-        event = req.payload.get("event", {})
-        event_type = event.get("type", "unknown")
-        subtype = event.get("subtype")
-        thread_ts = event.get("thread_ts")
-        text = event.get("text", "")
-        user = event.get("user", "")
-        channel = event.get("channel", "")
-        ts = event.get("ts", "")
+            event = req.payload.get("event", {})
+            event_type = event.get("type", "unknown")
+            subtype = event.get("subtype")
+            thread_ts = event.get("thread_ts")
+            text = event.get("text", "")
+            user = event.get("user", "")
+            channel = event.get("channel", "")
+            ts = event.get("ts", "")
 
-        print(f"[exchange] Event details: type={event_type} subtype={subtype} "
-              f"channel={channel} ts={ts} thread_ts={thread_ts} user={user}")
+            _log(f"[exchange] Event details: type={event_type} subtype={subtype} "
+                 f"channel={channel} ts={ts} thread_ts={thread_ts} user={user}")
 
-        if event_type != "message":
-            print(f"[exchange] Skipping: not a message event")
-            return
-        if subtype:
-            print(f"[exchange] Skipping: message subtype={subtype}")
-            return
-        if not thread_ts:
-            print(f"[exchange] Skipping: non-threaded message: {text[:50]}")
-            return
+            if event_type != "message":
+                _log(f"[exchange] Skipping: not a message event")
+                return
+            if subtype:
+                _log(f"[exchange] Skipping: message subtype={subtype}")
+                return
+            if not thread_ts:
+                _log(f"[exchange] Skipping: non-threaded message: {text[:50]}")
+                return
 
-        print(f"[exchange] Processing threaded reply from {user}: {text[:80]}")
+            _log(f"[exchange] Processing threaded reply from {user}: {text[:80]}")
 
-        routed = handler.handle_message(
-            channel=channel,
-            thread_ts=thread_ts,
-            message_ts=ts,
-            text=text,
-            user=user,
-        )
-        print(f"[exchange] Route result: {'delivered' if routed else 'not matched'}")
+            routed = handler.handle_message(
+                channel=channel,
+                thread_ts=thread_ts,
+                message_ts=ts,
+                text=text,
+                user=user,
+            )
+            _log(f"[exchange] Route result: {'delivered' if routed else 'not matched'}")
+        except Exception:
+            _log(f"[exchange] ERROR in callback:\n{traceback.format_exc()}")
 
     client.socket_mode_request_listeners.append(process)
 
-    print("[exchange] Connecting to Slack Socket Mode...")
+    watcher = None
+    if handler._poster:
+        sf = state_file or (NOVA_DIR / "state.json")
+        watcher = TranscriptWatcher(sf, handler._poster, prompt_tracker=prompt_tracker)
+        watcher.poll()  # initialize offsets, skip existing content
+
+    _log("[exchange] Connecting to Slack Socket Mode...")
     client.connect()
-    print("[exchange] Connected. Listening for messages.")
-    print(f"[exchange] Auto-reconnect: {client.auto_reconnect_enabled}")
-    print(f"[exchange] Ping interval: {client.ping_interval}s")
-    print(f"[exchange] Bot user ID filter: {handler._bot_user_id}")
-    print("[exchange] Press Ctrl+C to stop.\n")
+    _log("[exchange] Connected. Listening for messages.")
+    _log(f"[exchange] Auto-reconnect: {client.auto_reconnect_enabled}")
+    _log(f"[exchange] Ping interval: {client.ping_interval}s")
+    _log(f"[exchange] Bot user ID filter: {handler._bot_user_id}")
+    _log(f"[exchange] Transcript watcher: {'active' if watcher else 'disabled'}")
+    _log("[exchange] Press Ctrl+C to stop.\n")
 
-    import signal
+    import time
 
+    poll_count = 0
     try:
-        signal.pause()
+        while True:
+            time.sleep(3)
+            if watcher:
+                try:
+                    watcher.poll()
+                except Exception:
+                    _log(f"[watcher] ERROR:\n{traceback.format_exc()}")
+            poll_count += 1
+            if poll_count % 20 == 0:  # heartbeat every ~60s
+                connected = client.is_connected() if hasattr(client, "is_connected") else "unknown"
+                _log(f"[exchange] heartbeat — connected={connected}")
     except KeyboardInterrupt:
-        print("\n[exchange] Shutting down...")
+        _log("\n[exchange] Shutting down...")
         client.close()
-        print("[exchange] Disconnected.")
+        _log("[exchange] Disconnected.")

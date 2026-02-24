@@ -35,6 +35,25 @@ def send_keys(target: str, text: str) -> None:
     )
 
 
+def send_raw_key(target: str, key: str) -> None:
+    subprocess.run(
+        ["tmux", "send-keys", "-t", target, key],
+        check=True,
+    )
+
+
+def send_option_select(target: str, option_index: int) -> None:
+    for _ in range(option_index):
+        subprocess.run(
+            ["tmux", "send-keys", "-t", target, "Down"],
+            check=True,
+        )
+    subprocess.run(
+        ["tmux", "send-keys", "-t", target, "Enter"],
+        check=True,
+    )
+
+
 def is_client_attached(target: str) -> bool:
     result = subprocess.run(
         ["tmux", "list-clients", "-t", target, "-F", "#{client_tty}"],
