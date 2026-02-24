@@ -19,7 +19,9 @@ dev = [
 nova-session-start = "nova.hooks.session_start:main"
 nova-user-prompt = "nova.hooks.user_prompt:main"
 nova-transcripts = "nova.cli.transcripts:main"
+nova-notification = "nova.hooks.notification:main"
 nova-setup = "nova.setup:main"
+nova = "nova.cli.main:main"
 
 [build-system]
 requires = ["hatchling"]
