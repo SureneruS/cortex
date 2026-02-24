@@ -1,4 +1,5 @@
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -44,6 +45,12 @@ def handle_session_start(
         repos = [repo_name] if repo_name else []
         state = NovaState(state_file)
         state.register_session(session_id, repos=repos, transcript_path=transcript_path)
+
+        nova_session_name = os.environ.get("NOVA_SESSION_NAME")
+        if nova_session_name and session_id in state.sessions:
+            state.sessions[session_id]["tmux_target"] = f"sessions:{nova_session_name}"
+            state.sessions[session_id]["tmux_window"] = nova_session_name
+
         state.save()
 
     if not summaries:
