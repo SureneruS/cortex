@@ -17,6 +17,16 @@ fields:
     type: list[string]
     required: false
     description: Searchable tags
+  pattern_type:
+    type: string
+    required: false
+    description: "Type of knowledge: pattern, gotcha, decision, or convention"
+    enum: [pattern, gotcha, decision, convention]
+  confidence:
+    type: string
+    required: false
+    description: "How confident we are in this knowledge: high (multiple sources, verified), medium (single source, clear signal), low (inferred, may need validation)"
+    enum: [high, medium, low]
   sources:
     type: list[string]
     required: true

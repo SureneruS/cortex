@@ -65,6 +65,40 @@ def test_second_prompt_noop(tmp_path):
     assert output == {}
 
 
+def test_confirmation_phrase_suggests_memorize(tmp_path):
+    state_file = _setup_nova_dir(tmp_path)
+
+    # First prompt — normal injection
+    handle_user_prompt(
+        {"session_id": "sess1", "prompt": "fix OAuth bug"},
+        nova_dir=tmp_path,
+        state_file=state_file,
+    )
+
+    # Second prompt with confirmation phrase
+    output = handle_user_prompt(
+        {"session_id": "sess1", "prompt": "that worked, the OAuth bug is gone"},
+        nova_dir=tmp_path,
+        state_file=state_file,
+    )
+    assert "additionalContext" in output
+    assert "/memorize" in output["additionalContext"]
+
+
+def test_confirmation_phrase_not_on_first_prompt(tmp_path):
+    """Confirmation detection should not fire on the first prompt."""
+    state_file = _setup_nova_dir(tmp_path)
+
+    output = handle_user_prompt(
+        {"session_id": "sess1", "prompt": "that worked, now let's move on"},
+        nova_dir=tmp_path,
+        state_file=state_file,
+    )
+    # First prompt should do normal injection, not confirmation detection
+    # (no matching knowledge for "that worked" so empty)
+    assert "/memorize" not in output.get("additionalContext", "")
+
+
 def test_unregistered_session_does_not_crash(tmp_path):
     state_file = _setup_nova_dir(tmp_path)
 

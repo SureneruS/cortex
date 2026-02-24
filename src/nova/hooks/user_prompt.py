@@ -8,6 +8,26 @@ from nova.lib.state import NovaState
 NOVA_DIR = Path.home() / ".nova"
 MAX_RESULTS = 5
 
+CONFIRMATION_PHRASES = [
+    "that worked",
+    "that fixed",
+    "it works",
+    "it's fixed",
+    "its fixed",
+    "fix works",
+    "working now",
+    "fixed it",
+    "solved it",
+    "got it working",
+    "nailed it",
+    "that did it",
+    "problem solved",
+    "all good now",
+    "that was it",
+    "works now",
+    "issue resolved",
+]
+
 STOP_WORDS = frozenset(
     {
         "the",
@@ -62,6 +82,14 @@ def _score_file(meta: dict, query_tokens: set[str]) -> int:
     return sum(1 for token in query_tokens if token in searchable)
 
 
+def _check_confirmation(prompt: str) -> str | None:
+    lower = prompt.lower()
+    for phrase in CONFIRMATION_PHRASES:
+        if phrase in lower:
+            return phrase
+    return None
+
+
 def handle_user_prompt(
     hook_input: dict,
     nova_dir: Path | None = None,
@@ -79,6 +107,15 @@ def handle_user_prompt(
         return {}
     state = NovaState(state_file)
     session = state.sessions.get(session_id, {})
+
+    # Check for confirmation phrases on ALL prompts (not just first)
+    if prompt_content and session.get("memory_injected", False):
+        match = _check_confirmation(prompt_content)
+        if match:
+            context = "[Nova] Sounds like you resolved something — consider running /memorize to capture what you learned."
+            return _wrap_context(context, "UserPromptSubmit")
+        return {}
+
     if session.get("memory_injected", False):
         return {}
 
