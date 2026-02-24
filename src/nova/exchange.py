@@ -113,21 +113,33 @@ def run_exchange(state_file: Path | None = None, config_path: Path | None = None
         )
 
         if req.type != "events_api":
+            print(f"[exchange] Ignoring non-events_api: {req.type}")
             return
 
         event = req.payload.get("event", {})
-        if event.get("type") != "message":
+        event_type = event.get("type", "unknown")
+        subtype = event.get("subtype")
+        thread_ts = event.get("thread_ts")
+        text = event.get("text", "")
+        user = event.get("user", "")
+
+        if event_type != "message":
+            print(f"[exchange] Ignoring event type: {event_type}")
             return
-        if event.get("subtype"):
+        if subtype:
+            print(f"[exchange] Ignoring message subtype: {subtype}")
             return
-        if not event.get("thread_ts"):
+        if not thread_ts:
+            print(f"[exchange] Ignoring non-threaded message: {text[:50]}")
             return
+
+        print(f"[exchange] Received threaded message from {user}: {text[:80]}")
 
         handler.handle_message(
             channel=event["channel"],
-            thread_ts=event["thread_ts"],
-            text=event.get("text", ""),
-            user=event.get("user", ""),
+            thread_ts=thread_ts,
+            text=text,
+            user=user,
         )
 
     client.socket_mode_request_listeners.append(process)
