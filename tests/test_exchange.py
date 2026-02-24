@@ -40,6 +40,7 @@ def test_routes_reply_to_session(tmp_path):
         result = handler.handle_message(
             channel="D0ABC",
             thread_ts="111.222",
+            message_ts="333.444",
             text="continue with the tests",
             user="U0USER",
         )
@@ -54,6 +55,7 @@ def test_ignores_non_session_thread(tmp_path):
     result = handler.handle_message(
         channel="D0ABC",
         thread_ts="999.999",
+        message_ts="444.555",
         text="random",
         user="U0USER",
     )
@@ -70,6 +72,7 @@ def test_replies_if_session_dead(tmp_path):
         result = handler.handle_message(
             channel="D0ABC",
             thread_ts="111.222",
+            message_ts="555.666",
             text="hello",
             user="U0USER",
         )
@@ -85,6 +88,7 @@ def test_ignores_bot_messages(tmp_path):
     result = handler.handle_message(
         channel="D0ABC",
         thread_ts="111.222",
+        message_ts="666.777",
         text="I posted this",
         user="U0BOT",
     )

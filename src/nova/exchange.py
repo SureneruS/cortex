@@ -42,6 +42,7 @@ class ExchangeHandler:
         self,
         channel: str,
         thread_ts: str,
+        message_ts: str,
         text: str,
         user: str,
     ) -> bool:
@@ -79,7 +80,7 @@ class ExchangeHandler:
             try:
                 self._poster.add_reaction(
                     channel=channel,
-                    timestamp=thread_ts,
+                    timestamp=message_ts,
                     emoji="white_check_mark",
                 )
             except Exception:
@@ -105,6 +106,8 @@ def run_exchange(state_file: Path | None = None, config_path: Path | None = None
     client = SocketModeClient(
         app_token=app_token,
         web_client=handler._poster._client if handler._poster else None,
+        auto_reconnect_enabled=True,
+        ping_interval=30,
     )
 
     def process(client: SocketModeClient, req: SocketModeRequest):
@@ -135,9 +138,12 @@ def run_exchange(state_file: Path | None = None, config_path: Path | None = None
 
         print(f"[exchange] Received threaded message from {user}: {text[:80]}")
 
+        message_ts = event.get("ts", "")
+
         handler.handle_message(
             channel=event["channel"],
             thread_ts=thread_ts,
+            message_ts=message_ts,
             text=text,
             user=user,
         )
