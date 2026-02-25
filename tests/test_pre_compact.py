@@ -1,5 +1,4 @@
 import json
-from pathlib import Path
 
 from nova.hooks.pre_compact import handle_pre_compact
 
