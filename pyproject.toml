@@ -22,6 +22,7 @@ nova-transcripts = "nova.cli.transcripts:main"
 nova-notification = "nova.hooks.notification:main"
 nova-setup = "nova.setup:main"
 nova = "nova.cli.main:main"
+nova-pre-compact = "nova.hooks.pre_compact:main"
 
 [build-system]
 requires = ["hatchling"]
