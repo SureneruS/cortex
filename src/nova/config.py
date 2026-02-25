@@ -6,6 +6,14 @@ import yaml
 
 DEFAULT_CONFIG_PATH = Path.home() / ".nova" / "config.yaml"
 
+ROTATION_DEFAULTS = {
+    "enabled": False,
+    "idle_threshold_minutes": 30,
+    "warning_delay_seconds": 120,
+    "memorize_timeout_seconds": 180,
+    "handoff_timeout_seconds": 180,
+}
+
 
 def load_config(config_path: Path | None = None) -> dict[str, Any]:
     config_path = config_path or DEFAULT_CONFIG_PATH
@@ -28,5 +36,9 @@ def load_config(config_path: Path | None = None) -> dict[str, Any]:
             "Slack bot_token not configured. Set NOVA_SLACK_BOT_TOKEN env var "
             "or add slack.bot_token to ~/.nova/config.yaml"
         )
+
+    rotation = data.setdefault("rotation", {})
+    for key, default in ROTATION_DEFAULTS.items():
+        rotation.setdefault(key, default)
 
     return data
