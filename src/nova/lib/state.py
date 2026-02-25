@@ -15,6 +15,11 @@ class SessionState(TypedDict):
     tmux_window: str | None
     slack_thread_ts: str | None
     slack_channel: str | None
+    chain_id: str | None
+    chain_sequence: int
+    parent_session_id: str | None
+    compaction_count: int
+    status: str
 
 
 class NovaState:
@@ -40,6 +45,9 @@ class NovaState:
         transcript_path: str,
         tmux_target: str | None = None,
         tmux_window: str | None = None,
+        chain_id: str | None = None,
+        chain_sequence: int = 1,
+        parent_session_id: str | None = None,
     ):
         now = datetime.now(timezone.utc).isoformat()
         if session_id not in self.sessions:
@@ -54,6 +62,11 @@ class NovaState:
                 tmux_window=tmux_window,
                 slack_thread_ts=None,
                 slack_channel=None,
+                chain_id=chain_id,
+                chain_sequence=chain_sequence,
+                parent_session_id=parent_session_id,
+                compaction_count=0,
+                status="active",
             )
 
     def mark_injected(self, session_id: str, goal: str):
@@ -72,6 +85,23 @@ class NovaState:
             if session.get("slack_thread_ts") == thread_ts:
                 return (sid, session)
         return None
+
+    def increment_compaction(self, session_id: str):
+        if session_id in self.sessions:
+            self.sessions[session_id]["compaction_count"] = (
+                self.sessions[session_id].get("compaction_count", 0) + 1
+            )
+
+    def set_status(self, session_id: str, status: str):
+        if session_id in self.sessions:
+            self.sessions[session_id]["status"] = status
+
+    def find_sessions_by_chain(self, chain_id: str) -> list[tuple[str, SessionState]]:
+        return [
+            (sid, session)
+            for sid, session in self.sessions.items()
+            if session.get("chain_id") == chain_id
+        ]
 
     def set_slack_config(
         self, dm_channel: str | None = None, bot_user_id: str | None = None

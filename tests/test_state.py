@@ -116,3 +116,53 @@ def test_set_slack_global(tmp_path):
     state2 = NovaState(state_file)
     assert state2.slack_config["dm_channel"] == "D0ABC"
     assert state2.slack_config["bot_user_id"] == "U0BOT"
+
+
+def test_register_session_with_chain(tmp_path):
+    sf = tmp_path / "state.json"
+    sf.write_text('{"sessions": {}}')
+    state = NovaState(sf)
+    state.register_session(
+        "s1",
+        repos=["repo"],
+        transcript_path="/t.jsonl",
+        chain_id="chain-abc",
+        chain_sequence=1,
+    )
+    assert state.sessions["s1"]["chain_id"] == "chain-abc"
+    assert state.sessions["s1"]["chain_sequence"] == 1
+    assert state.sessions["s1"]["parent_session_id"] is None
+    assert state.sessions["s1"]["compaction_count"] == 0
+    assert state.sessions["s1"]["status"] == "active"
+
+
+def test_increment_compaction_count(tmp_path):
+    sf = tmp_path / "state.json"
+    sf.write_text('{"sessions": {}}')
+    state = NovaState(sf)
+    state.register_session("s1", repos=["r"], transcript_path="/t.jsonl")
+    state.increment_compaction("s1")
+    state.increment_compaction("s1")
+    assert state.sessions["s1"]["compaction_count"] == 2
+
+
+def test_set_session_status(tmp_path):
+    sf = tmp_path / "state.json"
+    sf.write_text('{"sessions": {}}')
+    state = NovaState(sf)
+    state.register_session("s1", repos=["r"], transcript_path="/t.jsonl")
+    state.set_status("s1", "rotated")
+    assert state.sessions["s1"]["status"] == "rotated"
+
+
+def test_find_sessions_by_chain(tmp_path):
+    sf = tmp_path / "state.json"
+    sf.write_text('{"sessions": {}}')
+    state = NovaState(sf)
+    state.register_session("s1", repos=["r"], transcript_path="/t1.jsonl", chain_id="c1")
+    state.register_session("s2", repos=["r"], transcript_path="/t2.jsonl", chain_id="c1", chain_sequence=2)
+    state.register_session("s3", repos=["r"], transcript_path="/t3.jsonl", chain_id="c2")
+    result = state.find_sessions_by_chain("c1")
+    assert len(result) == 2
+    assert "s1" in [r[0] for r in result]
+    assert "s2" in [r[0] for r in result]
