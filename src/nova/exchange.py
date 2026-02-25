@@ -166,6 +166,37 @@ class TranscriptWatcher:
         return "\n".join(parts)
 
 
+class IdleTracker:
+    def __init__(self):
+        self._last_sizes: dict[str, int] = {}
+        self._idle_since: dict[str, float] = {}
+
+    def update(self, session_id: str, current_size: int):
+        import time as _time
+
+        prev_size = self._last_sizes.get(session_id)
+        self._last_sizes[session_id] = current_size
+
+        if prev_size is None:
+            self._idle_since[session_id] = _time.time()
+            return
+
+        if current_size != prev_size:
+            self._idle_since[session_id] = _time.time()
+        elif session_id not in self._idle_since:
+            self._idle_since[session_id] = _time.time()
+
+    def get_idle_seconds(self) -> dict[str, float]:
+        import time as _time
+
+        now = _time.time()
+        return {sid: now - since for sid, since in self._idle_since.items()}
+
+    def remove(self, session_id: str):
+        self._last_sizes.pop(session_id, None)
+        self._idle_since.pop(session_id, None)
+
+
 class PromptStateTracker:
     def __init__(self):
         self._states: dict[str, dict] = {}
@@ -193,10 +224,12 @@ class ExchangeHandler:
         state_file: Path | None = None,
         config_path: Path | None = None,
         prompt_tracker: PromptStateTracker | None = None,
+        rotation_manager: object | None = None,
     ):
         self._state_file = state_file or (NOVA_DIR / "state.json")
         self._poster: SlackPoster | None = None
         self._prompt_tracker = prompt_tracker or PromptStateTracker()
+        self._rotation_manager = rotation_manager
 
         try:
             config = load_config(config_path)
@@ -236,6 +269,15 @@ class ExchangeHandler:
             return False
 
         session_id, session = match
+
+        if text.strip().upper() == "HOLD" and self._rotation_manager:
+            self._rotation_manager.cancel_rotation(session_id)
+            if self._poster:
+                self._poster.post_reply(
+                    channel=channel, thread_ts=thread_ts, text="Rotation cancelled."
+                )
+            return True
+
         tmux_target = session.get("tmux_target")
         tmux_window = session.get("tmux_window")
 
@@ -325,6 +367,8 @@ def run_exchange(state_file: Path | None = None, config_path: Path | None = None
 
     _setup_verbose_logging()
 
+    from nova.rotation import RotationManager
+
     config = load_config(config_path)
     app_token = config["slack"].get("app_token")
     if not app_token:
@@ -332,12 +376,28 @@ def run_exchange(state_file: Path | None = None, config_path: Path | None = None
             "Slack app_token required for exchange. Set NOVA_SLACK_APP_TOKEN."
         )
 
+    sf = state_file or (NOVA_DIR / "state.json")
+    rotation_config = config.get("rotation", {})
     prompt_tracker = PromptStateTracker()
+    idle_tracker = IdleTracker()
+
+    rotation_mgr = None
+    if rotation_config.get("enabled"):
+        _log("[exchange] Session rotation enabled")
+
     handler = ExchangeHandler(
         state_file=state_file,
         config_path=config_path,
         prompt_tracker=prompt_tracker,
     )
+
+    if rotation_config.get("enabled") and handler._poster:
+        rotation_mgr = RotationManager(
+            state_file=sf,
+            poster=handler._poster,
+            config=rotation_config,
+        )
+        handler._rotation_manager = rotation_mgr
 
     client = SocketModeClient(
         app_token=app_token,
@@ -398,7 +458,6 @@ def run_exchange(state_file: Path | None = None, config_path: Path | None = None
 
     watcher = None
     if handler._poster:
-        sf = state_file or (NOVA_DIR / "state.json")
         watcher = TranscriptWatcher(sf, handler._poster, prompt_tracker=prompt_tracker)
         watcher.poll()  # initialize offsets, skip existing content
 
@@ -409,6 +468,7 @@ def run_exchange(state_file: Path | None = None, config_path: Path | None = None
     _log(f"[exchange] Ping interval: {client.ping_interval}s")
     _log(f"[exchange] Bot user ID filter: {handler._bot_user_id}")
     _log(f"[exchange] Transcript watcher: {'active' if watcher else 'disabled'}")
+    _log(f"[exchange] Rotation: {'enabled' if rotation_mgr else 'disabled'}")
     _log("[exchange] Press Ctrl+C to stop.\n")
 
     import time
@@ -420,8 +480,16 @@ def run_exchange(state_file: Path | None = None, config_path: Path | None = None
             if watcher:
                 try:
                     watcher.poll()
+                    for sid, offset in watcher._offsets.items():
+                        idle_tracker.update(sid, offset)
                 except Exception:
                     _log(f"[watcher] ERROR:\n{traceback.format_exc()}")
+            if rotation_mgr:
+                try:
+                    idle_seconds = idle_tracker.get_idle_seconds()
+                    rotation_mgr.check_and_rotate(idle_seconds)
+                except Exception:
+                    _log(f"[rotation] ERROR:\n{traceback.format_exc()}")
             poll_count += 1
             if poll_count % 20 == 0:  # heartbeat every ~60s
                 connected = client.is_connected() if hasattr(client, "is_connected") else "unknown"

@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
-from nova.exchange import ExchangeHandler, TranscriptWatcher, PromptStateTracker
+from nova.exchange import ExchangeHandler, IdleTracker, TranscriptWatcher, PromptStateTracker
 
 
 def _make_state_file(tmp_path, sessions=None, slack=None):
@@ -370,3 +370,63 @@ def test_handler_falls_back_to_text_without_state(tmp_path):
 
     assert result is True
     mock_send.assert_called_once_with("sessions:rb", "just regular text")
+
+
+# --- IdleTracker tests ---
+
+
+def test_idle_tracker_detects_idle_session():
+    tracker = IdleTracker()
+    tracker.update("s1", current_size=1000)
+    tracker.update("s1", current_size=1000)
+
+    idle = tracker.get_idle_seconds()
+    assert "s1" in idle
+    assert idle["s1"] >= 0
+
+
+def test_idle_tracker_resets_on_growth():
+    tracker = IdleTracker()
+    tracker.update("s1", current_size=1000)
+    tracker.update("s1", current_size=1000)
+    tracker.update("s1", current_size=2000)
+
+    idle = tracker.get_idle_seconds()
+    assert idle.get("s1", 0) < 1
+
+
+def test_idle_tracker_remove():
+    tracker = IdleTracker()
+    tracker.update("s1", current_size=100)
+    tracker.remove("s1")
+    assert "s1" not in tracker.get_idle_seconds()
+
+
+# --- HOLD cancellation test ---
+
+
+def test_handler_cancels_rotation_on_hold(tmp_path):
+    state_file = _make_state_file(
+        tmp_path,
+        sessions={
+            "s1": _make_session(
+                chain_id=None,
+                chain_sequence=1,
+                parent_session_id=None,
+                compaction_count=0,
+                status="active",
+            )
+        },
+    )
+
+    rotation_mgr = MagicMock()
+    handler = ExchangeHandler(state_file=state_file, rotation_manager=rotation_mgr)
+    handler._poster = MagicMock()
+
+    with patch("nova.exchange.has_window", return_value=True), \
+         patch("nova.exchange.send_keys"):
+        handler.handle_message("D0ABC", "111.222", "ts1", "HOLD", "U123")
+
+    rotation_mgr.cancel_rotation.assert_called_once_with("s1")
+    handler._poster.post_reply.assert_called_once()
+    assert "cancelled" in handler._poster.post_reply.call_args[1]["text"].lower()
