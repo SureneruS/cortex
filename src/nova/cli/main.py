@@ -2,6 +2,7 @@ import argparse
 import os
 import shutil
 import sys
+import uuid
 from pathlib import Path
 
 from nova.lib.state import NovaState
@@ -25,7 +26,8 @@ def cmd_start(
 
     ensure_session(TMUX_SESSION)
 
-    env_prefix = f"NOVA_SESSION_NAME={window_name}"
+    chain_id = str(uuid.uuid4())
+    env_prefix = f"NOVA_SESSION_NAME={window_name} NOVA_CHAIN_ID={chain_id}"
 
     claude_cmd = "claude"
     if resume:

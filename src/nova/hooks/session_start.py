@@ -43,8 +43,12 @@ def handle_session_start(
 
     if session_id and state_file.exists():
         repos = [repo_name] if repo_name else []
+        nova_chain_id = os.environ.get("NOVA_CHAIN_ID")
         state = NovaState(state_file)
-        state.register_session(session_id, repos=repos, transcript_path=transcript_path)
+        state.register_session(
+            session_id, repos=repos, transcript_path=transcript_path,
+            chain_id=nova_chain_id,
+        )
 
         nova_session_name = os.environ.get("NOVA_SESSION_NAME")
         if nova_session_name and session_id in state.sessions:
