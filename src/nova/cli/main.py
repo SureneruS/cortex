@@ -118,6 +118,32 @@ def cmd_exchange_install():
     print(f"Run: launchctl load {plist_dst}")
 
 
+def cmd_rotate(name: str, state_file: Path | None = None):
+    from nova.rotation import RotationManager
+
+    if state_file is None:
+        state_file = NOVA_DIR / "state.json"
+
+    if not state_file.exists():
+        print("No state file found", file=sys.stderr)
+        sys.exit(1)
+
+    state = NovaState(state_file)
+
+    target_sid = None
+    for sid, session in state.sessions.items():
+        if session.get("tmux_window") == name and session.get("status") == "active":
+            target_sid = sid
+            break
+
+    if not target_sid:
+        print(f"No active session found for '{name}'", file=sys.stderr)
+        sys.exit(1)
+
+    mgr = RotationManager(state_file=state_file)
+    mgr.rotate_now(target_sid)
+
+
 def cmd_dream():
     os.execlp("claude", "claude", "--agent", "dream")
 
@@ -151,6 +177,9 @@ def main():
     p_kill = sub.add_parser("kill", help="Kill a session")
     p_kill.add_argument("name", help="Session/window name")
 
+    p_rotate = sub.add_parser("rotate", help="Rotate (recycle) a session")
+    p_rotate.add_argument("name", help="Session/window name")
+
     sub.add_parser("dream", help="Run dream agent")
     sub.add_parser("meditate", help="Run meditate agent")
 
@@ -176,6 +205,8 @@ def main():
         cmd_attach(args.name)
     elif args.command == "kill":
         cmd_kill(args.name)
+    elif args.command == "rotate":
+        cmd_rotate(args.name)
     elif args.command == "dream":
         cmd_dream()
     elif args.command == "meditate":

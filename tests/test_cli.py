@@ -1,7 +1,8 @@
+import json
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
-from nova.cli.main import cmd_start, cmd_list, cmd_exchange_install, main
+from nova.cli.main import cmd_start, cmd_list, cmd_exchange_install, cmd_rotate, main
 
 
 @patch("nova.cli.main.create_window")
@@ -157,3 +158,37 @@ def test_main_exchange_no_subcommand(capsys):
         main()
     output = capsys.readouterr().out
     assert "nova exchange" in output.lower()
+
+
+@patch("nova.rotation.RotationManager")
+def test_cmd_rotate(mock_rm_class, tmp_path):
+    state_file = tmp_path / "state.json"
+    state_file.write_text(json.dumps({
+        "sessions": {
+            "s1": {
+                "repos": ["r"], "transcript_path": "/t.jsonl",
+                "memory_injected": True, "goal": "test",
+                "started_at": "2026-01-01T00:00:00Z", "last_active_at": "2026-01-01T00:00:00Z",
+                "tmux_target": "sessions:mywin", "tmux_window": "mywin",
+                "slack_thread_ts": "1.2", "slack_channel": "C1",
+                "chain_id": None, "chain_sequence": 1, "parent_session_id": None,
+                "compaction_count": 0, "status": "active",
+            }
+        }
+    }))
+
+    mock_mgr = MagicMock()
+    mock_rm_class.return_value = mock_mgr
+
+    cmd_rotate("mywin", state_file=state_file)
+    mock_mgr.rotate_now.assert_called_once_with("s1")
+
+
+@patch("nova.rotation.RotationManager")
+def test_cmd_rotate_not_found(mock_rm_class, tmp_path):
+    state_file = tmp_path / "state.json"
+    state_file.write_text('{"sessions": {}}')
+
+    import pytest
+    with pytest.raises(SystemExit):
+        cmd_rotate("nonexistent", state_file=state_file)
