@@ -17,6 +17,7 @@ def cmd_start(
     agent: str | None = None,
     permission_mode: str = "acceptEdits",
     prompt: str | None = None,
+    resume: str | None = None,
     state_file: Path | None = None,
 ):
     repo_path = Path(repo).resolve()
@@ -27,10 +28,12 @@ def cmd_start(
     env_prefix = f"NOVA_SESSION_NAME={window_name}"
 
     claude_cmd = "claude"
-    if agent:
+    if resume:
+        claude_cmd += f" --resume {resume}"
+    elif agent:
         claude_cmd += f" --agent {agent}"
     claude_cmd += f" --permission-mode {permission_mode}"
-    if prompt:
+    if prompt and not resume:
         claude_cmd += f' "{prompt}"'
 
     full_command = f"cd {repo_path} && export {env_prefix} && {claude_cmd}"
@@ -85,6 +88,20 @@ def cmd_attach(name: str):
     os.execlp("tmux", "tmux", "attach-session", "-t", TMUX_SESSION)
 
 
+def cmd_kill(name: str):
+    import subprocess
+
+    result = subprocess.run(
+        ["tmux", "kill-window", "-t", f"{TMUX_SESSION}:{name}"],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        print(f"Session '{name}' not found", file=sys.stderr)
+        sys.exit(1)
+    print(f"Killed session '{name}'")
+
+
 def cmd_exchange_install():
     plist_src = Path(__file__).parent.parent.parent.parent / "resources" / "com.nova.exchange.plist"
     plist_dst = Path.home() / "Library" / "LaunchAgents" / "com.nova.exchange.plist"
@@ -118,6 +135,7 @@ def main():
     p_start.add_argument("prompt", nargs="?", help="Initial prompt")
     p_start.add_argument("--name", "-n", help="Custom window name")
     p_start.add_argument("--agent", "-a", help="Agent config name")
+    p_start.add_argument("--resume", "-r", help="Resume an existing session by ID")
     p_start.add_argument(
         "--permission-mode",
         "-p",
@@ -129,6 +147,9 @@ def main():
 
     p_attach = sub.add_parser("attach", help="Attach to a session")
     p_attach.add_argument("name", help="Session/window name")
+
+    p_kill = sub.add_parser("kill", help="Kill a session")
+    p_kill.add_argument("name", help="Session/window name")
 
     sub.add_parser("dream", help="Run dream agent")
     sub.add_parser("meditate", help="Run meditate agent")
@@ -147,11 +168,14 @@ def main():
             agent=args.agent,
             permission_mode=args.permission_mode,
             prompt=args.prompt,
+            resume=args.resume,
         )
     elif args.command in ("list", "ls"):
         cmd_list()
     elif args.command == "attach":
         cmd_attach(args.name)
+    elif args.command == "kill":
+        cmd_kill(args.name)
     elif args.command == "dream":
         cmd_dream()
     elif args.command == "meditate":
