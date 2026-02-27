@@ -125,6 +125,8 @@ def cmd_exchange_install():
     path_val = f"{bin_dir}:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
 
     content = plist_src.read_text()
+    content = content.replace("__NOVA_BIN__", nova_bin)
+    content = content.replace("__HOME__", str(Path.home()))
     content = content.replace("__PATH__", path_val)
     content = content.replace("__NOVA_DIR__", str(nova_dir))
     plist_dst.write_text(content)

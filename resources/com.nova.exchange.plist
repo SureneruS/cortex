@@ -6,7 +6,7 @@
     <string>com.nova.exchange</string>
     <key>ProgramArguments</key>
     <array>
-        <string>nova</string>
+        <string>__NOVA_BIN__</string>
         <string>exchange</string>
         <string>start</string>
     </array>
@@ -20,6 +20,8 @@
     <string>__NOVA_DIR__/logs/exchange.err.log</string>
     <key>EnvironmentVariables</key>
     <dict>
+        <key>HOME</key>
+        <string>__HOME__</string>
         <key>PATH</key>
         <string>__PATH__</string>
     </dict>
