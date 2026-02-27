@@ -161,6 +161,34 @@ def cmd_rotate(name: str, state_file: Path | None = None):
     mgr.rotate_now(target_sid)
 
 
+def cmd_peek(name: str, lines: int = 50):
+    import subprocess
+
+    result = subprocess.run(
+        ["tmux", "capture-pane", "-t", f"{TMUX_SESSION}:{name}", "-p", "-S", f"-{lines}"],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        print(f"Session '{name}' not found", file=sys.stderr)
+        sys.exit(1)
+    print(result.stdout.rstrip())
+
+
+def cmd_windows():
+    import subprocess
+
+    result = subprocess.run(
+        ["tmux", "list-windows", "-t", TMUX_SESSION, "-F", "#{window_index}: #{window_name} (#{window_panes} panes)"],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        print("No tmux session found", file=sys.stderr)
+        sys.exit(1)
+    print(result.stdout.rstrip())
+
+
 def cmd_dream():
     os.execlp("claude", "claude", "--agent", "dream")
 
@@ -194,9 +222,14 @@ def main():
     p_kill = sub.add_parser("kill", help="Kill a session")
     p_kill.add_argument("name", help="Session/window name")
 
+    p_peek = sub.add_parser("peek", help="Peek at a session's output without attaching")
+    p_peek.add_argument("name", help="Session/window name")
+    p_peek.add_argument("--lines", "-l", type=int, default=50, help="Number of lines (default: 50)")
+
     p_rotate = sub.add_parser("rotate", help="Rotate (recycle) a session")
     p_rotate.add_argument("name", help="Session/window name")
 
+    sub.add_parser("windows", help="List raw tmux windows")
     sub.add_parser("dream", help="Run dream agent")
     sub.add_parser("meditate", help="Run meditate agent")
 
@@ -220,8 +253,12 @@ def main():
         cmd_list()
     elif args.command == "attach":
         cmd_attach(args.name)
+    elif args.command == "peek":
+        cmd_peek(args.name, args.lines)
     elif args.command == "kill":
         cmd_kill(args.name)
+    elif args.command == "windows":
+        cmd_windows()
     elif args.command == "rotate":
         cmd_rotate(args.name)
     elif args.command == "dream":
