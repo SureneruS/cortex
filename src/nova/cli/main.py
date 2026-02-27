@@ -149,7 +149,7 @@ def cmd_rotate(name: str, state_file: Path | None = None):
 
     target_sid = None
     for sid, session in state.sessions.items():
-        if session.get("tmux_window") == name and session.get("status") == "active":
+        if session.get("tmux_window") == name and session.get("status", "active") == "active":
             target_sid = sid
             break
 

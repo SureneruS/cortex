@@ -45,7 +45,7 @@ def test_send_command_and_wait_success(mock_has_window, mock_send_keys, tmp_path
     transcript.write_text("")
 
     sf = _make_state_file(tmp_path, {"s1": _make_session(transcript_path=str(transcript))})
-    mgr = RotationManager(state_file=sf, poster=MagicMock(), config={"memorize_timeout_seconds": 1})
+    mgr = RotationManager(state_file=sf, poster=MagicMock(), config={"memorize_timeout_seconds": 1, "stable_seconds": 1})
 
     def grow_transcript(*args, **kwargs):
         transcript.write_text(
@@ -54,7 +54,7 @@ def test_send_command_and_wait_success(mock_has_window, mock_send_keys, tmp_path
 
     mock_send_keys.side_effect = grow_transcript
 
-    result = mgr._send_command_and_wait("sessions:test-session", "/memorize", str(transcript), timeout=2)
+    result = mgr._send_command_and_wait("sessions:test-session", "/memorize", str(transcript), timeout=5)
     assert result is True
     mock_send_keys.assert_called_once_with("sessions:test-session", "/memorize")
 

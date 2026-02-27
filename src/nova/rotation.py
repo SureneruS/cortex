@@ -7,22 +7,17 @@ import time
 import uuid
 from pathlib import Path
 
+from nova.lib.log import nova_log as _log
 from nova.lib.state import NovaState
 from nova.slack import SlackPoster
 from nova.tmux import (
     TMUX_SESSION,
-    create_window,
-    ensure_session,
     has_window,
     is_client_attached,
     send_keys,
 )
 
 NOVA_DIR = Path.home() / ".nova"
-
-
-def _log(msg: str) -> None:
-    print(msg, flush=True)
 
 
 class RotationManager:
@@ -53,7 +48,7 @@ class RotationManager:
             session = state.sessions.get(sid)
             if not session:
                 continue
-            if session.get("status") != "active":
+            if session.get("status", "active") != "active":
                 continue
             if not session.get("tmux_window"):
                 continue
@@ -159,15 +154,11 @@ class RotationManager:
             _log(f"[rotation] Could not resolve repo path for {repos}, using home")
             repo_path = str(Path.home())
 
-        ensure_session(TMUX_SESSION)
-        env_prefix = f"NOVA_SESSION_NAME={tmux_window} NOVA_CHAIN_ID={chain_id}"
-        prompt = handoff_context.replace('"', '\\"').replace('`', '\\`')
-        claude_cmd = f'claude --permission-mode acceptEdits "{prompt}"'
-        full_command = f"cd {repo_path} && export {env_prefix} && {claude_cmd}"
-        create_window(
-            session_name=TMUX_SESSION,
-            window_name=tmux_window,
-            command=full_command,
+        nova_bin = shutil.which("nova") or "nova"
+        subprocess.Popen(
+            [nova_bin, "start", repo_path, "--name", tmux_window, handoff_context],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
         )
 
         new_seq = chain_sequence + 1
@@ -183,17 +174,28 @@ class RotationManager:
     def _send_command_and_wait(
         self, target: str, command: str, transcript_path: str, timeout: int = 180
     ) -> bool:
+        stable_threshold = self._config.get("stable_seconds", 5)
         path = Path(transcript_path)
         initial_size = path.stat().st_size if path.exists() else 0
 
         send_keys(target, command)
 
         deadline = time.time() + timeout
+        last_size = initial_size
+        last_change_time = time.time()
+        started_growing = False
+
         while time.time() < deadline:
             time.sleep(0.5)
             current_size = path.stat().st_size if path.exists() else 0
-            if current_size > initial_size:
-                time.sleep(1)
+
+            if current_size > initial_size and not started_growing:
+                started_growing = True
+
+            if current_size != last_size:
+                last_size = current_size
+                last_change_time = time.time()
+            elif started_growing and (time.time() - last_change_time) >= stable_threshold:
                 return True
 
         _log(f"[rotation] Timeout waiting for {command} response")

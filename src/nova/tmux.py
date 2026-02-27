@@ -10,7 +10,7 @@ def ensure_session(session_name: str = TMUX_SESSION) -> None:
     )
     if result.returncode != 0:
         subprocess.run(
-            ["tmux", "new-session", "-d", "-s", session_name],
+            ["tmux", "new-session", "-d", "-s", session_name, "-n", "_nova_init"],
             check=True,
         )
 
@@ -19,6 +19,10 @@ def create_window(session_name: str, window_name: str, command: str) -> None:
     subprocess.run(
         ["tmux", "new-window", "-t", session_name, "-n", window_name, command],
         check=True,
+    )
+    subprocess.run(
+        ["tmux", "kill-window", "-t", f"{session_name}:_nova_init"],
+        capture_output=True,
     )
 
 

@@ -6,6 +6,7 @@ import traceback
 from pathlib import Path
 
 from nova.config import load_config
+from nova.lib.log import nova_log as _log
 from nova.lib.state import NovaState
 from nova.slack import SlackPoster
 from nova.tmux import has_window, send_keys, send_raw_key, send_option_select, TMUX_SESSION
@@ -13,10 +14,6 @@ from nova.tmux import has_window, send_keys, send_raw_key, send_option_select, T
 logger = logging.getLogger(__name__)
 
 MAX_SLACK_TEXT = 3000
-
-
-def _log(msg: str) -> None:
-    print(msg, flush=True)
 
 NOVA_DIR = Path.home() / ".nova"
 
@@ -335,26 +332,12 @@ class ExchangeHandler:
         send_keys(target, text)
 
 
-def _setup_verbose_logging():
-    import sys
-
+def _setup_logging():
     logging.basicConfig(
-        level=logging.DEBUG,
+        level=logging.WARNING,
         format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
         datefmt="%H:%M:%S",
-        stream=sys.stdout,
     )
-
-    # Socket Mode internals — connection lifecycle
-    logging.getLogger("slack_sdk.socket_mode.builtin.connection").setLevel(logging.DEBUG)
-    logging.getLogger("slack_sdk.socket_mode.builtin.internals").setLevel(logging.DEBUG)
-    logging.getLogger("slack_sdk.socket_mode.builtin").setLevel(logging.DEBUG)
-
-    # Web API calls
-    logging.getLogger("slack_sdk.web.base_client").setLevel(logging.INFO)
-
-    # Websocket frames (very noisy — keep at INFO to see connect/disconnect but not every frame)
-    logging.getLogger("websocket").setLevel(logging.INFO)
 
 
 def run_exchange(state_file: Path | None = None, config_path: Path | None = None):
@@ -362,7 +345,7 @@ def run_exchange(state_file: Path | None = None, config_path: Path | None = None
     from slack_sdk.socket_mode.request import SocketModeRequest
     from slack_sdk.socket_mode.response import SocketModeResponse
 
-    _setup_verbose_logging()
+    _setup_logging()
 
     from nova.rotation import DreamScheduler, RotationManager
 
