@@ -139,9 +139,9 @@ def test_check_and_rotate_skips_no_slack_thread(mock_attached, tmp_path):
     poster.post_reply.assert_not_called()
 
 
-@patch("nova.rotation.create_window")
-@patch("nova.rotation.ensure_session")
-def test_dream_scheduler_spawns_when_threshold_met(mock_ensure, mock_create, tmp_path):
+@patch("nova.rotation.subprocess.Popen")
+@patch("nova.rotation.shutil.which", return_value="/usr/local/bin/nova")
+def test_dream_scheduler_spawns_when_threshold_met(mock_which, mock_popen, tmp_path):
     from nova.rotation import DreamScheduler
 
     captures_dir = tmp_path / "memory" / "captures"
@@ -152,18 +152,16 @@ def test_dream_scheduler_spawns_when_threshold_met(mock_ensure, mock_create, tmp
     sched = DreamScheduler(nova_dir=tmp_path, capture_threshold=3, check_interval_hours=24)
     sched.maybe_run()
 
-    mock_ensure.assert_called_once()
-    mock_create.assert_called_once()
-    call_kwargs = mock_create.call_args[1]
-    assert call_kwargs["window_name"] == "dream"
-    assert "claude" in call_kwargs["command"]
-    assert "--agent" in call_kwargs["command"]
-    assert "dream" in call_kwargs["command"]
+    mock_popen.assert_called_once()
+    call_args = mock_popen.call_args[0][0]
+    assert call_args[0] == "/usr/local/bin/nova"
+    assert "start" in call_args
+    assert "--agent" in call_args
+    assert "dream" in call_args
 
 
-@patch("nova.rotation.create_window")
-@patch("nova.rotation.ensure_session")
-def test_dream_scheduler_skips_below_threshold(mock_ensure, mock_create, tmp_path):
+@patch("nova.rotation.subprocess.Popen")
+def test_dream_scheduler_skips_below_threshold(mock_popen, tmp_path):
     from nova.rotation import DreamScheduler
 
     captures_dir = tmp_path / "memory" / "captures"
@@ -174,23 +172,22 @@ def test_dream_scheduler_skips_below_threshold(mock_ensure, mock_create, tmp_pat
     sched = DreamScheduler(nova_dir=tmp_path, capture_threshold=3, check_interval_hours=24)
     sched.maybe_run()
 
-    mock_create.assert_not_called()
+    mock_popen.assert_not_called()
 
 
-@patch("nova.rotation.create_window")
-@patch("nova.rotation.ensure_session")
-def test_dream_scheduler_skips_no_captures_dir(mock_ensure, mock_create, tmp_path):
+@patch("nova.rotation.subprocess.Popen")
+def test_dream_scheduler_skips_no_captures_dir(mock_popen, tmp_path):
     from nova.rotation import DreamScheduler
 
     sched = DreamScheduler(nova_dir=tmp_path, capture_threshold=3, check_interval_hours=24)
     sched.maybe_run()
 
-    mock_create.assert_not_called()
+    mock_popen.assert_not_called()
 
 
-@patch("nova.rotation.create_window")
-@patch("nova.rotation.ensure_session")
-def test_dream_scheduler_respects_interval(mock_ensure, mock_create, tmp_path):
+@patch("nova.rotation.subprocess.Popen")
+@patch("nova.rotation.shutil.which", return_value="/usr/local/bin/nova")
+def test_dream_scheduler_respects_interval(mock_which, mock_popen, tmp_path):
     from nova.rotation import DreamScheduler
 
     captures_dir = tmp_path / "memory" / "captures"
@@ -200,8 +197,8 @@ def test_dream_scheduler_respects_interval(mock_ensure, mock_create, tmp_path):
 
     sched = DreamScheduler(nova_dir=tmp_path, capture_threshold=3, check_interval_hours=24)
     sched.maybe_run()
-    assert mock_create.call_count == 1
+    assert mock_popen.call_count == 1
 
     # Second call within interval — should skip
     sched.maybe_run()
-    assert mock_create.call_count == 1
+    assert mock_popen.call_count == 1

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 import time
 import uuid
@@ -259,10 +260,11 @@ class DreamScheduler:
             return
 
         _log(f"[dream] {len(captures)} captures found (threshold={self._threshold}), spawning dream agent...")
-        ensure_session(TMUX_SESSION)
-        create_window(
-            session_name=TMUX_SESSION,
-            window_name="dream",
-            command='claude --agent dream "Process all pending captures in ~/.nova/memory/captures/ into knowledge files."',
+        nova_bin = shutil.which("nova") or "nova"
+        subprocess.Popen(
+            [nova_bin, "start", str(self._nova_dir), "--name", "dream", "--agent", "dream",
+             "Process all pending captures in ~/.nova/memory/captures/ into knowledge files."],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
         )
         self._last_run = time.time()
