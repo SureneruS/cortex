@@ -3,8 +3,10 @@ import os
 import sys
 from pathlib import Path
 
+from nova.config import load_config
 from nova.lib.frontmatter import read_frontmatter
 from nova.lib.state import NovaState
+from nova.slack import SlackPoster
 
 NOVA_DIR = Path.home() / ".nova"
 
@@ -41,6 +43,8 @@ def handle_session_start(
             except Exception:
                 continue
 
+    nova_session_name = os.environ.get("NOVA_SESSION_NAME")
+
     if session_id and state_file.exists():
         repos = [repo_name] if repo_name else []
         nova_chain_id = os.environ.get("NOVA_CHAIN_ID")
@@ -50,11 +54,11 @@ def handle_session_start(
             chain_id=nova_chain_id,
         )
 
-        nova_session_name = os.environ.get("NOVA_SESSION_NAME")
         if nova_session_name and session_id in state.sessions:
             state.sessions[session_id]["tmux_target"] = f"sessions:{nova_session_name}"
             state.sessions[session_id]["tmux_window"] = nova_session_name
 
+        _create_slack_thread(state, session_id, nova_session_name, repo_name)
         state.save()
 
     if not summaries:
@@ -64,6 +68,39 @@ def handle_session_start(
         summaries
     )
     return _wrap_context(context, "SessionStart")
+
+
+def _create_slack_thread(
+    state: NovaState, session_id: str, session_name: str | None, repo_name: str
+):
+    if not session_name:
+        return
+
+    try:
+        config = load_config()
+        slack_config = config.get("slack", {})
+        bot_token = slack_config.get("bot_token")
+        if not bot_token:
+            return
+
+        poster = SlackPoster(
+            bot_token=bot_token,
+            target_user_id=slack_config.get("target_user_id", ""),
+        )
+
+        channel = state.slack_config.get("dm_channel")
+        if not channel:
+            channel = poster.get_dm_channel()
+            state.set_slack_config(dm_channel=channel)
+
+        text = f"*{session_name}* started"
+        if repo_name:
+            text += f" ({repo_name})"
+
+        thread_ts = poster.post_notification(channel=channel, text=text)
+        state.set_slack_thread(session_id, thread_ts=thread_ts, channel=channel)
+    except Exception:
+        pass
 
 
 def _wrap_context(context: str, event_name: str) -> dict:

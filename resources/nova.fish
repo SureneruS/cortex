@@ -51,7 +51,7 @@ complete -c nova -n '__fish_use_subcommand' -a exchange -d 'Manage the exchange 
 
 # --- start ---
 complete -c nova -n '__fish_seen_subcommand_from start' -a '(__nova_repos)' -d 'Repository path'
-complete -c nova -n '__fish_seen_subcommand_from start' -s n -l name -d 'Custom window name' -r
+complete -c nova -n '__fish_seen_subcommand_from start' -s n -l name -d 'Session name' -r
 complete -c nova -n '__fish_seen_subcommand_from start' -s a -l agent -d 'Agent config name' -r -a '(__nova_agents)'
 complete -c nova -n '__fish_seen_subcommand_from start' -s r -l resume -d 'Resume session by ID' -r
 complete -c nova -n '__fish_seen_subcommand_from start' -s p -l permission-mode -d 'Permission mode' -r -a 'acceptEdits default plan bypassPermissions'

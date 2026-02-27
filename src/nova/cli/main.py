@@ -202,9 +202,9 @@ def main():
     sub = parser.add_subparsers(dest="command", required=True)
 
     p_start = sub.add_parser("start", help="Start a Claude Code session in tmux")
-    p_start.add_argument("repo", help="Path to repository")
+    p_start.add_argument("repo", nargs="?", default=".", help="Path to repository (default: current directory)")
     p_start.add_argument("prompt", nargs="?", help="Initial prompt")
-    p_start.add_argument("--name", "-n", help="Custom window name")
+    p_start.add_argument("--name", "-n", help="Session name (default: directory name)")
     p_start.add_argument("--agent", "-a", help="Agent config name")
     p_start.add_argument("--resume", "-r", help="Resume an existing session by ID")
     p_start.add_argument(
