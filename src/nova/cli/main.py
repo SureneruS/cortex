@@ -107,7 +107,8 @@ def cmd_kill(name: str):
 def cmd_exchange_install():
     plist_src = Path(__file__).parent.parent.parent.parent / "resources" / "com.nova.exchange.plist"
     plist_dst = Path.home() / "Library" / "LaunchAgents" / "com.nova.exchange.plist"
-    logs_dir = Path.home() / ".nova" / "logs"
+    nova_dir = Path.home() / ".nova"
+    logs_dir = nova_dir / "logs"
 
     logs_dir.mkdir(parents=True, exist_ok=True)
 
@@ -115,7 +116,19 @@ def cmd_exchange_install():
         print(f"Plist template not found at {plist_src}", file=sys.stderr)
         sys.exit(1)
 
-    shutil.copy2(plist_src, plist_dst)
+    nova_bin = shutil.which("nova")
+    if not nova_bin:
+        print("'nova' not found on PATH", file=sys.stderr)
+        sys.exit(1)
+
+    bin_dir = str(Path(nova_bin).parent)
+    path_val = f"{bin_dir}:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
+
+    content = plist_src.read_text()
+    content = content.replace("__PATH__", path_val)
+    content = content.replace("__NOVA_DIR__", str(nova_dir))
+    plist_dst.write_text(content)
+
     print(f"Installed plist to {plist_dst}")
     print(f"Run: launchctl load {plist_dst}")
 

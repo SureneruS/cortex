@@ -15,13 +15,13 @@
     <key>KeepAlive</key>
     <true/>
     <key>StandardOutPath</key>
-    <string>/Users/suren/.nova/logs/exchange.out.log</string>
+    <string>__NOVA_DIR__/logs/exchange.out.log</string>
     <key>StandardErrorPath</key>
-    <string>/Users/suren/.nova/logs/exchange.err.log</string>
+    <string>__NOVA_DIR__/logs/exchange.err.log</string>
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>
-        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+        <string>__PATH__</string>
     </dict>
 </dict>
 </plist>
