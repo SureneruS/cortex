@@ -263,6 +263,6 @@ class DreamScheduler:
         create_window(
             session_name=TMUX_SESSION,
             window_name="dream",
-            command="claude --agent dream",
+            command='claude --agent dream "Process all pending captures in ~/.nova/memory/captures/ into knowledge files."',
         )
         self._last_run = time.time()
