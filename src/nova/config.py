@@ -12,6 +12,8 @@ ROTATION_DEFAULTS = {
     "warning_delay_seconds": 120,
     "memorize_timeout_seconds": 180,
     "handoff_timeout_seconds": 180,
+    "dream_capture_threshold": 3,
+    "dream_check_interval_hours": 24,
 }
 
 

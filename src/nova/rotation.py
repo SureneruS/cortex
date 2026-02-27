@@ -230,3 +230,39 @@ class RotationManager:
             pass
 
         return last_text
+
+
+class DreamScheduler:
+    def __init__(
+        self,
+        nova_dir: Path | None = None,
+        capture_threshold: int = 3,
+        check_interval_hours: int = 24,
+    ):
+        self._nova_dir = nova_dir or NOVA_DIR
+        self._threshold = capture_threshold
+        self._interval_secs = check_interval_hours * 3600
+        self._last_run: float | None = None
+
+    def maybe_run(self):
+        if self._last_run is not None:
+            elapsed = time.time() - self._last_run
+            if elapsed < self._interval_secs:
+                return
+
+        captures_dir = self._nova_dir / "memory" / "captures"
+        if not captures_dir.is_dir():
+            return
+
+        captures = list(captures_dir.glob("*.md"))
+        if len(captures) < self._threshold:
+            return
+
+        _log(f"[dream] {len(captures)} captures found (threshold={self._threshold}), spawning dream agent...")
+        ensure_session(TMUX_SESSION)
+        create_window(
+            session_name=TMUX_SESSION,
+            window_name="dream",
+            command="claude --agent dream",
+        )
+        self._last_run = time.time()

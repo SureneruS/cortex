@@ -367,7 +367,7 @@ def run_exchange(state_file: Path | None = None, config_path: Path | None = None
 
     _setup_verbose_logging()
 
-    from nova.rotation import RotationManager
+    from nova.rotation import DreamScheduler, RotationManager
 
     config = load_config(config_path)
     app_token = config["slack"].get("app_token")
@@ -382,6 +382,10 @@ def run_exchange(state_file: Path | None = None, config_path: Path | None = None
     idle_tracker = IdleTracker()
 
     rotation_mgr = None
+    dream_scheduler = DreamScheduler(
+        capture_threshold=rotation_config.get("dream_capture_threshold", 3),
+        check_interval_hours=rotation_config.get("dream_check_interval_hours", 24),
+    )
     if rotation_config.get("enabled"):
         _log("[exchange] Session rotation enabled")
 
@@ -469,6 +473,7 @@ def run_exchange(state_file: Path | None = None, config_path: Path | None = None
     _log(f"[exchange] Bot user ID filter: {handler._bot_user_id}")
     _log(f"[exchange] Transcript watcher: {'active' if watcher else 'disabled'}")
     _log(f"[exchange] Rotation: {'enabled' if rotation_mgr else 'disabled'}")
+    _log(f"[exchange] Dream: auto (threshold={rotation_config.get('dream_capture_threshold', 3)}, interval={rotation_config.get('dream_check_interval_hours', 24)}h)")
     _log("[exchange] Press Ctrl+C to stop.\n")
 
     import time
@@ -494,6 +499,10 @@ def run_exchange(state_file: Path | None = None, config_path: Path | None = None
             if poll_count % 20 == 0:  # heartbeat every ~60s
                 connected = client.is_connected() if hasattr(client, "is_connected") else "unknown"
                 _log(f"[exchange] heartbeat — connected={connected}")
+                try:
+                    dream_scheduler.maybe_run()
+                except Exception:
+                    _log(f"[dream] ERROR:\n{traceback.format_exc()}")
     except KeyboardInterrupt:
         _log("\n[exchange] Shutting down...")
         client.close()
