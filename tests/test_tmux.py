@@ -2,11 +2,9 @@ from unittest.mock import patch, MagicMock
 
 from nova.tmux import (
     ensure_session,
-    create_window,
     send_keys,
     is_client_attached,
     has_window,
-    list_windows,
 )
 
 TMUX_SESSION = "sessions"

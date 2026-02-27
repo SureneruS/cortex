@@ -126,7 +126,7 @@ def main():
 
     try:
         result = handle_notification(hook_input)
-    except Exception as e:
+    except Exception:
         import traceback
         log_file.open("a").write(f"ERROR: {traceback.format_exc()}\n\n")
         print(json.dumps({}))

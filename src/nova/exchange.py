@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import logging
-import sys
 import traceback
 from pathlib import Path
 
@@ -298,6 +297,16 @@ class ExchangeHandler:
         self._prompt_tracker.clear(thread_ts)
         _log(f"[exchange] Routed reply to {tmux_window} (mode={prompt_state['type'] if prompt_state else 'text'}): {text[:80]}")
 
+        if self._poster:
+            try:
+                self._poster.add_reaction(
+                    channel=channel,
+                    timestamp=message_ts,
+                    emoji="white_check_mark",
+                )
+            except Exception:
+                pass
+
         return True
 
     def _send_input(self, target: str, text: str, prompt_state: dict | None):
@@ -324,18 +333,6 @@ class ExchangeHandler:
                 return
 
         send_keys(target, text)
-
-        if self._poster:
-            try:
-                self._poster.add_reaction(
-                    channel=channel,
-                    timestamp=message_ts,
-                    emoji="white_check_mark",
-                )
-            except Exception:
-                pass
-
-        return True
 
 
 def _setup_verbose_logging():
@@ -436,7 +433,7 @@ def run_exchange(state_file: Path | None = None, config_path: Path | None = None
                  f"channel={channel} ts={ts} thread_ts={thread_ts} user={user}")
 
             if event_type != "message":
-                _log(f"[exchange] Skipping: not a message event")
+                _log("[exchange] Skipping: not a message event")
                 return
             if subtype:
                 _log(f"[exchange] Skipping: message subtype={subtype}")

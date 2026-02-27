@@ -1,5 +1,4 @@
 import json
-from pathlib import Path
 from unittest.mock import patch, MagicMock
 
 from nova.hooks.notification import handle_notification, _format_message
