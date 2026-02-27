@@ -54,9 +54,9 @@ def test_send_command_and_wait_success(mock_has_window, mock_send_keys, tmp_path
 
     mock_send_keys.side_effect = grow_transcript
 
-    result = mgr._send_command_and_wait("sessions:test-session", "/memorize", str(transcript), timeout=5)
+    result = mgr._send_command_and_wait("sessions:test-session", "/rotate-prep", str(transcript), timeout=5)
     assert result is True
-    mock_send_keys.assert_called_once_with("sessions:test-session", "/memorize")
+    mock_send_keys.assert_called_once_with("sessions:test-session", "/rotate-prep")
 
 
 @patch("nova.rotation.send_keys")
@@ -67,7 +67,7 @@ def test_send_command_timeout(mock_send_keys, tmp_path):
     sf = _make_state_file(tmp_path, {"s1": _make_session(transcript_path=str(transcript))})
     mgr = RotationManager(state_file=sf, poster=MagicMock(), config={"memorize_timeout_seconds": 1})
 
-    result = mgr._send_command_and_wait("sessions:test-session", "/memorize", str(transcript), timeout=1)
+    result = mgr._send_command_and_wait("sessions:test-session", "/rotate-prep", str(transcript), timeout=1)
     assert result is False
 
 

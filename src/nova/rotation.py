@@ -115,13 +115,9 @@ class RotationManager:
             _log(f"[rotation] Window {tmux_window} no longer exists, skipping")
             return
 
-        _log(f"[rotation] Sending /memorize to {tmux_window}...")
-        memorize_timeout = self._config.get("memorize_timeout_seconds", 180)
-        self._send_command_and_wait(tmux_target, "/memorize", transcript_path, timeout=memorize_timeout)
-
-        _log(f"[rotation] Sending /handoff to {tmux_window}...")
-        handoff_timeout = self._config.get("handoff_timeout_seconds", 180)
-        self._send_command_and_wait(tmux_target, "/handoff", transcript_path, timeout=handoff_timeout)
+        _log(f"[rotation] Sending /rotate-prep to {tmux_window}...")
+        rotate_timeout = self._config.get("rotate_prep_timeout_seconds", 300)
+        self._send_command_and_wait(tmux_target, "/rotate-prep", transcript_path, timeout=rotate_timeout)
 
         handoff_context = self._extract_last_assistant_text(transcript_path)
         if not handoff_context:
