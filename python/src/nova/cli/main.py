@@ -105,7 +105,7 @@ def cmd_kill(name: str):
 
 
 def cmd_exchange_install():
-    plist_src = Path(__file__).parent.parent.parent.parent / "resources" / "com.nova.exchange.plist"
+    plist_src = Path(__file__).parent.parent.parent.parent.parent / "resources" / "com.nova.exchange.plist"
     plist_dst = Path.home() / "Library" / "LaunchAgents" / "com.nova.exchange.plist"
     nova_dir = Path.home() / ".nova"
     logs_dir = nova_dir / "logs"

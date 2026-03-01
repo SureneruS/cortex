@@ -2,7 +2,7 @@ from pathlib import Path
 
 from nova.lib.schemas import load_schema, validate_frontmatter
 
-SCHEMAS_DIR = Path(__file__).parent.parent / "schemas"
+SCHEMAS_DIR = Path(__file__).parent.parent.parent / "schemas"
 
 
 def test_load_capture_schema():
