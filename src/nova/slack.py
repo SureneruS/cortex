@@ -29,3 +29,10 @@ class SlackPoster:
 
     def post_reply(self, channel: str, thread_ts: str, text: str) -> str:
         return self.post_notification(channel, text, thread_ts=thread_ts)
+
+    def get_replies(self, channel: str, thread_ts: str) -> list[dict]:
+        resp = self._client.conversations_replies(channel=channel, ts=thread_ts)
+        return [
+            {"user": m.get("user", ""), "text": m.get("text", ""), "ts": m["ts"]}
+            for m in resp["messages"]
+        ]

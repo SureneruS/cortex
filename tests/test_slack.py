@@ -48,3 +48,21 @@ def test_add_reaction():
     mock_client.reactions_add.assert_called_once_with(
         channel="D0ABC", timestamp="333.444", name="white_check_mark"
     )
+
+
+def test_get_replies():
+    mock_client = MagicMock()
+    mock_client.conversations_replies.return_value = {
+        "ok": True,
+        "messages": [
+            {"user": "U0USER", "text": "parent", "ts": "111.222"},
+            {"user": "U0BOT", "text": "reply", "ts": "111.333"},
+        ],
+    }
+    poster = SlackPoster(bot_token="xoxb-test", target_user_id="U0USER")
+    poster._client = mock_client
+    replies = poster.get_replies(channel="D0ABC", thread_ts="111.222")
+    mock_client.conversations_replies.assert_called_once_with(channel="D0ABC", ts="111.222")
+    assert len(replies) == 2
+    assert replies[0] == {"user": "U0USER", "text": "parent", "ts": "111.222"}
+    assert replies[1] == {"user": "U0BOT", "text": "reply", "ts": "111.333"}

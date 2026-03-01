@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Memory system for Claude Code sessions — capture, inject, dream"
 requires-python = ">=3.13"
 dependencies = [
+    "mcp[cli]",
     "pyyaml",
     "slack-sdk",
 ]
@@ -23,6 +24,7 @@ nova-notification = "nova.hooks.notification:main"
 nova-setup = "nova.setup:main"
 nova = "nova.cli.main:main"
 nova-pre-compact = "nova.hooks.pre_compact:main"
+arc-mcp = "nova.mcp_server:main"
 
 [build-system]
 requires = ["hatchling"]
