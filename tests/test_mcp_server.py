@@ -6,7 +6,7 @@ import nova.mcp_server as mod
 def _reset():
     mod._poster = None
     mod._dm_channel = None
-    mod._sender_prefix = None
+    mod._sender_name = None
 
 
 def _setup_mock_poster():
@@ -47,7 +47,9 @@ def test_send_message():
     mod._poster = poster
     mod._dm_channel = "D0ABC123"
     result = mod.send_message(text="hello")
-    poster.post_notification.assert_called_once_with(channel="D0ABC123", text="hello")
+    poster.post_notification.assert_called_once_with(
+        channel="D0ABC123", text="hello", username=None
+    )
     assert "111.222" in result
 
 
@@ -57,7 +59,7 @@ def test_reply_to_thread():
     mod._dm_channel = "D0ABC123"
     result = mod.reply_to_thread(thread_ts="111.222", text="reply")
     poster.post_reply.assert_called_once_with(
-        channel="D0ABC123", thread_ts="111.222", text="reply"
+        channel="D0ABC123", thread_ts="111.222", text="reply", username=None
     )
     assert "333.444" in result
 
@@ -83,25 +85,26 @@ def test_read_replies():
     assert result[0]["text"] == "hi"
 
 
-def test_send_message_with_prefix():
+def test_send_message_with_sender_name():
     poster = _setup_mock_poster()
     mod._poster = poster
     mod._dm_channel = "D0ABC123"
-    mod._sender_prefix = "Desktop"
+    mod._sender_name = "Arc (Desktop)"
     result = mod.send_message(text="hello")
     poster.post_notification.assert_called_once_with(
-        channel="D0ABC123", text="[Desktop] hello"
+        channel="D0ABC123", text="hello", username="Arc (Desktop)"
     )
     assert "111.222" in result
 
 
-def test_reply_to_thread_with_prefix():
+def test_reply_to_thread_with_sender_name():
     poster = _setup_mock_poster()
     mod._poster = poster
     mod._dm_channel = "D0ABC123"
-    mod._sender_prefix = "Desktop"
+    mod._sender_name = "Arc (Desktop)"
     result = mod.reply_to_thread(thread_ts="111.222", text="reply")
     poster.post_reply.assert_called_once_with(
-        channel="D0ABC123", thread_ts="111.222", text="[Desktop] reply"
+        channel="D0ABC123", thread_ts="111.222", text="reply",
+        username="Arc (Desktop)"
     )
     assert "333.444" in result

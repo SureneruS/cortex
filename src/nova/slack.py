@@ -15,10 +15,13 @@ class SlackPoster:
         channel: str,
         text: str,
         thread_ts: str | None = None,
+        username: str | None = None,
     ) -> str:
-        kwargs = {"channel": channel, "text": text}
+        kwargs: dict = {"channel": channel, "text": text}
         if thread_ts:
             kwargs["thread_ts"] = thread_ts
+        if username:
+            kwargs["username"] = username
         resp = self._client.chat_postMessage(**kwargs)
         return resp["ts"]
 
@@ -27,8 +30,12 @@ class SlackPoster:
             channel=channel, timestamp=timestamp, name=emoji
         )
 
-    def post_reply(self, channel: str, thread_ts: str, text: str) -> str:
-        return self.post_notification(channel, text, thread_ts=thread_ts)
+    def post_reply(
+        self, channel: str, thread_ts: str, text: str, username: str | None = None
+    ) -> str:
+        return self.post_notification(
+            channel, text, thread_ts=thread_ts, username=username
+        )
 
     def get_replies(self, channel: str, thread_ts: str) -> list[dict]:
         resp = self._client.conversations_replies(channel=channel, ts=thread_ts)
