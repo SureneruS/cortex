@@ -10,6 +10,7 @@ use uuid::Uuid;
 #[derive(Debug, Deserialize)]
 #[serde(tag = "type")]
 #[serde(rename_all = "snake_case")]
+#[allow(dead_code)]
 enum Request {
     ListSessions,
     CreateSession {
@@ -135,6 +136,7 @@ async fn handle_client(
         let request: Request = match serde_json::from_str(&line) {
             Ok(r) => r,
             Err(e) => {
+                tracing::warn!("Invalid request: {}", e);
                 let resp = Response::Error {
                     message: format!("Invalid request: {}", e),
                 };
@@ -147,6 +149,7 @@ async fn handle_client(
             Request::ListSessions => {
                 let mgr = manager.lock().await;
                 let items = mgr.list_sessions();
+                tracing::info!("list_sessions → {} sessions", items.len());
                 send_response(&writer, &Response::Sessions { data: items }).await?;
             }
             Request::CreateSession {
@@ -157,13 +160,16 @@ async fn handle_client(
                 prompt,
                 permission_mode,
             } => {
+                tracing::info!("create_session name={} cwd={}", name, cwd);
                 let mut mgr = manager.lock().await;
                 match mgr.create_session(name, cwd, repos, tags, prompt, permission_mode) {
                     Ok(id) => {
+                        tracing::info!("session created: {}", id);
                         send_response(&writer, &Response::SessionCreated { session_id: id })
                             .await?;
                     }
                     Err(e) => {
+                        tracing::error!("create_session failed: {}", e);
                         send_response(
                             &writer,
                             &Response::Error {
@@ -175,12 +181,14 @@ async fn handle_client(
                 }
             }
             Request::KillSession { session_id } => {
+                tracing::info!("kill_session {}", session_id);
                 let mut mgr = manager.lock().await;
                 match mgr.kill_session(session_id) {
                     Ok(()) => {
                         send_response(&writer, &Response::SessionKilled { session_id }).await?;
                     }
                     Err(e) => {
+                        tracing::error!("kill_session failed: {}", e);
                         send_response(
                             &writer,
                             &Response::Error {
@@ -196,6 +204,7 @@ async fn handle_client(
                 cols: _,
                 rows: _,
             } => {
+                tracing::info!("attach_pty {}", session_id);
                 let mgr = manager.lock().await;
                 if let Some(info) = mgr.sessions.get(&session_id) {
                     let mut rx = info.pty.output_tx.subscribe();

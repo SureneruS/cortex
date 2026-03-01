@@ -34,7 +34,11 @@ async fn main() {
 
     match cli.command {
         Commands::Start => {
-            tracing::info!("Starting nova-daemon...");
+            tracing::info!(
+                "nova-daemon v{} (built {})",
+                env!("CARGO_PKG_VERSION"),
+                env!("BUILD_ID"),
+            );
             if let Err(e) = ipc::serve().await {
                 tracing::error!("Daemon error: {}", e);
                 std::process::exit(1);

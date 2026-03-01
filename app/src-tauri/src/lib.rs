@@ -21,11 +21,18 @@ async fn spawn_shell(app: AppHandle, cols: u16, rows: u16) -> Result<(), String>
         })
         .map_err(|e| e.to_string())?;
 
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+    let shell = which_shell();
     let mut cmd = CommandBuilder::new(&shell);
     cmd.arg("-l");
     if let Ok(home) = std::env::var("HOME") {
         cmd.cwd(&home);
+    }
+
+    // Clear Claude Code env vars so the spawned shell doesn't think it's nested
+    for (key, _) in std::env::vars() {
+        if key.starts_with("CLAUDE_") {
+            cmd.env_remove(&key);
+        }
     }
 
     pair.slave
@@ -86,6 +93,16 @@ async fn resize_pty(app: AppHandle, cols: u16, rows: u16) -> Result<(), String> 
         .map_err(|e| e.to_string())?;
     }
     Ok(())
+}
+
+fn which_shell() -> String {
+    // Prefer fish, fall back to SHELL, then /bin/zsh
+    for path in &["/opt/homebrew/bin/fish", "/usr/local/bin/fish"] {
+        if std::path::Path::new(path).exists() {
+            return path.to_string();
+        }
+    }
+    std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

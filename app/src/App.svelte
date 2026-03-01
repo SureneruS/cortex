@@ -10,7 +10,7 @@
   :global(body) {
     margin: 0;
     padding: 0;
-    background: #1a1b26;
+    background: #0c1117;
     overflow: hidden;
   }
 

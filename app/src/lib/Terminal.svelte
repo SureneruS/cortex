@@ -15,31 +15,33 @@
   onMount(async () => {
     term = new Terminal({
       fontFamily: "'JetBrains Mono', 'Menlo', monospace",
-      fontSize: 13,
-      lineHeight: 1.3,
+      fontSize: 14,
+      lineHeight: 1.2,
       cursorBlink: true,
       cursorStyle: "block",
+      scrollback: 10000,
       theme: {
-        background: "#1a1b26",
-        foreground: "#a9b1d6",
-        cursor: "#7aa2f7",
-        selectionBackground: "#33467c",
-        black: "#15161e",
-        red: "#f7768e",
-        green: "#9ece6a",
-        yellow: "#e0af68",
-        blue: "#7aa2f7",
-        magenta: "#bb9af7",
-        cyan: "#7dcfff",
-        white: "#a9b1d6",
-        brightBlack: "#414868",
-        brightRed: "#f7768e",
-        brightGreen: "#9ece6a",
-        brightYellow: "#e0af68",
-        brightBlue: "#7aa2f7",
-        brightMagenta: "#bb9af7",
-        brightCyan: "#7dcfff",
-        brightWhite: "#c0caf5",
+        background: "#0c1117",
+        foreground: "#c9d1d9",
+        cursor: "#58a6ff",
+        selectionBackground: "#c9d1d933",
+        selectionForeground: "#c9d1d9",
+        black: "#484f58",
+        red: "#ec8e2b",
+        green: "#58a6ff",
+        yellow: "#d29921",
+        blue: "#58a6ff",
+        magenta: "#bc8cff",
+        cyan: "#39c5cf",
+        white: "#b1bac4",
+        brightBlack: "#6e7681",
+        brightRed: "#fdac53",
+        brightGreen: "#79c0ff",
+        brightYellow: "#e3b341",
+        brightBlue: "#79c0ff",
+        brightMagenta: "#d2a8ff",
+        brightCyan: "#55d4dd",
+        brightWhite: "#ffffff",
       },
     });
 
@@ -49,28 +51,23 @@
     term.open(terminalEl);
     fitAddon.fit();
 
-    // Spawn PTY via Tauri backend
     await invoke("spawn_shell", {
       cols: term.cols,
       rows: term.rows,
     });
 
-    // Listen for PTY output from Tauri backend
     unlisten = await listen<string>("pty-output", (event) => {
       term.write(event.payload);
     });
 
-    // Send user input to PTY
     term.onData((data: string) => {
       invoke("write_to_pty", { data });
     });
 
-    // Handle resize
     term.onResize(({ cols, rows }: { cols: number; rows: number }) => {
       invoke("resize_pty", { cols, rows });
     });
 
-    // Fit on window resize
     const resizeObserver = new ResizeObserver(() => {
       fitAddon.fit();
     });
@@ -95,5 +92,26 @@
   .terminal-container :global(.xterm) {
     padding: 8px;
     height: 100%;
+  }
+
+  .terminal-container :global(.xterm-viewport) {
+    overflow-y: auto !important;
+  }
+
+  .terminal-container :global(.xterm-viewport::-webkit-scrollbar) {
+    width: 12px;
+  }
+
+  .terminal-container :global(.xterm-viewport::-webkit-scrollbar-track) {
+    background: transparent;
+  }
+
+  .terminal-container :global(.xterm-viewport::-webkit-scrollbar-thumb) {
+    background: rgba(255, 255, 255, 0.15);
+    border-radius: 4px;
+  }
+
+  .terminal-container :global(.xterm-viewport::-webkit-scrollbar-thumb:hover) {
+    background: rgba(255, 255, 255, 0.3);
   }
 </style>

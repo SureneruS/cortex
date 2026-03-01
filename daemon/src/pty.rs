@@ -88,6 +88,7 @@ impl PtySession {
         Ok(())
     }
 
+    #[allow(dead_code)]
     pub fn try_wait(&self) -> anyhow::Result<Option<portable_pty::ExitStatus>> {
         let mut child = self.child.lock().unwrap();
         Ok(child.try_wait()?)
