@@ -6,6 +6,7 @@ import nova.mcp_server as mod
 def _reset():
     mod._poster = None
     mod._dm_channel = None
+    mod._sender_prefix = None
 
 
 def _setup_mock_poster():
@@ -80,3 +81,27 @@ def test_read_replies():
     poster.get_replies.assert_called_once_with(channel="D0ABC123", thread_ts="111.222")
     assert len(result) == 1
     assert result[0]["text"] == "hi"
+
+
+def test_send_message_with_prefix():
+    poster = _setup_mock_poster()
+    mod._poster = poster
+    mod._dm_channel = "D0ABC123"
+    mod._sender_prefix = "Desktop"
+    result = mod.send_message(text="hello")
+    poster.post_notification.assert_called_once_with(
+        channel="D0ABC123", text="[Desktop] hello"
+    )
+    assert "111.222" in result
+
+
+def test_reply_to_thread_with_prefix():
+    poster = _setup_mock_poster()
+    mod._poster = poster
+    mod._dm_channel = "D0ABC123"
+    mod._sender_prefix = "Desktop"
+    result = mod.reply_to_thread(thread_ts="111.222", text="reply")
+    poster.post_reply.assert_called_once_with(
+        channel="D0ABC123", thread_ts="111.222", text="[Desktop] reply"
+    )
+    assert "333.444" in result
