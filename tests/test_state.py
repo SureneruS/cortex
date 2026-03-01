@@ -1,6 +1,6 @@
 import pytest
 
-from nova.lib.state import NovaState
+from nova.lib.state import CompactCursor, NovaState
 
 
 def test_load_empty_state(tmp_path):
@@ -133,6 +133,7 @@ def test_register_session_with_chain(tmp_path):
     assert state.sessions["s1"]["chain_sequence"] == 1
     assert state.sessions["s1"]["parent_session_id"] is None
     assert state.sessions["s1"]["compaction_count"] == 0
+    assert state.sessions["s1"]["compact_cursor"] == {"line": 0, "byte": 0, "time": ""}
     assert state.sessions["s1"]["status"] == "active"
 
 
@@ -166,3 +167,34 @@ def test_find_sessions_by_chain(tmp_path):
     assert len(result) == 2
     assert "s1" in [r[0] for r in result]
     assert "s2" in [r[0] for r in result]
+
+
+def test_compact_cursor_initialized_on_register(tmp_path):
+    sf = tmp_path / "state.json"
+    sf.write_text('{"sessions": {}}')
+    state = NovaState(sf)
+    state.register_session("s1", repos=["r"], transcript_path="/t.jsonl")
+    assert state.sessions["s1"]["compact_cursor"] == {"line": 0, "byte": 0, "time": ""}
+
+
+def test_set_compact_cursor(tmp_path):
+    sf = tmp_path / "state.json"
+    sf.write_text('{"sessions": {}}')
+    state = NovaState(sf)
+    state.register_session("s1", repos=["r"], transcript_path="/t.jsonl")
+    cursor = CompactCursor(line=100, byte=50000, time="2026-03-01T10:00:00Z")
+    state.set_compact_cursor("s1", cursor)
+    assert state.sessions["s1"]["compact_cursor"]["line"] == 100
+    assert state.sessions["s1"]["compact_cursor"]["byte"] == 50000
+    assert state.sessions["s1"]["compact_cursor"]["time"] == "2026-03-01T10:00:00Z"
+
+
+def test_set_compact_cursor_persists(tmp_path):
+    sf = tmp_path / "state.json"
+    sf.write_text('{"sessions": {}}')
+    state = NovaState(sf)
+    state.register_session("s1", repos=["r"], transcript_path="/t.jsonl")
+    state.set_compact_cursor("s1", CompactCursor(line=50, byte=25000, time="2026-03-01T09:00:00Z"))
+    state.save()
+    reloaded = NovaState(sf)
+    assert reloaded.sessions["s1"]["compact_cursor"]["line"] == 50

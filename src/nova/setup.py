@@ -6,6 +6,7 @@ def main():
     dirs = [
         base / "logs",
         base / "memory" / "captures",
+        base / "memory" / "queue",
         base / "memory" / "knowledge" / "global",
         base / "memory" / "archive" / "captures",
         base / "memory" / "archive" / "knowledge",

@@ -5,56 +5,54 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from nova.lib.state import NovaState
+from nova.lib.state import CompactCursor, NovaState
 
 NOVA_DIR = Path.home() / ".nova"
-MAX_RECENT_MESSAGES = 50
 
 
-def _extract_recent_content(transcript_path: Path) -> str:
+def _scan_transcript_bounds(
+    path: Path, from_line: int
+) -> tuple[int, int, str, str]:
+    """Scan JSONL transcript from `from_line` to EOF.
+
+    Returns (to_line, to_byte, from_time, to_time).
+    """
+    to_line = from_line
+    to_byte = 0
+    from_time = ""
+    to_time = ""
+
     try:
-        all_lines = transcript_path.read_text().splitlines()
+        with path.open("rb") as f:
+            for line_num, raw_line in enumerate(f):
+                to_byte += len(raw_line)
+                if line_num < from_line:
+                    continue
+                to_line = line_num + 1
+                try:
+                    entry = json.loads(raw_line)
+                except (json.JSONDecodeError, ValueError):
+                    continue
+                ts = entry.get("timestamp", "")
+                if ts:
+                    if not from_time:
+                        from_time = ts
+                    to_time = ts
     except Exception:
-        return ""
+        pass
 
-    messages = []
-    for line in all_lines:
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            entry = json.loads(line)
-        except (json.JSONDecodeError, ValueError):
-            continue
-
-        msg = entry.get("message", {})
-        role = msg.get("role")
-        if role not in ("assistant", "user"):
-            continue
-
-        content = msg.get("content", "")
-        if isinstance(content, list):
-            text_parts = [
-                item.get("text", "")
-                for item in content
-                if isinstance(item, dict) and item.get("type") == "text"
-            ]
-            content = "\n".join(text_parts)
-        if isinstance(content, str) and content.strip():
-            messages.append(f"[{role}] {content[:500]}")
-
-    return "\n\n".join(messages[-MAX_RECENT_MESSAGES:])
+    return to_line, to_byte, from_time, to_time
 
 
 def handle_pre_compact(
     hook_input: dict,
     state_file: Path | None = None,
-    captures_dir: Path | None = None,
+    queue_dir: Path | None = None,
 ) -> dict:
     if state_file is None:
         state_file = NOVA_DIR / "state.json"
-    if captures_dir is None:
-        captures_dir = NOVA_DIR / "memory" / "captures"
+    if queue_dir is None:
+        queue_dir = NOVA_DIR / "memory" / "queue"
 
     session_id = hook_input.get("session_id", "")
     transcript_path = hook_input.get("transcript_path", "")
@@ -71,31 +69,36 @@ def handle_pre_compact(
     if not session:
         return {}
 
+    cursor = session.get("compact_cursor", {"line": 0, "byte": 0, "time": ""})
+    from_line = cursor["line"]
+
     if transcript_path:
-        content = _extract_recent_content(Path(transcript_path))
-    else:
-        content = ""
-
-    if content:
-        captures_dir.mkdir(parents=True, exist_ok=True)
-        now = datetime.now(timezone.utc)
-        filename = f"{now.strftime('%Y-%m-%d-%H%M%S')}-{session_id[:8]}-compact.md"
-        repos = session.get("repos", [])
-        repo_list = ", ".join(repos) if repos else "unknown"
-
-        capture = (
-            f"---\n"
-            f"session: {session_id}\n"
-            f"repos: [{repo_list}]\n"
-            f"transcript: {transcript_path}\n"
-            f"captured_at: {now.isoformat()}\n"
-            f"schema_version: 1\n"
-            f"trigger: pre_compact\n"
-            f"---\n\n"
-            f"### Pre-compaction transcript snapshot\n\n"
-            f"Recent conversation content:\n\n{content}\n"
+        to_line, to_byte, from_time, to_time = _scan_transcript_bounds(
+            Path(transcript_path), from_line
         )
-        (captures_dir / filename).write_text(capture)
+    else:
+        to_line, to_byte, from_time, to_time = from_line, cursor["byte"], "", ""
+
+    if to_line > from_line:
+        queue_dir.mkdir(parents=True, exist_ok=True)
+        now = datetime.now(timezone.utc)
+        job = {
+            "session_id": session_id,
+            "transcript_path": transcript_path,
+            "from_line": from_line,
+            "to_line": to_line,
+            "from_byte": cursor["byte"],
+            "to_byte": to_byte,
+            "from_time": cursor["time"] or from_time,
+            "to_time": to_time,
+            "repos": session.get("repos", []),
+            "queued_at": now.isoformat(),
+        }
+        filename = f"{now.strftime('%Y%m%d-%H%M%S-%f')}-{session_id[:8]}.json"
+        (queue_dir / filename).write_text(json.dumps(job, indent=2) + "\n")
+
+        new_cursor = CompactCursor(line=to_line, byte=to_byte, time=to_time)
+        state.set_compact_cursor(session_id, new_cursor)
 
     state.increment_compaction(session_id)
     state.save()

@@ -4,6 +4,12 @@ from pathlib import Path
 from typing import TypedDict
 
 
+class CompactCursor(TypedDict):
+    line: int
+    byte: int
+    time: str
+
+
 class SessionState(TypedDict):
     repos: list[str]
     transcript_path: str
@@ -19,6 +25,7 @@ class SessionState(TypedDict):
     chain_sequence: int
     parent_session_id: str | None
     compaction_count: int
+    compact_cursor: CompactCursor
     status: str
 
 
@@ -66,6 +73,7 @@ class NovaState:
                 chain_sequence=chain_sequence,
                 parent_session_id=parent_session_id,
                 compaction_count=0,
+                compact_cursor=CompactCursor(line=0, byte=0, time=""),
                 status="active",
             )
 
@@ -91,6 +99,10 @@ class NovaState:
             self.sessions[session_id]["compaction_count"] = (
                 self.sessions[session_id].get("compaction_count", 0) + 1
             )
+
+    def set_compact_cursor(self, session_id: str, cursor: CompactCursor):
+        if session_id in self.sessions:
+            self.sessions[session_id]["compact_cursor"] = cursor
 
     def set_status(self, session_id: str, status: str):
         if session_id in self.sessions:
