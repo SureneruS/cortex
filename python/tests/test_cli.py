@@ -111,8 +111,8 @@ def test_main_exchange_start():
 
 
 def test_cmd_exchange_install(capsys, tmp_path):
-    # Set up fake project root at tmp_path (mimics src/nova/cli/main.py -> root)
-    fake_main = tmp_path / "src" / "nova" / "cli" / "main.py"
+    # Set up fake project root at tmp_path (mimics python/src/nova/cli/main.py -> root)
+    fake_main = tmp_path / "python" / "src" / "nova" / "cli" / "main.py"
     fake_main.parent.mkdir(parents=True)
     fake_main.touch()
 
@@ -140,7 +140,7 @@ def test_cmd_exchange_install(capsys, tmp_path):
 
 
 def test_cmd_exchange_install_missing_plist(tmp_path):
-    fake_main = tmp_path / "src" / "nova" / "cli" / "main.py"
+    fake_main = tmp_path / "python" / "src" / "nova" / "cli" / "main.py"
     fake_main.parent.mkdir(parents=True)
     fake_main.touch()
 
