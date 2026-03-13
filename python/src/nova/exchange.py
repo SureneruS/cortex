@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import traceback
+from collections.abc import Callable
 from pathlib import Path
 
 from nova.config import load_config
@@ -14,6 +15,7 @@ from nova.tmux import has_window, send_keys, send_raw_key, send_option_select, T
 logger = logging.getLogger(__name__)
 
 MAX_SLACK_TEXT = 3000
+SESSION_COMPLETE_MARKER = "[session:complete]"
 
 NOVA_DIR = Path.home() / ".nova"
 
@@ -24,11 +26,13 @@ class TranscriptWatcher:
         state_file: Path,
         poster: SlackPoster,
         prompt_tracker: PromptStateTracker | None = None,
+        on_session_complete: Callable[[str], None] | None = None,
     ):
         self._state_file = state_file
         self._poster = poster
         self._prompt_tracker = prompt_tracker or PromptStateTracker()
         self._offsets: dict[str, int] = {}
+        self._on_session_complete = on_session_complete
 
     def poll(self):
         if not self._state_file.exists():
@@ -68,9 +72,9 @@ class TranscriptWatcher:
                 continue
 
             self._offsets[sid] = current_size
-            self._process_new_content(new_content, channel, thread_ts)
+            self._process_new_content(new_content, channel, thread_ts, sid)
 
-    def _process_new_content(self, content: str, channel: str, thread_ts: str):
+    def _process_new_content(self, content: str, channel: str, thread_ts: str, session_id: str = ""):
         for line in content.strip().split("\n"):
             if not line.strip():
                 continue
@@ -98,6 +102,10 @@ class TranscriptWatcher:
             if not text:
                 continue
 
+            if SESSION_COMPLETE_MARKER in text:
+                self._handle_session_complete(session_id, channel, thread_ts)
+                continue
+
             self._prompt_tracker.clear(thread_ts)
 
             if len(text) > MAX_SLACK_TEXT:
@@ -110,6 +118,19 @@ class TranscriptWatcher:
                 _log(f"[watcher] Posted assistant response ({len(text)} chars)")
             except Exception:
                 _log(f"[watcher] ERROR posting response:\n{traceback.format_exc()}")
+
+    def _handle_session_complete(self, session_id: str, channel: str, thread_ts: str):
+        try:
+            self._poster.post_reply(
+                channel=channel,
+                thread_ts=thread_ts,
+                text="Session marked complete. Closing.",
+            )
+            _log(f"[watcher] Session {session_id[:8]} marked complete")
+        except Exception:
+            _log(f"[watcher] ERROR posting completion:\n{traceback.format_exc()}")
+        if self._on_session_complete:
+            self._on_session_complete(session_id)
 
     def _handle_question(self, question: dict, channel: str, thread_ts: str):
         options = question.get("options", [])
@@ -166,12 +187,16 @@ class IdleTracker:
     def __init__(self):
         self._last_sizes: dict[str, int] = {}
         self._idle_since: dict[str, float] = {}
+        self._initial_sizes: dict[str, int] = {}
 
     def update(self, session_id: str, current_size: int):
         import time as _time
 
         prev_size = self._last_sizes.get(session_id)
         self._last_sizes[session_id] = current_size
+
+        if session_id not in self._initial_sizes:
+            self._initial_sizes[session_id] = current_size
 
         if prev_size is None:
             self._idle_since[session_id] = _time.time()
@@ -188,9 +213,16 @@ class IdleTracker:
         now = _time.time()
         return {sid: now - since for sid, since in self._idle_since.items()}
 
+    def get_growth(self) -> dict[str, int]:
+        return {
+            sid: self._last_sizes.get(sid, 0) - initial
+            for sid, initial in self._initial_sizes.items()
+        }
+
     def remove(self, session_id: str):
         self._last_sizes.pop(session_id, None)
         self._idle_since.pop(session_id, None)
+        self._initial_sizes.pop(session_id, None)
 
 
 class PromptStateTracker:
@@ -440,9 +472,33 @@ def run_exchange(state_file: Path | None = None, config_path: Path | None = None
 
     client.socket_mode_request_listeners.append(process)
 
+    def complete_session(session_id: str):
+        try:
+            state = NovaState(sf)
+            state.set_status(session_id, "completed")
+            state.save()
+        except Exception:
+            _log(f"[exchange] ERROR updating state for {session_id[:8]}:\n{traceback.format_exc()}")
+
+        session = state.sessions.get(session_id, {})
+        tmux_window = session.get("tmux_window")
+        if tmux_window and has_window(TMUX_SESSION, tmux_window):
+            import subprocess
+            subprocess.run(
+                ["tmux", "kill-window", "-t", f"{TMUX_SESSION}:{tmux_window}"],
+                capture_output=True,
+            )
+            _log(f"[exchange] Killed tmux window {tmux_window}")
+
+        idle_tracker.remove(session_id)
+
     watcher = None
     if handler._poster:
-        watcher = TranscriptWatcher(sf, handler._poster, prompt_tracker=prompt_tracker)
+        watcher = TranscriptWatcher(
+            sf, handler._poster,
+            prompt_tracker=prompt_tracker,
+            on_session_complete=complete_session,
+        )
         watcher.poll()  # initialize offsets, skip existing content
 
     _log("[exchange] Connecting to Slack Socket Mode...")
@@ -472,7 +528,7 @@ def run_exchange(state_file: Path | None = None, config_path: Path | None = None
             if rotation_mgr:
                 try:
                     idle_seconds = idle_tracker.get_idle_seconds()
-                    rotation_mgr.check_and_rotate(idle_seconds)
+                    rotation_mgr.check_and_rotate(idle_seconds, growth=idle_tracker.get_growth())
                 except Exception:
                     _log(f"[rotation] ERROR:\n{traceback.format_exc()}")
             poll_count += 1

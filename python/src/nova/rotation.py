@@ -32,9 +32,10 @@ class RotationManager:
         self._config = config or {}
         self._pending: dict[str, float] = {}
 
-    def check_and_rotate(self, idle_sessions: dict[str, float]):
-        threshold = self._config.get("idle_threshold_minutes", 30) * 60
+    def check_and_rotate(self, idle_sessions: dict[str, float], growth: dict[str, int] | None = None):
+        threshold = self._config.get("idle_threshold_minutes", 2880) * 60
         warning_delay = self._config.get("warning_delay_seconds", 120)
+        min_activity = self._config.get("min_activity_bytes", 10000)
 
         if not self._state_file.exists():
             return
@@ -62,6 +63,9 @@ class RotationManager:
 
             if idle_secs < threshold:
                 self._pending.pop(sid, None)
+                continue
+
+            if growth is not None and growth.get(sid, 0) < min_activity:
                 continue
 
             if sid not in self._pending:

@@ -8,10 +8,11 @@ DEFAULT_CONFIG_PATH = Path.home() / ".nova" / "config.yaml"
 
 ROTATION_DEFAULTS = {
     "enabled": False,
-    "idle_threshold_minutes": 30,
+    "idle_threshold_minutes": 2880,
     "warning_delay_seconds": 120,
     "memorize_timeout_seconds": 180,
     "handoff_timeout_seconds": 180,
+    "min_activity_bytes": 10000,
     "dream_capture_threshold": 3,
     "dream_check_interval_hours": 24,
 }

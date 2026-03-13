@@ -371,6 +371,72 @@ def test_handler_falls_back_to_text_without_state(tmp_path):
     mock_send.assert_called_once_with("sessions:rb", "just regular text")
 
 
+# --- TranscriptWatcher session:complete tests ---
+
+
+def test_watcher_detects_session_complete_marker(tmp_path):
+    transcript = tmp_path / "t.jsonl"
+    transcript.touch()
+
+    state_file = _make_state_file(
+        tmp_path,
+        sessions={"s1": _make_session(transcript_path=str(transcript))},
+    )
+    callback = MagicMock()
+    poster = MagicMock()
+    watcher = TranscriptWatcher(state_file, poster, on_session_complete=callback)
+    watcher.poll()
+
+    _write_transcript_entry(transcript, _assistant_entry("[session:complete]"))
+    watcher.poll()
+
+    callback.assert_called_once_with("s1")
+    poster.post_reply.assert_called_once()
+    assert "complete" in poster.post_reply.call_args.kwargs["text"].lower()
+
+
+def test_watcher_complete_marker_not_double_posted(tmp_path):
+    transcript = tmp_path / "t.jsonl"
+    transcript.touch()
+
+    state_file = _make_state_file(
+        tmp_path,
+        sessions={"s1": _make_session(transcript_path=str(transcript))},
+    )
+    callback = MagicMock()
+    poster = MagicMock()
+    watcher = TranscriptWatcher(state_file, poster, on_session_complete=callback)
+    watcher.poll()
+
+    _write_transcript_entry(transcript, _assistant_entry("[session:complete]"))
+    watcher.poll()
+
+    # Only the completion message, not a regular relay of the text
+    assert poster.post_reply.call_count == 1
+    assert "complete" in poster.post_reply.call_args.kwargs["text"].lower()
+
+
+def test_watcher_no_false_positive_on_similar_text(tmp_path):
+    transcript = tmp_path / "t.jsonl"
+    transcript.touch()
+
+    state_file = _make_state_file(
+        tmp_path,
+        sessions={"s1": _make_session(transcript_path=str(transcript))},
+    )
+    callback = MagicMock()
+    poster = MagicMock()
+    watcher = TranscriptWatcher(state_file, poster, on_session_complete=callback)
+    watcher.poll()
+
+    _write_transcript_entry(transcript, _assistant_entry("The session is complete now."))
+    watcher.poll()
+
+    callback.assert_not_called()
+    poster.post_reply.assert_called_once()
+    assert "session is complete" in poster.post_reply.call_args.kwargs["text"].lower()
+
+
 # --- IdleTracker tests ---
 
 
@@ -392,6 +458,31 @@ def test_idle_tracker_resets_on_growth():
 
     idle = tracker.get_idle_seconds()
     assert idle.get("s1", 0) < 1
+
+
+def test_idle_tracker_tracks_growth():
+    tracker = IdleTracker()
+    tracker.update("s1", current_size=1000)
+    tracker.update("s1", current_size=5000)
+
+    growth = tracker.get_growth()
+    assert growth["s1"] == 4000
+
+
+def test_idle_tracker_growth_zero_when_no_change():
+    tracker = IdleTracker()
+    tracker.update("s1", current_size=1000)
+    tracker.update("s1", current_size=1000)
+
+    growth = tracker.get_growth()
+    assert growth["s1"] == 0
+
+
+def test_idle_tracker_remove_clears_growth():
+    tracker = IdleTracker()
+    tracker.update("s1", current_size=1000)
+    tracker.remove("s1")
+    assert "s1" not in tracker.get_growth()
 
 
 def test_idle_tracker_remove():

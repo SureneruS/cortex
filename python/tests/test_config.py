@@ -55,7 +55,8 @@ def test_rotation_config_defaults(tmp_path):
     config_file.write_text("slack:\n  bot_token: xoxb-test\n")
     config = load_config(config_file)
     assert config["rotation"]["enabled"] is False
-    assert config["rotation"]["idle_threshold_minutes"] == 30
+    assert config["rotation"]["idle_threshold_minutes"] == 2880
     assert config["rotation"]["warning_delay_seconds"] == 120
     assert config["rotation"]["memorize_timeout_seconds"] == 180
     assert config["rotation"]["handoff_timeout_seconds"] == 180
+    assert config["rotation"]["min_activity_bytes"] == 10000

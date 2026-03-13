@@ -180,3 +180,4 @@ When done, report:
 3. **Archive, never delete** — all original sources are preserved
 4. **Idempotent** — running dream twice should not create duplicates
 5. **Sources traceability** — every knowledge file links back to its source captures
+6. **Signal completion** — when all processing is done, output `[session:complete]` as your very last message

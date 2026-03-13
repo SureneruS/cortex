@@ -118,6 +118,35 @@ def test_cancel_rotation(tmp_path):
     assert "s1" not in mgr._pending
 
 
+@patch("nova.rotation.is_client_attached", return_value=False)
+def test_check_and_rotate_skips_low_activity(mock_attached, tmp_path):
+    sf = _make_state_file(tmp_path, {"s1": _make_session()})
+    poster = MagicMock()
+    mgr = RotationManager(
+        state_file=sf,
+        poster=poster,
+        config={"idle_threshold_minutes": 1, "min_activity_bytes": 10000},
+    )
+
+    mgr.check_and_rotate({"s1": 120}, growth={"s1": 3000})
+    poster.post_reply.assert_not_called()
+
+
+@patch("nova.rotation.is_client_attached", return_value=False)
+def test_check_and_rotate_proceeds_with_sufficient_activity(mock_attached, tmp_path):
+    sf = _make_state_file(tmp_path, {"s1": _make_session()})
+    poster = MagicMock()
+    mgr = RotationManager(
+        state_file=sf,
+        poster=poster,
+        config={"idle_threshold_minutes": 1, "warning_delay_seconds": 60, "min_activity_bytes": 10000},
+    )
+
+    mgr.check_and_rotate({"s1": 120}, growth={"s1": 15000})
+    poster.post_reply.assert_called_once()
+    assert "HOLD" in poster.post_reply.call_args[1]["text"]
+
+
 @patch("nova.rotation.is_client_attached", return_value=True)
 def test_check_and_rotate_skips_attached_session(mock_attached, tmp_path):
     sf = _make_state_file(tmp_path, {"s1": _make_session()})
