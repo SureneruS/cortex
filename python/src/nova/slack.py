@@ -10,6 +10,17 @@ class SlackPoster:
         resp = self._client.conversations_open(users=[self._target_user_id])
         return resp["channel"]["id"]
 
+    def open_dm(self, user_id: str) -> str:
+        resp = self._client.conversations_open(users=[user_id])
+        return resp["channel"]["id"]
+
+    def get_history(self, channel: str, limit: int = 5) -> list[dict]:
+        resp = self._client.conversations_history(channel=channel, limit=limit)
+        return [
+            {"user": m.get("user", m.get("username", "")), "text": m.get("text", ""), "ts": m["ts"]}
+            for m in resp["messages"]
+        ]
+
     def post_notification(
         self,
         channel: str,
