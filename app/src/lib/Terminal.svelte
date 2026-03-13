@@ -5,6 +5,8 @@
   import { Terminal } from "@xterm/xterm";
   import { FitAddon } from "@xterm/addon-fit";
   import { WebLinksAddon } from "@xterm/addon-web-links";
+  import { Unicode11Addon } from "@xterm/addon-unicode11";
+  import { WebglAddon } from "@xterm/addon-webgl";
   import "@xterm/xterm/css/xterm.css";
 
   let terminalEl: HTMLDivElement;
@@ -48,8 +50,19 @@
     fitAddon = new FitAddon();
     term.loadAddon(fitAddon);
     term.loadAddon(new WebLinksAddon());
+
+    const unicode11Addon = new Unicode11Addon();
+    term.loadAddon(unicode11Addon);
+
     term.open(terminalEl);
+    term.unicode.activeVersion = '11';
     fitAddon.fit();
+
+    try {
+      term.loadAddon(new WebglAddon());
+    } catch (_) {
+      // WebGL2 not available, fall back to canvas renderer
+    }
 
     await invoke("spawn_shell", {
       cols: term.cols,

@@ -72,10 +72,12 @@ impl SessionManager {
         let id = Uuid::new_v4();
         let now = Utc::now().to_rfc3339();
 
-        let mut args = vec!["--dangerously-skip-permissions".to_string()];
-        if !permission_mode.is_empty() {
-            args = vec![format!("--permission-mode={}", permission_mode)];
-        }
+        let mode = if permission_mode.is_empty() {
+            "default"
+        } else {
+            &permission_mode
+        };
+        let args = vec![format!("--permission-mode={}", mode)];
         let args_refs: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
 
         let mut env_vars = vec![

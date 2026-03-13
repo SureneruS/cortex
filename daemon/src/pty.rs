@@ -8,6 +8,7 @@ pub struct PtySession {
     writer: Arc<std::sync::Mutex<Box<dyn Write + Send>>>,
     pub output_tx: broadcast::Sender<Vec<u8>>,
     child: Arc<std::sync::Mutex<Box<dyn portable_pty::Child + Send>>>,
+    master: Arc<std::sync::Mutex<Box<dyn portable_pty::MasterPty + Send>>>,
     _reader_handle: task::JoinHandle<()>,
 }
 
@@ -64,6 +65,7 @@ impl PtySession {
             writer: Arc::new(std::sync::Mutex::new(writer)),
             output_tx,
             child: Arc::new(std::sync::Mutex::new(child)),
+            master: Arc::new(std::sync::Mutex::new(pair.master)),
             _reader_handle: reader_handle,
         })
     }
@@ -75,10 +77,14 @@ impl PtySession {
         Ok(())
     }
 
-    pub fn resize(&self, _cols: u16, _rows: u16) -> anyhow::Result<()> {
-        // portable-pty doesn't expose resize on MasterPty directly after creation.
-        // We'd need to keep a handle to the pair. For now, this is a no-op.
-        // TODO: implement resize via stored pty pair reference
+    pub fn resize(&self, cols: u16, rows: u16) -> anyhow::Result<()> {
+        let master = self.master.lock().unwrap();
+        master.resize(PtySize {
+            rows,
+            cols,
+            pixel_width: 0,
+            pixel_height: 0,
+        })?;
         Ok(())
     }
 
