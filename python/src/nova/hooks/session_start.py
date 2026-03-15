@@ -1,6 +1,7 @@
 import json
 import os
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 from nova.config import load_config
@@ -15,11 +16,14 @@ def handle_session_start(
     hook_input: dict,
     knowledge_dir: Path | None = None,
     state_file: Path | None = None,
+    sessions_dir: Path | None = None,
 ) -> dict:
     if knowledge_dir is None:
         knowledge_dir = NOVA_DIR / "memory" / "knowledge"
     if state_file is None:
         state_file = NOVA_DIR / "state.json"
+    if sessions_dir is None:
+        sessions_dir = NOVA_DIR / "sessions"
 
     session_id = hook_input.get("session_id", "")
     transcript_path = hook_input.get("transcript_path", "")
@@ -28,6 +32,7 @@ def handle_session_start(
     repo_name = Path(cwd).name if cwd else ""
 
     summaries: list[str] = []
+    entries: list[dict[str, str]] = []
 
     for subdir in [f"repo-{repo_name}", "global"]:
         d = knowledge_dir / subdir
@@ -40,6 +45,7 @@ def handle_session_start(
                 summary = meta.get("summary", "")
                 if summary:
                     summaries.append(f"- **{title}**: {summary}")
+                    entries.append({"file": f"{subdir}/{md.name}", "title": title})
             except Exception:
                 continue
 
@@ -60,6 +66,24 @@ def handle_session_start(
 
         _create_slack_thread(state, session_id, nova_session_name, repo_name)
         state.save()
+
+    if session_id:
+        env_file = os.environ.get("CLAUDE_ENV_FILE")
+        if env_file:
+            with open(env_file, "a") as f:
+                f.write(f'export CLAUDE_CODE_SESSION_ID="{session_id}"\n')
+
+        if entries:
+            session_dir = sessions_dir / session_id
+            session_dir.mkdir(parents=True, exist_ok=True)
+            manifest = {
+                "session_id": session_id,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "repo": repo_name,
+                "entries": entries,
+            }
+            with open(session_dir / "injected.json", "w") as f:
+                json.dump(manifest, f, indent=2)
 
     if not summaries:
         return {}

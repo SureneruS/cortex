@@ -131,3 +131,128 @@ def test_no_tmux_when_env_not_set(tmp_path, monkeypatch):
 
     data = json.loads(state_file.read_text())
     assert data["sessions"]["sess1"].get("tmux_target") is None
+
+
+def test_writes_injection_manifest(tmp_path):
+    knowledge_dir = tmp_path / "knowledge"
+    repo_dir = knowledge_dir / "repo-recruitment-backend"
+    repo_dir.mkdir(parents=True)
+
+    (repo_dir / "lazy-raise.md").write_text(
+        "---\ntitle: SQLAlchemy lazy='raise' testing pattern\nsummary: Use lazy raise\n---\nContent.\n"
+    )
+
+    state_file = tmp_path / "state.json"
+    state_file.write_text('{"last_dream_run": null, "sessions": {}}')
+    sessions_dir = tmp_path / "sessions"
+
+    hook_input = {
+        "session_id": "abc123",
+        "transcript_path": "/path/to/transcript.jsonl",
+        "cwd": "/Users/suren/workspace/cercli/recruitment-backend",
+    }
+
+    handle_session_start(
+        hook_input,
+        knowledge_dir=knowledge_dir,
+        state_file=state_file,
+        sessions_dir=sessions_dir,
+    )
+
+    manifest_path = sessions_dir / "abc123" / "injected.json"
+    assert manifest_path.exists()
+
+    manifest = json.loads(manifest_path.read_text())
+    assert manifest["session_id"] == "abc123"
+    assert "timestamp" in manifest
+    assert manifest["repo"] == "recruitment-backend"
+    assert len(manifest["entries"]) == 1
+    assert manifest["entries"][0]["file"] == "repo-recruitment-backend/lazy-raise.md"
+    assert manifest["entries"][0]["title"] == "SQLAlchemy lazy='raise' testing pattern"
+
+
+def test_no_manifest_when_no_entries(tmp_path):
+    knowledge_dir = tmp_path / "knowledge"
+    knowledge_dir.mkdir()
+
+    state_file = tmp_path / "state.json"
+    state_file.write_text('{"last_dream_run": null, "sessions": {}}')
+    sessions_dir = tmp_path / "sessions"
+
+    hook_input = {
+        "session_id": "abc123",
+        "transcript_path": "/path",
+        "cwd": "/Users/suren/workspace/cercli/some-repo",
+    }
+
+    handle_session_start(
+        hook_input,
+        knowledge_dir=knowledge_dir,
+        state_file=state_file,
+        sessions_dir=sessions_dir,
+    )
+
+    assert not (sessions_dir / "abc123").exists()
+
+
+def test_env_file_injection(tmp_path, monkeypatch):
+    knowledge_dir = tmp_path / "knowledge"
+    repo_dir = knowledge_dir / "repo-myrepo"
+    repo_dir.mkdir(parents=True)
+
+    (repo_dir / "pattern.md").write_text(
+        "---\ntitle: A pattern\nsummary: Some summary\n---\nContent.\n"
+    )
+
+    state_file = tmp_path / "state.json"
+    state_file.write_text('{"last_dream_run": null, "sessions": {}}')
+    sessions_dir = tmp_path / "sessions"
+
+    env_file = tmp_path / "claude_env"
+    env_file.write_text("")
+    monkeypatch.setenv("CLAUDE_ENV_FILE", str(env_file))
+
+    hook_input = {
+        "session_id": "sess42",
+        "transcript_path": "/path",
+        "cwd": "/path/to/myrepo",
+    }
+
+    handle_session_start(
+        hook_input,
+        knowledge_dir=knowledge_dir,
+        state_file=state_file,
+        sessions_dir=sessions_dir,
+    )
+
+    content = env_file.read_text()
+    assert 'export CLAUDE_CODE_SESSION_ID="sess42"' in content
+
+
+def test_no_env_file_no_error(tmp_path, monkeypatch):
+    monkeypatch.delenv("CLAUDE_ENV_FILE", raising=False)
+
+    knowledge_dir = tmp_path / "knowledge"
+    repo_dir = knowledge_dir / "repo-myrepo"
+    repo_dir.mkdir(parents=True)
+
+    (repo_dir / "pattern.md").write_text(
+        "---\ntitle: A pattern\nsummary: Some summary\n---\nContent.\n"
+    )
+
+    state_file = tmp_path / "state.json"
+    state_file.write_text('{"last_dream_run": null, "sessions": {}}')
+    sessions_dir = tmp_path / "sessions"
+
+    hook_input = {
+        "session_id": "sess99",
+        "transcript_path": "/path",
+        "cwd": "/path/to/myrepo",
+    }
+
+    handle_session_start(
+        hook_input,
+        knowledge_dir=knowledge_dir,
+        state_file=state_file,
+        sessions_dir=sessions_dir,
+    )
