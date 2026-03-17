@@ -577,7 +577,7 @@ def _run_cli(*args: str) -> str:
     if result.returncode != 0:
         error = result.stderr or result.stdout or f"CLI exited with code {result.returncode}"
         _session_log.error("CLI failed: %s", error[:500])
-        raise RuntimeError(error.strip())
+        return json.dumps({"ok": False, "error": error.strip()})
     return result.stdout
 
 
