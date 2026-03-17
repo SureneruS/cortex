@@ -1,0 +1,6 @@
+{
+  "name": "cortex",
+  "description": "Persistent context brain — session orchestration, PR operations, cron scheduling",
+  "version": "0.1.0",
+  "author": {"name": "Suren"}
+}

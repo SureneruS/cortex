@@ -1,30 +1,24 @@
-# Nova
+# Cortex
 
-Claude Code IDE — session management, memory, and focus tracking.
+Companion brain for Claude Code — persistent context, session orchestration, memory.
 
-## Monorepo Structure
-- `python/` — Python package (hooks, exchange, rotation, CLI)
-- `daemon/` — Rust daemon (PTY manager, IPC server)
-- `app/` — Tauri v2 desktop app (Svelte + xterm.js)
-- `schemas/` — YAML frontmatter schema definitions (versioned)
-- `commands/` — Claude Code slash commands
-- `agents/` — Claude Code agent configs (dream, meditate)
-- `resources/` — plist templates, fish completions
+## Structure
+- `cortex/` — MCP server, CLI, GitHub API, cron, daemon
+- `python/src/nova/` — hooks, exchange, rotation (legacy Nova, migrating to cortex/)
+- `agents/` — dream, meditate agent configs
+- `commands/` — slash commands (memorize, handoff, rotate-prep)
+- `skills/` — CC plugin skills (babysit-pr, check-watches, dashboard)
+- `legacy/` — archived code (Tauri app, Rust daemon)
 
 ## Commands
-- `cd python && uv run pytest` — run Python tests
-- `uv tool install --editable python/` — install CLI tools globally
-- `cargo tauri dev` — run Tauri app in dev mode (from app/)
-- `cargo build -p nova-daemon` — build the daemon
+- `uv run pytest` — run all tests
+- `uv tool install --editable . --force` — install CLI tools globally
+- `cortex session list` — list managed sessions
+- `cortex cron list` — list cron jobs
+- `cortex daemon status` — check daemon
 
-## Python Conventions
-- Python 3.13+, ruff for linting
-- TDD: write tests first
-- Frontmatter schemas in schemas/ are source of truth
-- No python-frontmatter library — custom parser with PyYAML
-
-## Rust Conventions
-- Async runtime: tokio
-- PTY management: portable-pty
-- IPC: Unix socket with JSON-line protocol
-- Logging: tracing + tracing-subscriber
+## Conventions
+- Python 3.11+, ruff for linting
+- MongoDB for session registry and cron
+- httpx for GitHub API (not gh CLI)
+- Click for CLI, FastMCP for MCP server

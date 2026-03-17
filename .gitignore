@@ -7,12 +7,18 @@ build/
 .venv/
 .pytest_cache/
 .ruff_cache/
+uv.lock
 
-# Rust
+# Rust (legacy)
 target/
 
-# Node
+# Node (legacy)
 node_modules/
 
 # Worktrees
 .worktrees/
+
+# Legacy venvs
+python/.venv/
+python/.pytest_cache/
+python/.ruff_cache/

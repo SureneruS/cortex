@@ -1,0 +1,12 @@
+{
+  "repos": {
+    "recruitment-backend": "~/workspace/cercli/recruitment-backend",
+    "frontend": "~/workspace/cercli/frontend",
+    "cercli-backend": "~/workspace/cercli/cercli-backend",
+    "infrastructure": "~/workspace/cercli/infrastructure",
+    "storage-service": "~/workspace/cercli/storage-service",
+    "orbit": "~/workspace/cercli/orbit",
+    "suren-toolbox": "~/workspace/cercli/suren-toolbox"
+  },
+  "db_path": "~/.cortex/state.db"
+}

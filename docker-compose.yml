@@ -1,0 +1,8 @@
+services:
+  cortex-web:
+    build: .
+    ports:
+      - "9400:9400"
+    volumes:
+      - ~/.cortex:/root/.cortex
+    restart: unless-stopped
