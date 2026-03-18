@@ -369,7 +369,8 @@ def _cli_log():
 @click.option("--workspace", default="default", help="Workspace (default or background)")
 @click.option("--model", default=None, help="Claude model (e.g. haiku, sonnet, opus)")
 @click.option("--split", is_flag=True, default=False, help="Split current pane horizontally instead of new tab")
-def spawn(name: str, goal: str | None, workspace: str, model: str | None, split: bool) -> None:
+@click.option("--resume", "resume_id", default=None, help="CC session UUID to resume (continues previous conversation)")
+def spawn(name: str, goal: str | None, workspace: str, model: str | None, split: bool, resume_id: str | None) -> None:
     """Spawn a new Claude Code session in a tmux pane."""
     import json
     import subprocess
@@ -377,7 +378,7 @@ def spawn(name: str, goal: str | None, workspace: str, model: str | None, split:
     from cortex.session_registry import _new_id
 
     log = _cli_log()
-    log.info("CLI spawn called: name=%s goal=%s workspace=%s", name, goal, workspace)
+    log.info("CLI spawn called: name=%s goal=%s workspace=%s resume=%s", name, goal, workspace, resume_id)
 
     repo = _get_session_repo()
     session_id = _new_id()
@@ -394,6 +395,9 @@ def spawn(name: str, goal: str | None, workspace: str, model: str | None, split:
         data["goal"] = goal
     if model:
         data["model"] = model
+    if resume_id:
+        data["cc_session_id"] = resume_id
+        data["resumed_from"] = resume_id
 
     repo.register(session_id, data)
     log.info("Session registered in MongoDB")
@@ -412,10 +416,11 @@ def spawn(name: str, goal: str | None, workspace: str, model: str | None, split:
     log.info("Wrote system prompt to %s", prompt_file)
 
     model_flag = f"--model {model} " if model else ""
+    resume_flag = f"--resume {resume_id} " if resume_id else ""
     fish_cmd = (
         f"set -x CORTEX_SESSION_ROLE worker; "
         f"set -x CORTEX_SESSION_ID {session_id}; "
-        f"claude {model_flag}--name {name} --append-system-prompt-file {prompt_file}; exit"
+        f"claude {model_flag}{resume_flag}--name {name} --append-system-prompt-file {prompt_file}; exit"
     )
 
     import os
