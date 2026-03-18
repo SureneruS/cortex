@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import json
-import logging
-import sys
 from pathlib import Path
 
 from mcp.server.fastmcp import FastMCP
@@ -543,24 +541,12 @@ def cortex_daemon_status() -> str:
     return _run_cli("daemon", "status")
 
 
-_log_dir = Path.home() / ".cortex" / "logs"
-_log_dir.mkdir(parents=True, exist_ok=True)
+import structlog as _structlog
 
-_session_log = logging.getLogger("cortex.session.mcp")
-_session_log.setLevel(logging.DEBUG)
-if not _session_log.handlers:
-    _h = logging.StreamHandler(sys.stderr)
-    _h.setFormatter(
-        logging.Formatter("[%(asctime)s] %(name)s %(levelname)s: %(message)s", datefmt="%H:%M:%S")
-    )
-    _session_log.addHandler(_h)
-    _fh = logging.FileHandler(_log_dir / "session.log")
-    _fh.setFormatter(
-        logging.Formatter(
-            "[%(asctime)s] %(name)s %(levelname)s: %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
-        )
-    )
-    _session_log.addHandler(_fh)
+from cortex.observability import setup_logging as _setup_logging
+
+_setup_logging("mcp")
+_session_log = _structlog.get_logger("cortex.mcp")
 
 
 def _run_cli(*args: str) -> str:

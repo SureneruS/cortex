@@ -3,25 +3,15 @@
 from __future__ import annotations
 
 import json
-import logging
 import subprocess
-import sys
 import time
-from pathlib import Path
 
-log_dir = Path.home() / ".cortex" / "logs"
-log_dir.mkdir(parents=True, exist_ok=True)
+import structlog
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="[%(asctime)s] %(name)s %(levelname)s: %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
-    handlers=[
-        logging.FileHandler(log_dir / "daemon.log"),
-        logging.StreamHandler(sys.stdout),
-    ],
-)
-log = logging.getLogger("cortex.daemon")
+from cortex.observability import setup_logging
+
+setup_logging("daemon")
+log = structlog.get_logger("cortex.daemon")
 
 POLL_INTERVAL = 60
 

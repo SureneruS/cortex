@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import logging
 import subprocess
 from datetime import datetime, timezone
 
@@ -11,7 +10,9 @@ from fastapi.responses import JSONResponse, StreamingResponse
 
 from cortex.transforms import apply_transform
 
-log = logging.getLogger(__name__)
+import structlog
+
+log = structlog.get_logger("cortex.dashboard")
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
 _watcher_task: asyncio.Task | None = None

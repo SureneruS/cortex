@@ -9,7 +9,10 @@ from cortex.state import StateManager
 @click.group()
 def cli() -> None:
     """Cortex — persistent context brain for Claude Code."""
-    pass
+    from cortex.observability import bind_correlation, setup_logging
+
+    setup_logging("cli")
+    bind_correlation()
 
 
 @cli.command()
@@ -359,22 +362,9 @@ def _resolve_session(repo: MongoSessionRepo, ref: str) -> dict:
 
 
 def _cli_log():
-    import logging
-    from pathlib import Path
+    import structlog
 
-    log = logging.getLogger("cortex.session.cli")
-    if not log.handlers:
-        log.setLevel(logging.DEBUG)
-        log_dir = Path.home() / ".cortex" / "logs"
-        log_dir.mkdir(parents=True, exist_ok=True)
-        fh = logging.FileHandler(log_dir / "session.log")
-        fh.setFormatter(
-            logging.Formatter(
-                "[%(asctime)s] %(name)s %(levelname)s: %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
-            )
-        )
-        log.addHandler(fh)
-    return log
+    return structlog.get_logger("cortex.cli")
 
 
 @session.command()

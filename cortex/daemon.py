@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import abc
-import logging
 import subprocess
 
-log = logging.getLogger("cortex.daemon")
+import structlog
+
+log = structlog.get_logger("cortex.daemon")
 
 
 class DaemonBackend(abc.ABC):
