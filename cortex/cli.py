@@ -645,34 +645,32 @@ def _pane_exists(pane_id: str | int) -> bool:
 
 
 def _send_to_pane(pane_id: str | int, text: str) -> bool:
+    import os
     import subprocess
+    import tempfile
 
-    if "\n" in text or len(text) > 200:
-        import tempfile
-
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
-            f.write(text)
-            tmp_path = f.name
-        subprocess.run(
+    fd, tmp_path = tempfile.mkstemp(suffix=".txt", prefix="cortex-send-")
+    try:
+        os.write(fd, text.encode())
+        os.close(fd)
+        result = subprocess.run(
             ["tmux", "load-buffer", tmp_path],
             capture_output=True,
             text=True,
         )
+        if result.returncode != 0:
+            return False
         result = subprocess.run(
-            ["tmux", "paste-buffer", "-t", pane_id],
+            ["tmux", "paste-buffer", "-d", "-t", str(pane_id)],
             capture_output=True,
             text=True,
         )
-    else:
-        result = subprocess.run(
-            ["tmux", "send-keys", "-t", pane_id, "-l", text],
-            capture_output=True,
-            text=True,
-        )
-    if result.returncode != 0:
-        return False
+        if result.returncode != 0:
+            return False
+    finally:
+        os.unlink(tmp_path)
     result = subprocess.run(
-        ["tmux", "send-keys", "-t", pane_id, "Enter"],
+        ["tmux", "send-keys", "-t", str(pane_id), "Enter"],
         capture_output=True,
         text=True,
     )
