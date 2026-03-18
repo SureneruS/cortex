@@ -100,6 +100,11 @@ def execute_check_watches(job: dict) -> None:
             if old_status and old_status != new_status:
                 changes.append(f"CI '{check_name}': {old_status} -> {new_status}")
 
+        old_unresolved = last_state.get("unresolvedThreadCount", 0)
+        new_unresolved = current_state.get("unresolvedThreadCount", 0)
+        if new_unresolved != old_unresolved:
+            changes.append(f"Unresolved threads: {old_unresolved} -> {new_unresolved}")
+
         if not changes:
             log.info("Minor state diff for %s#%s, updating baseline", repo, number)
             session_repo.update(

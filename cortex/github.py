@@ -98,12 +98,13 @@ query($owner: String!, $repo: String!, $number: Int!) {
     pullRequest(number: $number) {
       state
       reviewDecision
-      reviews(first: 100) { nodes { state author { login } } }
-      reviewThreads(first: 100) { totalCount }
+      reviews(first: 100) { nodes { state author { login } submittedAt } }
+      reviewThreads(first: 100) { totalCount nodes { isResolved } }
       comments { totalCount }
       commits(last: 1) {
         nodes {
           commit {
+            committedDate
             statusCheckRollup {
               contexts(first: 100) {
                 nodes {
@@ -121,6 +122,49 @@ query($owner: String!, $repo: String!, $number: Int!) {
 """
 
 
+def _compute_author_action(state: dict) -> tuple[bool, list[str]]:
+    if state.get("state") in ("MERGED", "CLOSED"):
+        return False, []
+
+    reasons: list[str] = []
+
+    ci = state.get("ciChecks", {})
+    if any(v in ("FAILURE", "failure") for v in ci.values()):
+        reasons.append("CI failing")
+
+    unresolved = state.get("unresolvedThreadCount", 0)
+    if unresolved > 0:
+        reasons.append(f"{unresolved} unresolved thread(s)")
+
+    if state.get("reviewDecision") == "CHANGES_REQUESTED":
+        last_commit = state.get("lastCommitDate")
+        reviews_with_ts = state.get("reviews", [])
+        cr_dates = [
+            r["submittedAt"]
+            for r in reviews_with_ts
+            if r["state"] == "CHANGES_REQUESTED" and r.get("submittedAt")
+        ]
+        if cr_dates and last_commit:
+            latest_cr = max(cr_dates)
+            if last_commit < latest_cr:
+                reasons.append("Changes requested (not yet addressed)")
+        elif not last_commit:
+            reasons.append("Changes requested")
+
+    ci_values = set(ci.values())
+    all_ci_passed = ci_values and ci_values <= {
+        "SUCCESS", "success", "NEUTRAL", "SKIPPED", "neutral", "skipped",
+    }
+    if (
+        state.get("reviewDecision") == "APPROVED"
+        and all_ci_passed
+        and state.get("unresolvedThreadCount", 0) == 0
+    ):
+        reasons.append("Ready to merge")
+
+    return bool(reasons), reasons
+
+
 def pr_state(number: int, repo: str | None = None) -> dict:
     repo = repo or _detect_repo()
     owner, name = _split_repo(repo)
@@ -135,7 +179,9 @@ def pr_state(number: int, repo: str | None = None) -> dict:
 
     ci_checks: dict[str, str] = {}
     commits = pr["commits"]["nodes"]
+    last_commit_date: str | None = None
     if commits:
+        last_commit_date = commits[0]["commit"].get("committedDate")
         rollup = commits[0]["commit"]["statusCheckRollup"]
         if rollup:
             for node in rollup["contexts"]["nodes"]:
@@ -144,15 +190,36 @@ def pr_state(number: int, repo: str | None = None) -> dict:
                 elif "context" in node:
                     ci_checks[node["context"]] = node["state"]
 
-    reviews = pr["reviews"]["nodes"]
-    return {
+    raw_reviews = pr["reviews"]["nodes"]
+    reviews = [
+        {
+            "state": r["state"],
+            "author": r["author"]["login"] if r.get("author") else None,
+            "submittedAt": r.get("submittedAt"),
+        }
+        for r in raw_reviews
+    ]
+
+    thread_nodes = pr["reviewThreads"].get("nodes", [])
+    unresolved_count = sum(1 for t in thread_nodes if not t.get("isResolved", True))
+
+    state = {
         "state": pr["state"],
         "reviewDecision": pr["reviewDecision"],
         "commentCount": pr["comments"]["totalCount"],
-        "reviewCount": len(reviews),
-        "reviewStates": [r["state"] for r in reviews],
+        "reviewCount": len(raw_reviews),
+        "reviewStates": [r["state"] for r in raw_reviews],
+        "reviews": reviews,
+        "lastCommitDate": last_commit_date,
+        "unresolvedThreadCount": unresolved_count,
         "ciChecks": ci_checks,
     }
+
+    needs_action, action_reasons = _compute_author_action(state)
+    state["needsAuthorAction"] = needs_action
+    state["actionReasons"] = action_reasons
+
+    return state
 
 
 _PR_THREADS_QUERY = """
