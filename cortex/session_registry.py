@@ -81,8 +81,18 @@ class MongoSessionRepo:
     ) -> dict | None:
         return self.update(session_id, {"runtime": runtime}, trigger=trigger)
 
-    def list(self, filters: dict | None = None) -> list[dict]:
-        return list(self._col.find(filters or {}).sort("created_at", -1))
+    def list(
+        self,
+        filters: dict | None = None,
+        *,
+        brief: bool = False,
+        limit: int | None = None,
+    ) -> list[dict]:
+        projection = {"events": 0, "watch.last_state": 0} if brief else None
+        cursor = self._col.find(filters or {}, projection).sort("created_at", -1)
+        if limit:
+            cursor = cursor.limit(limit)
+        return list(cursor)
 
     def close(self, session_id: str, trigger: str = "close") -> dict | None:
         return self.update(

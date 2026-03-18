@@ -85,6 +85,49 @@ def test_list_all(session_repo):
     assert len(all_sessions) == 2
 
 
+def test_list_brief_excludes_events(session_repo):
+    session_repo.register("s1", {"name": "a"})
+    session_repo.update("s1", {"status": "idle"})
+    results = session_repo.list(brief=True)
+    assert len(results) == 1
+    assert "events" not in results[0]
+    assert results[0]["name"] == "a"
+
+
+def test_list_brief_excludes_watch_last_state(session_repo):
+    session_repo.register("s1", {"name": "watcher"})
+    session_repo.update(
+        "s1",
+        {
+            "status": "watching",
+            "watch": {
+                "type": "pr",
+                "repo": "owner/repo",
+                "number": 42,
+                "last_state": {"comments": 5, "checks": "pass"},
+            },
+        },
+    )
+    results = session_repo.list(brief=True)
+    assert "watch" in results[0]
+    assert "last_state" not in results[0]["watch"]
+    assert results[0]["watch"]["type"] == "pr"
+
+
+def test_list_with_limit(session_repo):
+    for i in range(5):
+        session_repo.register(f"s{i}", {"name": f"session-{i}"})
+    results = session_repo.list(limit=3)
+    assert len(results) == 3
+
+
+def test_list_limit_zero_returns_all(session_repo):
+    for i in range(3):
+        session_repo.register(f"s{i}", {"name": f"session-{i}"})
+    results = session_repo.list(limit=0)
+    assert len(results) == 3
+
+
 def test_close_session(session_repo):
     session_repo.register("s1", {"name": "test"})
     closed = session_repo.close("s1")

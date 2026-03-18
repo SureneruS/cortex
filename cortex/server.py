@@ -624,19 +624,27 @@ def cortex_session_spawn(
 
 
 @mcp.tool()
-def cortex_session_list(status: str | None = None) -> str:
-    """List all sessions in the Cortex session registry.
+def cortex_session_list(
+    status: str | None = "active",
+    limit: int | None = 20,
+) -> str:
+    """List sessions in the Cortex session registry.
 
     Use this when the user asks to list, show, or check sessions — NOT Claude Code's built-in session list.
 
-    Args:
-        status: Filter by lifecycle status — "active", "idle", "paused", "blocked", "watching", "completed", "dead", or None for all.
+    Defaults to active sessions only. Pass status="all" for everything, or a specific status to filter.
 
-    Returns JSON array of session documents with fields: _id, name, goal, status, runtime, pane_id, workspace, role, spawned_by, created_at, events. Sessions with status='watching' have a 'watch' field with PR/trigger details (set via cortex_pr_watch)."""
-    _session_log.info("MCP cortex_session_list called: status=%s", status)
-    args = ["session", "list"]
-    if status:
+    Args:
+        status: Filter by lifecycle status — "active", "idle", "paused", "blocked", "watching", "completed", "dead", or "all". Defaults to "active".
+        limit: Max sessions to return. Defaults to 20. Pass 0 for unlimited.
+
+    Returns JSON array of session summaries (events omitted — use cortex_session_get for full details)."""
+    _session_log.info("MCP cortex_session_list called: status=%s, limit=%s", status, limit)
+    args = ["session", "list", "--brief"]
+    if status and status != "all":
         args.extend(["--status", status])
+    if limit:
+        args.extend(["--limit", str(limit)])
     result = _run_cli(*args)
     _session_log.info("MCP cortex_session_list returned %d chars", len(result) if result else 0)
     return result

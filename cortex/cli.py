@@ -530,7 +530,14 @@ def spawn(name: str, goal: str | None, workspace: str, model: str | None, split:
 @session.command("list")
 @click.option("--status", "filter_status", default=None, help="Filter by status")
 @click.option("--runtime", "filter_runtime", default=None, help="Filter by runtime state")
-def list_sessions(filter_status: str | None, filter_runtime: str | None) -> None:
+@click.option("--brief", is_flag=True, default=False, help="Omit events and watch details")
+@click.option("--limit", "limit", type=int, default=None, help="Max sessions to return")
+def list_sessions(
+    filter_status: str | None,
+    filter_runtime: str | None,
+    brief: bool,
+    limit: int | None,
+) -> None:
     """List registered sessions."""
     import json
 
@@ -540,7 +547,7 @@ def list_sessions(filter_status: str | None, filter_runtime: str | None) -> None
         filters["status"] = filter_status
     if filter_runtime:
         filters["runtime"] = filter_runtime
-    sessions = repo.list(filters)
+    sessions = repo.list(filters, brief=brief, limit=limit)
     click.echo(json.dumps(sessions, indent=2, default=str))
 
 
