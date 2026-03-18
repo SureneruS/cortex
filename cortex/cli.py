@@ -469,7 +469,9 @@ def spawn(name: str, goal: str | None, prompt: str | None, workspace: str, model
                 fish_cmd,
             ]
     elif spawn_mode == "split":
-        tmux_cmd = ["tmux", "split-window", "-h", *pane_fmt, "-c", cwd, "fish", "-c", fish_cmd]
+        caller_pane = _resolve_caller_pane(repo)
+        split_target = ["-t", caller_pane] if caller_pane else []
+        tmux_cmd = ["tmux", "split-window", "-h", *split_target, *pane_fmt, "-c", cwd, "fish", "-c", fish_cmd]
     else:
         # Tab/window mode: new window in current session
         tmux_cmd = ["tmux", "new-window", *pane_fmt, "-c", cwd, "fish", "-c", fish_cmd]
@@ -694,6 +696,18 @@ def _wait_for_idle(pane_id: str | int, timeout: int = 30) -> bool:
             return True
         time.sleep(1)
     return False
+
+
+def _resolve_caller_pane(repo: MongoSessionRepo) -> str | None:
+    import os
+
+    caller_id = os.environ.get("CORTEX_SESSION_ID")
+    if not caller_id:
+        return None
+    doc = repo.get(caller_id)
+    if doc and doc.get("pane_id"):
+        return str(doc["pane_id"])
+    return None
 
 
 def _get_current_pane_id() -> str | None:
