@@ -85,6 +85,45 @@ def test_list_all(session_repo):
     assert len(all_sessions) == 2
 
 
+def test_resolve_by_exact_id(session_repo):
+    session_repo.register("sess-abc", {"name": "my-session"})
+    doc = session_repo.resolve("sess-abc")
+    assert doc is not None
+    assert doc["_id"] == "sess-abc"
+
+
+def test_resolve_by_name(session_repo):
+    session_repo.register("s1", {"name": "unique-name"})
+    doc = session_repo.resolve("unique-name")
+    assert doc is not None
+    assert doc["_id"] == "s1"
+
+
+def test_resolve_by_name_ignores_completed(session_repo):
+    session_repo.register("s1", {"name": "worker"})
+    session_repo.register("s2", {"name": "worker", "status": "completed"})
+    doc = session_repo.resolve("worker")
+    assert doc["_id"] == "s1"
+
+
+def test_resolve_ambiguous_name_raises(session_repo):
+    session_repo.register("s1", {"name": "worker"})
+    session_repo.register("s2", {"name": "worker"})
+    with pytest.raises(ValueError, match="Ambiguous name"):
+        session_repo.resolve("worker")
+
+
+def test_resolve_by_id_prefix(session_repo):
+    session_repo.register("abcdef123456", {"name": "test"})
+    doc = session_repo.resolve("abcdef")
+    assert doc is not None
+    assert doc["_id"] == "abcdef123456"
+
+
+def test_resolve_not_found(session_repo):
+    assert session_repo.resolve("nonexistent") is None
+
+
 def test_list_brief_excludes_events(session_repo):
     session_repo.register("s1", {"name": "a"})
     session_repo.update("s1", {"status": "idle"})

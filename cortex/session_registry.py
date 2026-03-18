@@ -94,6 +94,41 @@ class MongoSessionRepo:
             cursor = cursor.limit(limit)
         return list(cursor)
 
+    def resolve(self, ref: str) -> dict | None:
+        """Resolve a session by _id, name (among non-terminal), or _id prefix.
+
+        Returns the session doc, or raises ValueError if ambiguous/not found.
+        """
+        # 1. Exact _id
+        doc = self.get(ref)
+        if doc is not None:
+            return doc
+
+        # 2. Name match among non-terminal sessions
+        active_filter = {"status": {"$nin": ["completed", "dead"]}}
+        by_name = list(self._col.find({"name": ref, **active_filter}).sort("created_at", -1))
+        if len(by_name) == 1:
+            return by_name[0]
+        if len(by_name) > 1:
+            options = ", ".join(f"{d['_id']} ({d.get('status')})" for d in by_name)
+            raise ValueError(f"Ambiguous name '{ref}' matches {len(by_name)} sessions: {options}")
+
+        # 3. _id prefix match
+        by_prefix = list(
+            self._col.find({"_id": {"$regex": f"^{ref}"}}).sort("created_at", -1).limit(5)
+        )
+        if len(by_prefix) == 1:
+            return by_prefix[0]
+        if len(by_prefix) > 1:
+            options = ", ".join(
+                f"{d['_id']} ({d.get('name', '?')}, {d.get('status')})" for d in by_prefix
+            )
+            raise ValueError(
+                f"Ambiguous prefix '{ref}' matches {len(by_prefix)} sessions: {options}"
+            )
+
+        return None
+
     def close(self, session_id: str, trigger: str = "close") -> dict | None:
         return self.update(
             session_id, {"status": "completed", "closed_at": _now()}, trigger=trigger

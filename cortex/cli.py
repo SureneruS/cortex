@@ -344,6 +344,20 @@ def _get_session_repo():
     return MongoSessionRepo(get_db())
 
 
+def _resolve_session(repo: MongoSessionRepo, ref: str) -> dict:
+    import json
+
+    try:
+        doc = repo.resolve(ref)
+    except ValueError as e:
+        click.echo(json.dumps({"error": str(e)}))
+        raise SystemExit(1)
+    if doc is None:
+        click.echo(json.dumps({"error": f"Session not found: {ref}"}))
+        raise SystemExit(1)
+    return doc
+
+
 def _cli_log():
     import logging
     from pathlib import Path
@@ -557,14 +571,11 @@ def list_sessions(
 @session.command()
 @click.argument("session_id")
 def get(session_id: str) -> None:
-    """Get a session by ID."""
+    """Get a session by ID, name, or ID prefix."""
     import json
 
     repo = _get_session_repo()
-    doc = repo.get(session_id)
-    if doc is None:
-        click.echo(json.dumps({"error": f"Session {session_id} not found"}))
-        raise SystemExit(1)
+    doc = _resolve_session(repo, session_id)
     click.echo(json.dumps(doc, indent=2, default=str))
 
 
@@ -614,19 +625,15 @@ def update(session_id: str, data: str, trigger: str) -> None:
         raise SystemExit(1)
 
     repo = _get_session_repo()
+    resolved = _resolve_session(repo, session_id)
     try:
-        doc = repo.update(session_id, fields, trigger=trigger)
+        doc = repo.update(resolved["_id"], fields, trigger=trigger)
     except ValueError as e:
         log.error("Validation error: %s", e)
         click.echo(json.dumps({"error": str(e)}))
         raise SystemExit(1)
 
-    if doc is None:
-        log.warning("Session not found: %s", session_id)
-        click.echo(json.dumps({"error": f"Session {session_id} not found"}))
-        raise SystemExit(1)
-
-    log.info("CLI session update complete: %s", session_id)
+    log.info("CLI session update complete: %s", resolved["_id"])
     click.echo(json.dumps(doc, indent=2, default=str))
 
 
@@ -728,18 +735,15 @@ def send(session_id: str, text: str) -> None:
 
     log = _cli_log()
     repo = _get_session_repo()
-    doc = repo.get(session_id)
-    if doc is None:
-        click.echo(json.dumps({"error": f"Session {session_id} not found"}))
-        raise SystemExit(1)
+    doc = _resolve_session(repo, session_id)
 
     pane_id = doc.get("pane_id")
     if pane_id is None or not _pane_exists(pane_id):
-        click.echo(json.dumps({"error": f"Pane not available for session {session_id}"}))
+        click.echo(json.dumps({"error": f"Pane not available for session {doc['_id']}"}))
         raise SystemExit(1)
 
     ok = _send_to_pane(pane_id, text)
-    log.info("Send to session %s pane %s: ok=%s text=%r", session_id, pane_id, ok, text[:100])
+    log.info("Send to session %s pane %s: ok=%s text=%r", doc["_id"], pane_id, ok, text[:100])
     click.echo(json.dumps({"ok": ok, "session_id": session_id, "pane_id": pane_id}))
 
 
@@ -753,14 +757,11 @@ def capture(session_id: str, lines: int) -> None:
 
     log = _cli_log()
     repo = _get_session_repo()
-    doc = repo.get(session_id)
-    if doc is None:
-        click.echo(json.dumps({"error": f"Session {session_id} not found"}))
-        raise SystemExit(1)
+    doc = _resolve_session(repo, session_id)
 
     pane_id = doc.get("pane_id")
     if pane_id is None or not _pane_exists(pane_id):
-        click.echo(json.dumps({"error": f"Pane not available for session {session_id}"}))
+        click.echo(json.dumps({"error": f"Pane not available for session {doc['_id']}"}))
         raise SystemExit(1)
 
     result = subprocess.run(
@@ -769,7 +770,7 @@ def capture(session_id: str, lines: int) -> None:
         text=True,
     )
     output = result.stdout.rstrip() if result.returncode == 0 else ""
-    log.info("Capture session %s pane %s: %d chars", session_id, pane_id, len(output))
+    log.info("Capture session %s pane %s: %d chars", doc["_id"], pane_id, len(output))
     click.echo(json.dumps({"session_id": session_id, "pane_id": pane_id, "output": output}))
 
 
@@ -789,11 +790,8 @@ def close(session_id: str, force: bool) -> None:
     log.info("CLI session close called: session_id=%s force=%s", session_id, force)
 
     repo = _get_session_repo()
-    doc = repo.get(session_id)
-    if doc is None:
-        log.warning("Session not found: %s", session_id)
-        click.echo(json.dumps({"error": f"Session {session_id} not found"}))
-        raise SystemExit(1)
+    doc = _resolve_session(repo, session_id)
+    session_id = doc["_id"]
 
     pane_id = doc.get("pane_id")
     self_close = os.environ.get("CORTEX_SESSION_ID") == session_id
