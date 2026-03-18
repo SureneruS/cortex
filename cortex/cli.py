@@ -553,6 +553,29 @@ def get(session_id: str) -> None:
 
 
 @session.command()
+@click.option("--data", required=True, help="JSON object of fields to set on the new session")
+@click.option("--id", "session_id", default=None, help="Use a specific ID (default: auto-generate)")
+def register(data: str, session_id: str | None) -> None:
+    """Register a new session in the Cortex registry (for hooks and manual sessions)."""
+    import json
+
+    log = _cli_log()
+    log.info("CLI session register called: id=%s data=%s", session_id, data)
+
+    try:
+        fields = json.loads(data)
+    except json.JSONDecodeError as e:
+        log.error("Invalid JSON in --data: %s", e)
+        click.echo(json.dumps({"error": f"Invalid JSON: {e}"}))
+        raise SystemExit(1)
+
+    repo = _get_session_repo()
+    doc = repo.register(session_id, fields)
+    log.info("Session registered: %s", doc["_id"])
+    click.echo(json.dumps(doc, indent=2, default=str))
+
+
+@session.command()
 @click.argument("session_id")
 @click.option(
     "--data", required=True, help="JSON object of fields to merge into the session document"

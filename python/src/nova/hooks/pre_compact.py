@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -10,13 +12,19 @@ from nova.lib.state import CompactCursor, NovaState
 NOVA_DIR = Path.home() / ".nova"
 
 
+def _cortex_cli(*args: str) -> str | None:
+    try:
+        result = subprocess.run(
+            ["cortex", *args], capture_output=True, text=True, timeout=5
+        )
+        return result.stdout if result.returncode == 0 else None
+    except Exception:
+        return None
+
+
 def _scan_transcript_bounds(
     path: Path, from_line: int
 ) -> tuple[int, int, str, str]:
-    """Scan JSONL transcript from `from_line` to EOF.
-
-    Returns (to_line, to_byte, from_time, to_time).
-    """
     to_line = from_line
     to_byte = 0
     from_time = ""
@@ -56,6 +64,15 @@ def handle_pre_compact(
 
     session_id = hook_input.get("session_id", "")
     transcript_path = hook_input.get("transcript_path", "")
+
+    # Update Cortex registry
+    cortex_session_id = os.environ.get("CORTEX_SESSION_ID")
+    if cortex_session_id:
+        _cortex_cli(
+            "session", "update", cortex_session_id,
+            "--data", json.dumps({"last_compaction": datetime.now(timezone.utc).isoformat()}),
+            "--trigger", "pre_compact",
+        )
 
     if not session_id or not state_file.exists():
         return {}

@@ -1,4 +1,6 @@
 import json
+import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -61,6 +63,16 @@ STOP_WORDS = frozenset(
 )
 
 
+def _cortex_cli(*args: str) -> str | None:
+    try:
+        result = subprocess.run(
+            ["cortex", *args], capture_output=True, text=True, timeout=5
+        )
+        return result.stdout if result.returncode == 0 else None
+    except Exception:
+        return None
+
+
 def _tokenize(text: str) -> set[str]:
     words = set()
     for word in text.lower().split():
@@ -103,6 +115,15 @@ def handle_user_prompt(
     session_id = hook_input.get("session_id", "")
     prompt_content = hook_input.get("prompt", "")
 
+    # Update Cortex registry with last_active_at
+    cortex_session_id = os.environ.get("CORTEX_SESSION_ID")
+    if cortex_session_id:
+        _cortex_cli(
+            "session", "update", cortex_session_id,
+            "--data", json.dumps({"runtime": "working"}),
+            "--trigger", "user_prompt",
+        )
+
     if not state_file.exists():
         return {}
     state = NovaState(state_file)
@@ -112,7 +133,7 @@ def handle_user_prompt(
     if prompt_content and session.get("memory_injected", False):
         match = _check_confirmation(prompt_content)
         if match:
-            context = "[Nova] Sounds like you resolved something — consider running /memorize to capture what you learned."
+            context = "[Cortex] Sounds like you resolved something — consider running /memorize to capture what you learned."
             return _wrap_context(context, "UserPromptSubmit")
         return {}
 
@@ -172,7 +193,7 @@ def handle_user_prompt(
             )
             lines.append(f"- **{path.stem}**: {first_line}")
 
-    context = "[Nova] Relevant context for your goal:\n\n" + "\n".join(lines)
+    context = "[Cortex] Relevant context for your goal:\n\n" + "\n".join(lines)
     return _wrap_context(context, "UserPromptSubmit")
 
 
