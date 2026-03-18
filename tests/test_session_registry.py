@@ -389,7 +389,7 @@ class TestCLIUpdateEvents:
 class TestCLIHealth:
     def test_health_persists_runtime_busy(self, _patch_cli_db, _seed_session_with_pane, cli_db):
         with (
-            patch("cortex.cli._pane_exists", return_value=True),
+            patch("cortex.cli._get_tmux_panes", return_value={"%42"}),
             patch("subprocess.run") as mock_run,
         ):
             mock_run.return_value = MagicMock(
@@ -397,7 +397,9 @@ class TestCLIHealth:
             )
             code, output = _run_cli(["session", "health"])
         assert code == 0
-        assert output[0]["runtime"] == "working"
+        runtime_findings = [f for f in output["findings"] if f.get("check") == "runtime"]
+        assert len(runtime_findings) == 1
+        assert runtime_findings[0]["runtime"] == "working"
         doc = MongoSessionRepo(cli_db).get("cli-pane-1")
         assert doc["runtime"] == "working"
         runtime_events = [e for e in doc["events"] if e["field"] == "runtime"]
@@ -405,12 +407,51 @@ class TestCLIHealth:
         assert runtime_events[0]["to"] == "working"
 
     def test_health_dead_pane_updates_status(self, _patch_cli_db, _seed_session_with_pane, cli_db):
-        with patch("cortex.cli._pane_exists", return_value=False):
+        with patch("cortex.cli._get_tmux_panes", return_value=set()):
             code, output = _run_cli(["session", "health"])
         assert code == 0
-        assert output[0]["status"] == "dead"
+        dead_findings = [f for f in output["findings"] if f.get("check") == "dead_pane"]
+        assert len(dead_findings) == 1
+        assert dead_findings[0]["session_id"] == "cli-pane-1"
+        assert output["summary"]["critical"] == 1
         doc = MongoSessionRepo(cli_db).get("cli-pane-1")
         assert doc["status"] == "dead"
         status_events = [e for e in doc["events"] if e["field"] == "status"]
         assert status_events[-1]["to"] == "dead"
         assert status_events[-1]["trigger"] == "health-check"
+
+    def test_health_detects_stale_session(self, _patch_cli_db, cli_db):
+        from datetime import datetime, timezone, timedelta
+
+        repo = MongoSessionRepo(cli_db)
+        old_time = (datetime.now(timezone.utc) - timedelta(hours=30)).isoformat()
+        repo._col.insert_one({
+            "_id": "stale-1",
+            "name": "stale-session",
+            "status": "active",
+            "pane_id": "%99",
+            "runtime": "unknown",
+            "created_at": old_time,
+            "events": [{"field": "status", "from": None, "to": "active", "at": old_time, "trigger": "spawn"}],
+        })
+        with (
+            patch("cortex.cli._get_tmux_panes", return_value={"%99"}),
+            patch("subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = MagicMock(returncode=0, stdout="❯ \n", stderr="")
+            code, output = _run_cli(["session", "health"])
+        assert code == 0
+        stale = [f for f in output["findings"] if f.get("check") == "stale"]
+        assert len(stale) == 1
+        assert stale[0]["hours_since_activity"] > 24
+
+    def test_health_detects_untracked_panes(self, _patch_cli_db, cli_db):
+        import subprocess
+
+        with patch("cortex.cli._get_tmux_panes", return_value={"%50", "%51"}):
+            with patch("subprocess.run") as mock_run:
+                mock_run.return_value = MagicMock(returncode=0, stdout="fish\n", stderr="")
+                code, output = _run_cli(["session", "health"])
+        assert code == 0
+        untracked = [f for f in output["findings"] if f.get("check") == "untracked_pane"]
+        assert len(untracked) == 2

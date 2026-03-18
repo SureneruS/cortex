@@ -748,12 +748,12 @@ def cortex_session_close(session_id: str, force: bool = False) -> str:
 
 @mcp.tool()
 def cortex_session_health() -> str:
-    """Check health of all non-terminal sessions — detect dead panes, persist runtime state.
+    """Comprehensive session health check — dead panes, stale sessions, untracked panes, runtime state.
 
-    Persists runtime observations (working/waiting_input) and marks dead panes (status=dead).
-    All state changes are recorded as events in each session's event log.
+    Checks: dead panes (critical), stale sessions >24h (warning), untracked tmux panes (info),
+    runtime state detection (info). Automatically marks dead-pane sessions as dead.
 
-    Returns JSON array with fields: session_id, name, pane_id, status, runtime, pane_status."""
+    Returns JSON with summary (counts by severity) and findings array sorted by severity."""
     _session_log.info("MCP cortex_session_health called")
     result = _run_cli("session", "health")
     _session_log.info("MCP cortex_session_health returned %d chars", len(result) if result else 0)

@@ -880,62 +880,143 @@ def auto_close(pane_id: str) -> None:
     click.echo(json.dumps(doc, indent=2, default=str))
 
 
+def _get_tmux_panes() -> set[str]:
+    import subprocess
+
+    result = subprocess.run(
+        ["tmux", "list-panes", "-a", "-F", "#{pane_id}"],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        return set()
+    return {line.strip() for line in result.stdout.strip().splitlines() if line.strip()}
+
+
+def _last_event_age_hours(doc: dict) -> float | None:
+    from datetime import datetime, timezone
+
+    events = doc.get("events", [])
+    if not events:
+        created = doc.get("created_at")
+        if not created:
+            return None
+        ts = created
+    else:
+        ts = events[-1].get("at", doc.get("created_at"))
+    if not ts:
+        return None
+    try:
+        dt = datetime.fromisoformat(ts)
+        return (datetime.now(timezone.utc) - dt).total_seconds() / 3600
+    except (ValueError, TypeError):
+        return None
+
+
 @session.command()
 def health() -> None:
-    """Check health of all active sessions — detect dead panes, persist runtime state."""
+    """Comprehensive health check — dead panes, stale sessions, untracked panes, runtime state.
+
+    Returns structured report with severity levels (critical/warning/info).
+    Automatically fixes: marks dead-pane sessions as dead, updates runtime state.
+    """
     import json
     import subprocess
 
     log = _cli_log()
     repo = _get_session_repo()
+    live_panes = _get_tmux_panes()
     sessions = repo.list({"status": {"$nin": ["completed", "dead"]}})
+    registry_panes: set[str] = set()
 
-    results = []
+    findings: list[dict] = []
+
     for doc in sessions:
         pane_id = doc.get("pane_id")
         session_id = doc["_id"]
-        entry = {
-            "session_id": session_id,
-            "name": doc.get("name"),
-            "pane_id": pane_id,
-            "status": doc.get("status"),
-            "runtime": doc.get("runtime", "unknown"),
-        }
+        name = doc.get("name", session_id)
+        if pane_id:
+            registry_panes.add(str(pane_id))
 
-        if pane_id is None:
-            entry["pane_status"] = "no_pane"
+        if pane_id is None or str(pane_id) not in live_panes:
             repo.update(
                 session_id, {"status": "dead", "runtime": "unknown"}, trigger="health-check"
             )
-            entry["status"] = "dead"
-            entry["runtime"] = "unknown"
-        elif not _pane_exists(pane_id):
-            entry["pane_status"] = "dead"
-            repo.update(
-                session_id, {"status": "dead", "runtime": "unknown"}, trigger="health-check"
-            )
-            entry["status"] = "dead"
-            entry["runtime"] = "unknown"
+            findings.append({
+                "severity": "critical",
+                "check": "dead_pane",
+                "session_id": session_id,
+                "name": name,
+                "pane_id": pane_id,
+                "message": f"Session '{name}' has no live tmux pane — marked dead",
+            })
+            continue
+
+        # Pane alive — detect runtime
+        result = subprocess.run(
+            ["tmux", "capture-pane", "-t", pane_id, "-p"],
+            capture_output=True,
+            text=True,
+        )
+        last_line = result.stdout.rstrip().rsplit("\n", 1)[-1] if result.stdout else ""
+        if "❯" in last_line:
+            runtime = "waiting_input"
         else:
-            result = subprocess.run(
-                ["tmux", "capture-pane", "-t", pane_id, "-p"],
-                capture_output=True,
-                text=True,
-            )
-            last_line = result.stdout.rstrip().rsplit("\n", 1)[-1] if result.stdout else ""
-            if "❯" in last_line:
-                entry["pane_status"] = "idle"
-                runtime = "waiting_input"
-            else:
-                entry["pane_status"] = "busy"
-                runtime = "working"
-            repo.update_runtime(session_id, runtime)
-            entry["runtime"] = runtime
+            runtime = "working"
+        repo.update_runtime(session_id, runtime)
 
-        results.append(entry)
+        # Stale check (>24h since last event)
+        age_h = _last_event_age_hours(doc)
+        if age_h is not None and age_h > 24:
+            findings.append({
+                "severity": "warning",
+                "check": "stale",
+                "session_id": session_id,
+                "name": name,
+                "hours_since_activity": round(age_h, 1),
+                "message": f"Session '{name}' has had no activity for {round(age_h, 1)}h",
+            })
 
-    log.info("Health check: %d sessions checked", len(results))
-    click.echo(json.dumps(results, indent=2, default=str))
+        findings.append({
+            "severity": "info",
+            "check": "runtime",
+            "session_id": session_id,
+            "name": name,
+            "pane_id": pane_id,
+            "runtime": runtime,
+            "status": doc.get("status"),
+        })
+
+    # Untracked panes — tmux panes not in any active session's registry
+    untracked = live_panes - registry_panes
+    for pane_id in sorted(untracked):
+        result = subprocess.run(
+            ["tmux", "display-message", "-t", pane_id, "-p", "#{pane_title}"],
+            capture_output=True,
+            text=True,
+        )
+        title = result.stdout.strip() if result.returncode == 0 else ""
+        findings.append({
+            "severity": "info",
+            "check": "untracked_pane",
+            "pane_id": pane_id,
+            "pane_title": title,
+            "message": f"tmux pane {pane_id} ('{title}') not in session registry",
+        })
+
+    # Sort: critical first, then warning, then info
+    severity_order = {"critical": 0, "warning": 1, "info": 2}
+    findings.sort(key=lambda f: severity_order.get(f["severity"], 9))
+
+    summary = {
+        "total_sessions": len(sessions),
+        "critical": sum(1 for f in findings if f["severity"] == "critical"),
+        "warning": sum(1 for f in findings if f["severity"] == "warning"),
+        "info": sum(1 for f in findings if f["severity"] == "info"),
+    }
+
+    log.info("Health check: %d sessions, %d findings", len(sessions), len(findings))
+    click.echo(json.dumps({"summary": summary, "findings": findings}, indent=2, default=str))
 
 
 @session.command()
