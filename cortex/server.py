@@ -583,7 +583,8 @@ def _run_cli(*args: str) -> str:
 
 @mcp.tool()
 def cortex_session_spawn(
-    name: str, goal: str | None = None, workspace: str = "default", model: str | None = None
+    name: str, goal: str | None = None, workspace: str = "default",
+    model: str | None = None, split: bool = False,
 ) -> str:
     """Spawn a new Claude Code session in a tmux pane and register it in the session registry.
 
@@ -592,23 +593,27 @@ def cortex_session_spawn(
     Args:
         name: Human-readable session name (e.g. "fix-login-bug")
         goal: What the session should accomplish
-        workspace: "default" opens in current tmux session (configurable via CORTEX_SPAWN_MODE env: tab/split/window), "background" opens in a detached background tmux session
+        workspace: "default" opens in current tmux session, "background" opens in a detached background tmux session
         model: Claude model alias (e.g. "haiku", "sonnet", "opus") or full model ID. Default: inherits from environment.
+        split: If True, split the current pane horizontally (to the right) instead of opening a new tab.
 
     Returns JSON with session_id, pane_id, name, workspace, goal.
     The spawned session gets CORTEX_SESSION_ROLE=worker and a system prompt."""
     _session_log.info(
-        "MCP cortex_session_spawn called: name=%s goal=%s workspace=%s model=%s",
+        "MCP cortex_session_spawn called: name=%s goal=%s workspace=%s model=%s split=%s",
         name,
         goal,
         workspace,
         model,
+        split,
     )
     args = ["session", "spawn", "--name", name, "--workspace", workspace]
     if goal:
         args.extend(["--goal", goal])
     if model:
         args.extend(["--model", model])
+    if split:
+        args.append("--split")
     result = _run_cli(*args)
     _session_log.info("MCP cortex_session_spawn result: %s", result[:200] if result else "empty")
     return result

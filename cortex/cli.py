@@ -368,7 +368,8 @@ def _cli_log():
 @click.option("--goal", default=None, help="What the session should accomplish")
 @click.option("--workspace", default="default", help="Workspace (default or background)")
 @click.option("--model", default=None, help="Claude model (e.g. haiku, sonnet, opus)")
-def spawn(name: str, goal: str | None, workspace: str, model: str | None) -> None:
+@click.option("--split", is_flag=True, default=False, help="Split current pane horizontally instead of new tab")
+def spawn(name: str, goal: str | None, workspace: str, model: str | None, split: bool) -> None:
     """Spawn a new Claude Code session in a tmux pane."""
     import json
     import subprocess
@@ -419,9 +420,9 @@ def spawn(name: str, goal: str | None, workspace: str, model: str | None) -> Non
 
     import os
 
-    spawn_mode = os.environ.get("CORTEX_SPAWN_MODE", "tab")
+    spawn_mode = "split" if split else os.environ.get("CORTEX_SPAWN_MODE", "tab")
     cwd = os.getcwd()
-    log.info("Spawn cwd: %s", cwd)
+    log.info("Spawn cwd: %s spawn_mode: %s", cwd, spawn_mode)
 
     pane_fmt = "-P", "-F", "#{pane_id}"
 
