@@ -710,28 +710,11 @@ def _resolve_caller_pane(repo: MongoSessionRepo) -> str | None:
     return None
 
 
-def _get_current_pane_id() -> str | None:
-    import subprocess
-
-    result = subprocess.run(
-        ["tmux", "display-message", "-p", "#{pane_id}"],
-        capture_output=True,
-        text=True,
-    )
-    return result.stdout.strip() if result.returncode == 0 else None
-
-
 def _kill_pane(pane_id: str | int) -> bool:
     import subprocess
 
-    current = _get_current_pane_id()
-    if current and str(pane_id) == current:
-        log = _cli_log()
-        log.error("REFUSED to kill pane %s — it is the current (control) session", pane_id)
-        return False
-
     result = subprocess.run(
-        ["tmux", "kill-pane", "-t", pane_id],
+        ["tmux", "kill-pane", "-t", str(pane_id)],
         capture_output=True,
         text=True,
     )
@@ -798,10 +781,11 @@ def capture(session_id: str, lines: int) -> None:
 def close(session_id: str, force: bool) -> None:
     """Close a session with full wrapup lifecycle.
 
-    Steps: send /memorize, wait for completion, update linked stream, close registry, kill pane.
+    Steps: send /memorize, wait for completion, update linked stream, close registry, kill/exit pane.
     Use --force to skip /memorize and close immediately.
     """
     import json
+    import os
 
     log = _cli_log()
     log.info("CLI session close called: session_id=%s force=%s", session_id, force)
@@ -814,22 +798,7 @@ def close(session_id: str, force: bool) -> None:
         raise SystemExit(1)
 
     pane_id = doc.get("pane_id")
-    current_pane = _get_current_pane_id()
-    if pane_id and current_pane and str(pane_id) == current_pane:
-        log.error(
-            "REFUSED to close session %s — its pane %s is the caller's own pane",
-            session_id,
-            pane_id,
-        )
-        click.echo(
-            json.dumps(
-                {
-                    "error": f"Cannot close session {session_id}: its pane {pane_id} is the calling session's pane"
-                }
-            )
-        )
-        raise SystemExit(1)
-
+    self_close = os.environ.get("CORTEX_SESSION_ID") == session_id
     pane_alive = pane_id is not None and _pane_exists(pane_id)
     log.info("pane_id=%s pane_alive=%s", pane_id, pane_alive)
 
@@ -872,9 +841,12 @@ def close(session_id: str, force: bool) -> None:
     doc = repo.close(session_id)
     log.info("Registry entry closed: status=%s", doc["status"])
 
-    # Step 4: Kill tmux pane
+    # Step 4: Terminate tmux pane
     if pane_alive:
-        if _kill_pane(pane_id):
+        if self_close:
+            log.info("Self-close: sending /exit to own pane %s", pane_id)
+            _send_to_pane(pane_id, "/exit")
+        elif _kill_pane(pane_id):
             log.info("Killed pane %s", pane_id)
         else:
             log.warning("Failed to kill pane %s", pane_id)
