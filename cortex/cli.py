@@ -365,12 +365,13 @@ def _cli_log():
 
 @session.command()
 @click.option("--name", required=True, help="Session name")
-@click.option("--goal", default=None, help="What the session should accomplish")
+@click.option("--goal", default=None, help="Registry metadata describing the session's purpose")
+@click.option("--prompt", default=None, help="Prompt to send to the session after it starts")
 @click.option("--workspace", default="default", help="Workspace (default or background)")
 @click.option("--model", default=None, help="Claude model (e.g. haiku, sonnet, opus)")
 @click.option("--split", is_flag=True, default=False, help="Split current pane horizontally instead of new tab")
 @click.option("--resume", "resume_id", default=None, help="CC session UUID to resume (continues previous conversation)")
-def spawn(name: str, goal: str | None, workspace: str, model: str | None, split: bool, resume_id: str | None) -> None:
+def spawn(name: str, goal: str | None, prompt: str | None, workspace: str, model: str | None, split: bool, resume_id: str | None) -> None:
     """Spawn a new Claude Code session in a tmux pane."""
     import json
     import subprocess
@@ -378,7 +379,7 @@ def spawn(name: str, goal: str | None, workspace: str, model: str | None, split:
     from cortex.session_registry import _new_id
 
     log = _cli_log()
-    log.info("CLI spawn called: name=%s goal=%s workspace=%s resume=%s", name, goal, workspace, resume_id)
+    log.info("CLI spawn called: name=%s goal=%s prompt=%s workspace=%s resume=%s", name, goal, bool(prompt), workspace, resume_id)
 
     repo = _get_session_repo()
     session_id = _new_id()
@@ -488,29 +489,29 @@ def spawn(name: str, goal: str | None, workspace: str, model: str | None, split:
         repo.update(session_id, {"pane_id": pane_id})
         log.info("Updated session with pane_id=%s", pane_id)
 
-        if goal:
-            goal_file = prompt_dir / f"{session_id}-goal.txt"
-            goal_file.write_text(goal)
-            log_file = Path.home() / ".cortex" / "logs" / "goal-sender.log"
+        if prompt:
+            prompt_file_path = prompt_dir / f"{session_id}-prompt.txt"
+            prompt_file_path.write_text(prompt)
+            log_file = Path.home() / ".cortex" / "logs" / "prompt-sender.log"
             send_script = (
                 f"set log_file {log_file}; "
-                f"echo (date) 'Goal sender started for pane {pane_id}' >> $log_file; "
+                f"echo (date) 'Prompt sender started for pane {pane_id}' >> $log_file; "
                 f"set attempt 0; "
                 f"while not tmux capture-pane -t {pane_id} -p 2>/dev/null | grep -q '❯'; "
                 f"set attempt (math $attempt + 1); "
                 f'echo (date) "Attempt $attempt: waiting for prompt on pane {pane_id}" >> $log_file; '
                 f"if test $attempt -gt 30; echo (date) 'Timed out after 30 attempts' >> $log_file; exit 1; end; "
                 f"sleep 1; end; "
-                f"echo (date) 'Prompt detected, sending goal to pane {pane_id}' >> $log_file; "
-                f"tmux send-keys -t {pane_id} -l (cat {goal_file}); "
+                f"echo (date) 'Prompt detected, sending to pane {pane_id}' >> $log_file; "
+                f"tmux send-keys -t {pane_id} -l (cat {prompt_file_path}); "
                 f"sleep 0.5; "
                 f"tmux send-keys -t {pane_id} Enter; "
-                f"echo (date) 'Goal sent successfully to pane {pane_id}' >> $log_file"
+                f"echo (date) 'Prompt sent successfully to pane {pane_id}' >> $log_file"
             )
             subprocess.Popen(
                 ["fish", "-c", send_script], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
             )
-            log.info("Launched background goal sender for pane %s (log: %s)", pane_id, log_file)
+            log.info("Launched background prompt sender for pane %s (log: %s)", pane_id, log_file)
     else:
         log.error("Failed to get pane_id from tmux")
 

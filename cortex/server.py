@@ -583,8 +583,9 @@ def _run_cli(*args: str) -> str:
 
 @mcp.tool()
 def cortex_session_spawn(
-    name: str, goal: str | None = None, workspace: str = "default",
-    model: str | None = None, split: bool = False, resume: str | None = None,
+    name: str, goal: str | None = None, prompt: str | None = None,
+    workspace: str = "default", model: str | None = None,
+    split: bool = False, resume: str | None = None,
 ) -> str:
     """Spawn a new Claude Code session in a tmux pane and register it in the session registry.
 
@@ -592,18 +593,19 @@ def cortex_session_spawn(
 
     Args:
         name: Human-readable session name (e.g. "fix-login-bug")
-        goal: What the session should accomplish
+        goal: Registry metadata describing the session's purpose (shown in session_list/session_get). Not sent to the session.
+        prompt: Prompt to send to the session after it starts. Use this OR follow up with cortex_session_send — not both.
         workspace: "default" opens in current tmux session, "background" opens in a detached background tmux session
         model: Claude model alias (e.g. "haiku", "sonnet", "opus") or full model ID. Default: inherits from environment.
         split: If True, split the current pane horizontally (to the right) instead of opening a new tab.
         resume: CC session UUID to resume. Continues the previous conversation with full context.
 
-    Returns JSON with session_id, pane_id, name, workspace, goal.
-    The spawned session gets CORTEX_SESSION_ROLE=worker and a system prompt."""
+    Returns JSON with session_id, pane_id, name, workspace."""
     _session_log.info(
-        "MCP cortex_session_spawn called: name=%s goal=%s workspace=%s model=%s split=%s resume=%s",
+        "MCP cortex_session_spawn called: name=%s goal=%s prompt=%s workspace=%s model=%s split=%s resume=%s",
         name,
         goal,
+        bool(prompt),
         workspace,
         model,
         split,
@@ -612,6 +614,8 @@ def cortex_session_spawn(
     args = ["session", "spawn", "--name", name, "--workspace", workspace]
     if goal:
         args.extend(["--goal", goal])
+    if prompt:
+        args.extend(["--prompt", prompt])
     if model:
         args.extend(["--model", model])
     if split:
