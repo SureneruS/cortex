@@ -8,11 +8,12 @@ from mcp.server.fastmcp import FastMCP
 from cortex import github
 from cortex.config import load_config
 from cortex.models import Checkpoint, Update
-from cortex.state import StateManager
+from cortex.mongo import get_db
+from cortex.mongo_state import MongoStateManager
 
 mcp = FastMCP("cortex", instructions="Cortex — persistent context brain for Claude Code sessions")
 
-_state: StateManager | None = None
+_state: MongoStateManager | None = None
 
 
 def _notify_dashboard() -> None:
@@ -26,11 +27,11 @@ def _notify_dashboard() -> None:
         pass
 
 
-def _get_state() -> StateManager:
+def _get_state() -> MongoStateManager:
     global _state
     if _state is None:
         config = load_config()
-        _state = StateManager(config.resolved_db_path)
+        _state = MongoStateManager(get_db(), config.resolved_vec_db_path)
         _state.init_db()
         _state.on_mutation = _notify_dashboard
     return _state

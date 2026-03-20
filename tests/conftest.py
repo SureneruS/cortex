@@ -8,8 +8,9 @@ from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
+from pymongo import MongoClient
 
-from cortex.state import StateManager
+from cortex.mongo_state import MongoStateManager
 
 
 EMBEDDING_DIMS = 768
@@ -39,14 +40,25 @@ def _mock_embedder():
 
 
 @pytest.fixture
-def state(tmp_path: Path) -> StateManager:
-    sm = StateManager(tmp_path / "test.db")
+def mongo_db():
+    client = MongoClient("mongodb://localhost:27017")
+    db = client["cortex_state_test"]
+    yield db
+    for name in db.list_collection_names():
+        db.drop_collection(name)
+    client.close()
+
+
+@pytest.fixture
+def state(tmp_path: Path, mongo_db) -> MongoStateManager:
+    vec_path = tmp_path / "vec.db"
+    sm = MongoStateManager(mongo_db, vec_path)
     sm.init_db()
     return sm
 
 
 @pytest.fixture
-def populated_state(state: StateManager) -> StateManager:
+def populated_state(state: MongoStateManager) -> MongoStateManager:
     stream = state.create_stream("Ralph Loop", ["suren-toolbox"])
     state.add_update(stream.id, "Implemented docker sandbox with volume mounts for .claude and workspace", "Docker sandbox setup")
     state.add_update(stream.id, "Fixed ralph loop workflow to use prd-driven iteration", "PRD-driven loop complete")
@@ -56,14 +68,14 @@ def populated_state(state: StateManager) -> StateManager:
 
 
 @pytest.fixture
-def api_client(state: StateManager):
+def api_client(state: MongoStateManager):
     from cortex import api
     with patch.object(api, "_state", state):
         yield TestClient(api.app)
 
 
 @pytest.fixture
-async def async_client(state: StateManager):
+async def async_client(state: MongoStateManager):
     import asyncio as _asyncio
     from cortex import api, dashboard
     from httpx import ASGITransport, AsyncClient

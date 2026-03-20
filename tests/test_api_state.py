@@ -1,7 +1,7 @@
-from cortex.state import StateManager
+from cortex.mongo_state import MongoStateManager
 
 
-def test_unlink_session(state: StateManager):
+def test_unlink_session(state: MongoStateManager):
     stream = state.create_stream("Test", ["repo"])
     state.link_session("sess-001", stream.id, repo="repo")
     sessions_before = state.get_stream_context(stream.id)["sessions"]
@@ -12,12 +12,12 @@ def test_unlink_session(state: StateManager):
     assert len(sessions_after) == 0
 
 
-def test_unlink_session_nonexistent(state: StateManager):
+def test_unlink_session_nonexistent(state: MongoStateManager):
     stream = state.create_stream("Test", ["repo"])
     state.unlink_session("nonexistent", stream.id)  # should not raise
 
 
-def test_move_session(state: StateManager):
+def test_move_session(state: MongoStateManager):
     s1 = state.create_stream("Stream A", ["repo"])
     s2 = state.create_stream("Stream B", ["repo"])
     state.link_session("sess-001", s1.id, repo="repo")
@@ -31,7 +31,7 @@ def test_move_session(state: StateManager):
     assert ctx2["sessions"][0]["session_id"] == "sess-001"
 
 
-def test_get_recent_activity(state: StateManager):
+def test_get_recent_activity(state: MongoStateManager):
     s1 = state.create_stream("Stream A", ["repo"])
     s2 = state.create_stream("Stream B", ["repo"])
     state.add_update(s1.id, "First update", "First")

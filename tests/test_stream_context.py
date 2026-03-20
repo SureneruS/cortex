@@ -1,8 +1,8 @@
-from cortex.state import StateManager
+from cortex.mongo_state import MongoStateManager
 
 
 class TestGetStreamContext:
-    def test_returns_updates_and_decisions(self, state: StateManager):
+    def test_returns_updates_and_decisions(self, state: MongoStateManager):
         s = state.create_stream("Test", ["repo"])
         state.add_update(s.id, "Update content", "Update summary")
         state.add_decision(s.id, "Decided X", "Because Y")
@@ -10,16 +10,16 @@ class TestGetStreamContext:
         assert len(ctx["updates"]) == 1
         assert len(ctx["decisions"]) == 1
 
-    def test_returns_empty_for_missing_stream(self, state: StateManager):
+    def test_returns_empty_for_missing_stream(self, state: MongoStateManager):
         ctx = state.get_stream_context("nonexistent")
         assert ctx == {}
 
-    def test_includes_stream_metadata(self, state: StateManager):
+    def test_includes_stream_metadata(self, state: MongoStateManager):
         s = state.create_stream("Test", ["repo"], metadata={"tags": ["feature"]})
         ctx = state.get_stream_context(s.id)
         assert ctx["stream"]["metadata"] == {"tags": ["feature"]}
 
-    def test_newest_first_order(self, state: StateManager):
+    def test_newest_first_order(self, state: MongoStateManager):
         s = state.create_stream("Test", ["repo"])
         state.add_update(s.id, "First", "First update")
         state.add_update(s.id, "Second", "Second update")

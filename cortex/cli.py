@@ -3,7 +3,8 @@ from __future__ import annotations
 import click
 
 from cortex.config import CORTEX_DIR, load_config, save_config, Config
-from cortex.state import StateManager
+from cortex.mongo import get_db
+from cortex.mongo_state import MongoStateManager
 
 
 @click.group()
@@ -24,9 +25,9 @@ def init() -> None:
     save_config(config)
     click.echo(f"  Config saved to {CORTEX_DIR / 'config.json'}")
 
-    state = StateManager(config.resolved_db_path)
+    state = MongoStateManager(get_db(), config.resolved_vec_db_path)
     state.init_db()
-    click.echo(f"  Database initialized at {config.resolved_db_path}")
+    click.echo("  Database initialized (MongoDB + vec index)")
 
     click.echo("  Scanning repos for open PRs...")
     from cortex.bootstrap import scan_repos
@@ -46,7 +47,7 @@ def init() -> None:
 def status() -> None:
     """Show active Cortex streams."""
     config = load_config()
-    state = StateManager(config.resolved_db_path)
+    state = MongoStateManager(get_db(), config.resolved_vec_db_path)
     state.init_db()
     streams = state.get_active_streams()
 
@@ -66,7 +67,7 @@ def status() -> None:
 def brief() -> None:
     """Print compact session brief (for hook injection)."""
     config = load_config()
-    state = StateManager(config.resolved_db_path)
+    state = MongoStateManager(get_db(), config.resolved_vec_db_path)
     state.init_db()
     streams = state.get_active_streams()
 
@@ -94,7 +95,7 @@ def brief() -> None:
 def link(session_id: str, stream_id: str) -> None:
     """Link a session to a stream."""
     config = load_config()
-    state = StateManager(config.resolved_db_path)
+    state = MongoStateManager(get_db(), config.resolved_vec_db_path)
     state.init_db()
     state.link_session(session_id, stream_id)
     state.close()
@@ -105,7 +106,7 @@ def link(session_id: str, stream_id: str) -> None:
 def tasks(session_id: str | None) -> None:
     """Print pending task backups for session restore."""
     config = load_config()
-    state = StateManager(config.resolved_db_path)
+    state = MongoStateManager(get_db(), config.resolved_vec_db_path)
     state.init_db()
 
     if session_id:
@@ -137,21 +138,18 @@ def tasks(session_id: str | None) -> None:
 
 @cli.command()
 def reindex() -> None:
-    """Rebuild search indexes (FTS + vector embeddings)."""
+    """Rebuild vector embedding index."""
     config = load_config()
-    state = StateManager(config.resolved_db_path)
+    state = MongoStateManager(get_db(), config.resolved_vec_db_path)
     state.init_db()
 
-    click.echo("Clearing existing indexes...")
+    click.echo("Clearing vector index...")
     state.clear_indexes()
 
-    click.echo("Rebuilding FTS index...")
-    state._rebuild_search_index()
-
-    click.echo("Rebuilding vector index...")
+    click.echo("Rebuilding vector index from MongoDB data...")
     state._rebuild_vec_index()
 
-    click.echo("Done.")
+    click.echo("Done. (Text search uses MongoDB $text indexes — no rebuild needed.)")
     state.close()
 
 
@@ -808,7 +806,7 @@ def close(session_id: str, force: bool) -> None:
 
     # Step 2: Update linked Cortex stream (if any)
     config = load_config()
-    state = StateManager(config.resolved_db_path)
+    state = MongoStateManager(get_db(), config.resolved_vec_db_path)
     state.init_db()
     stream_ids = state.get_streams_for_session(session_id)
     if stream_ids:

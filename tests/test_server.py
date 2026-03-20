@@ -1,23 +1,20 @@
 import json
-from pathlib import Path
 from unittest.mock import patch
 
 from cortex import server
-from cortex.state import StateManager
+from cortex.mongo_state import MongoStateManager
 
 
-def _setup_state(tmp_path: Path) -> StateManager:
-    sm = StateManager(tmp_path / "test.db")
-    sm.init_db()
-    stream = sm.create_stream("Test stream", ["test-repo"])
-    sm.add_update(stream.id, "Deployed new auth module with OAuth2 flow", "Auth module deployed")
-    sm.add_decision(stream.id, "Use JWT for session tokens", "Stateless auth, easy horizontal scaling")
-    return sm
+def _setup_state(state: MongoStateManager) -> MongoStateManager:
+    stream = state.create_stream("Test stream", ["test-repo"])
+    state.add_update(stream.id, "Deployed new auth module with OAuth2 flow", "Auth module deployed")
+    state.add_decision(stream.id, "Use JWT for session tokens", "Stateless auth, easy horizontal scaling")
+    return state
 
 
 class TestSearchHistoryResponse:
-    def test_includes_content_field_in_updates(self, tmp_path: Path):
-        state = _setup_state(tmp_path)
+    def test_includes_content_field_in_updates(self, state: MongoStateManager):
+        _setup_state(state)
         with patch.object(server, "_state", state):
             raw = server.cortex_search_history("auth")
         data = json.loads(raw)
@@ -26,8 +23,8 @@ class TestSearchHistoryResponse:
         assert "content" in updates[0]
         assert "auth" in updates[0]["content"].lower()
 
-    def test_response_wraps_in_object_with_query(self, tmp_path: Path):
-        state = _setup_state(tmp_path)
+    def test_response_wraps_in_object_with_query(self, state: MongoStateManager):
+        _setup_state(state)
         with patch.object(server, "_state", state):
             raw = server.cortex_search_history("auth")
         data = json.loads(raw)
@@ -35,8 +32,8 @@ class TestSearchHistoryResponse:
         assert data["query"] == "auth"
         assert "results" in data
 
-    def test_consistent_with_get_context(self, tmp_path: Path):
-        state = _setup_state(tmp_path)
+    def test_consistent_with_get_context(self, state: MongoStateManager):
+        _setup_state(state)
         with patch.object(server, "_state", state):
             search_raw = server.cortex_search_history("auth")
             context_raw = server.cortex_get_context("auth")

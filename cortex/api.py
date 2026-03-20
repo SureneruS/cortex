@@ -10,17 +10,18 @@ from pydantic import BaseModel
 
 from cortex.config import load_config
 from cortex.dashboard import router as dashboard_router
-from cortex.state import StateManager
+from cortex.mongo import get_db
+from cortex.mongo_state import MongoStateManager
 
 app = FastAPI(title="Cortex API")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
-_state: StateManager | None = None
+_state: MongoStateManager | None = None
 _loop = None
 
 
-def _wire_sse_callback(state: StateManager) -> None:
-    """Wire StateManager.on_mutation to push SSE events to dashboard clients."""
+def _wire_sse_callback(state: MongoStateManager) -> None:
+    """Wire MongoStateManager.on_mutation to push SSE events to dashboard clients."""
     from cortex.dashboard import notify_sse
 
     def _on_mutation():
@@ -41,11 +42,11 @@ async def _capture_loop():
     _get_state()
 
 
-def _get_state() -> StateManager:
+def _get_state() -> MongoStateManager:
     global _state
     if _state is None:
         config = load_config()
-        _state = StateManager(config.resolved_db_path)
+        _state = MongoStateManager(get_db(), config.resolved_vec_db_path)
         _state.init_db()
         _wire_sse_callback(_state)
     return _state
@@ -307,19 +308,7 @@ def activity(limit: int = 50, active_only: bool = False):
 @app.get("/api/sessions")
 def list_sessions(limit: int = 50, active_only: bool = False):
     state = _get_state()
-    if active_only:
-        rows = state._conn.execute(
-            "SELECT s.session_id, s.stream_id, s.repo, s.branch, s.status, s.created_at "
-            "FROM sessions s JOIN streams st ON s.stream_id = st.id "
-            "WHERE st.status = 'active' ORDER BY s.created_at DESC LIMIT ?",
-            (limit,),
-        ).fetchall()
-    else:
-        rows = state._conn.execute(
-            "SELECT session_id, stream_id, repo, branch, status, created_at FROM sessions ORDER BY created_at DESC LIMIT ?",
-            (limit,),
-        ).fetchall()
-    return [dict(r) for r in rows]
+    return state.list_sessions(limit=limit, active_only=active_only)
 
 
 @app.get("/api/search")

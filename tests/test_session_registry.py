@@ -307,12 +307,13 @@ class TestCLIUpdate:
 
 @pytest.fixture
 def _mock_state():
-    """Mock load_config + StateManager so close doesn't need real SQLite."""
+    """Mock load_config + MongoStateManager so close doesn't need real MongoDB."""
     mock_state = MagicMock()
     mock_state.get_streams_for_session.return_value = []
     with (
         patch("cortex.cli.load_config"),
-        patch("cortex.cli.StateManager", return_value=mock_state),
+        patch("cortex.cli.MongoStateManager", return_value=mock_state),
+        patch("cortex.cli.get_db"),
     ):
         yield mock_state
 

@@ -21,7 +21,8 @@ from textual.widget import Widget
 
 from cortex.config import load_config
 from cortex.models import Stream
-from cortex.state import StateManager
+from cortex.mongo import get_db
+from cortex.mongo_state import MongoStateManager
 
 
 def _relative_time(dt: datetime) -> str:
@@ -189,7 +190,7 @@ class CortexApp(App):
     def __init__(self) -> None:
         super().__init__()
         config = load_config()
-        self._state = StateManager(config.resolved_db_path)
+        self._state = MongoStateManager(get_db(), config.resolved_vec_db_path)
         self._state.init_db()
         self._streams: list[Stream] = []
 

@@ -18,16 +18,22 @@ DEFAULT_REPOS = {
 }
 
 DEFAULT_DB_PATH = "~/.cortex/state.db"
+DEFAULT_VEC_DB_PATH = "~/.cortex/vec.db"
 
 
 @dataclass(frozen=True)
 class Config:
     repos: dict[str, str] = field(default_factory=lambda: dict(DEFAULT_REPOS))
     db_path: str = DEFAULT_DB_PATH
+    vec_db_path: str = DEFAULT_VEC_DB_PATH
 
     @property
     def resolved_db_path(self) -> Path:
         return Path(self.db_path).expanduser()
+
+    @property
+    def resolved_vec_db_path(self) -> Path:
+        return Path(self.vec_db_path).expanduser()
 
     def resolved_repo_path(self, name: str) -> Path:
         return Path(self.repos[name]).expanduser()

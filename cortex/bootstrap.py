@@ -5,7 +5,7 @@ import subprocess
 from pathlib import Path
 
 from cortex.config import Config
-from cortex.state import StateManager
+from cortex.mongo_state import MongoStateManager
 
 
 def _run(cmd: list[str], cwd: str | None = None) -> str:
@@ -36,7 +36,7 @@ def _get_active_branches(repo_path: str) -> list[str]:
     return [b.strip() for b in raw.splitlines() if b.strip() and b.strip() != "main"]
 
 
-def scan_repos(config: Config, state: StateManager) -> dict:
+def scan_repos(config: Config, state: MongoStateManager) -> dict:
     stats = {"streams_created": 0, "prs_found": 0, "branches_found": 0, "repos_scanned": 0}
 
     seen_branches: set[str] = set()

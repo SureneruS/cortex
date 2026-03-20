@@ -1,7 +1,7 @@
-from cortex.state import StateManager
+from cortex.mongo_state import MongoStateManager
 
 
-def test_save_blueprint(state: StateManager):
+def test_save_blueprint(state: MongoStateManager):
     bp = {"title": "Test", "sections": []}
     result = state.save_blueprint(bp)
     assert result["blueprint"] == bp
@@ -10,26 +10,26 @@ def test_save_blueprint(state: StateManager):
     assert "created_at" in result
 
 
-def test_get_blueprint(state: StateManager):
+def test_get_blueprint(state: MongoStateManager):
     state.save_blueprint({"title": "Test", "sections": []})
     result = state.get_blueprint()
     assert result is not None
     assert result["blueprint"]["title"] == "Test"
 
 
-def test_get_blueprint_empty(state: StateManager):
+def test_get_blueprint_empty(state: MongoStateManager):
     result = state.get_blueprint()
     assert result is None
 
 
-def test_save_blueprint_overwrites(state: StateManager):
+def test_save_blueprint_overwrites(state: MongoStateManager):
     state.save_blueprint({"title": "First", "sections": []})
     state.save_blueprint({"title": "Second", "sections": []})
     result = state.get_blueprint()
     assert result["blueprint"]["title"] == "Second"
 
 
-def test_update_resolved_data(state: StateManager):
+def test_update_resolved_data(state: MongoStateManager):
     state.save_blueprint({"title": "Test", "sections": []})
     resolved = {"title": "Test", "sections": [{"id": "x", "data": [1, 2]}]}
     state.update_resolved_data(resolved)
@@ -37,14 +37,14 @@ def test_update_resolved_data(state: StateManager):
     assert result["resolved_data"] == resolved
 
 
-def test_save_blueprint_creates_snapshot(state: StateManager):
+def test_save_blueprint_creates_snapshot(state: MongoStateManager):
     state.save_blueprint({"title": "Test", "sections": []})
     snapshots = state.get_dashboard_snapshots(limit=10)
     assert len(snapshots) == 1
     assert snapshots[0]["snapshot_type"] == "blueprint"
 
 
-def test_update_resolved_creates_snapshot(state: StateManager):
+def test_update_resolved_creates_snapshot(state: MongoStateManager):
     state.save_blueprint({"title": "Test", "sections": []})
     state.update_resolved_data({"title": "Test", "sections": []})
     snapshots = state.get_dashboard_snapshots(limit=10)
