@@ -153,6 +153,489 @@ def reindex() -> None:
     state.close()
 
 
+def _get_state() -> MongoStateManager:
+    config = load_config()
+    sm = MongoStateManager(get_db(), config.resolved_vec_db_path)
+    sm.init_db()
+    return sm
+
+
+# ── cortex stream ────────────────────────────────────────────
+
+
+@cli.group()
+def stream() -> None:
+    """Manage work streams, updates, and decisions."""
+    pass
+
+
+@stream.command("list")
+@click.option("--status", default="active", help="Filter by status (active|completed|all)")
+def stream_list(status: str) -> None:
+    """List streams."""
+    import json
+
+    state = _get_state()
+    streams = state.list_streams(status=status)
+    click.echo(json.dumps(
+        [
+            {
+                "id": s.id,
+                "title": s.title,
+                "repos": s.repos,
+                "status": s.status,
+                "summary": s.summary,
+                "metadata": s.metadata,
+                "updated_at": s.updated_at.isoformat(),
+            }
+            for s in streams
+        ],
+        indent=2,
+        default=str,
+    ))
+    state.close()
+
+
+@stream.command("get")
+@click.argument("stream_id")
+def stream_get(stream_id: str) -> None:
+    """Get full stream context (updates, decisions, sessions)."""
+    import json
+
+    state = _get_state()
+    ctx = state.get_stream_context(stream_id)
+    if not ctx:
+        click.echo(json.dumps({"error": f"Stream {stream_id} not found"}))
+        raise SystemExit(1)
+    click.echo(json.dumps(ctx, indent=2, default=str))
+    state.close()
+
+
+@stream.command("create")
+@click.option("--title", required=True, help="Stream title")
+@click.option("--repos", required=True, help="Comma-separated repo names")
+@click.option("--metadata", "metadata_json", default=None, help="JSON metadata")
+def stream_create(title: str, repos: str, metadata_json: str | None) -> None:
+    """Create a new stream."""
+    import json
+
+    metadata = json.loads(metadata_json) if metadata_json else None
+    state = _get_state()
+    s = state.create_stream(title, repos.split(","), metadata=metadata)
+    click.echo(json.dumps({"id": s.id, "title": s.title}, indent=2))
+    state.close()
+
+
+@stream.command("update")
+@click.argument("stream_id")
+@click.option("--title", default=None)
+@click.option("--status", "new_status", default=None)
+@click.option("--repos", default=None, help="Comma-separated repo names")
+@click.option("--summary", default=None)
+@click.option("--metadata", "metadata_json", default=None, help="JSON metadata")
+@click.option("--replace-metadata", is_flag=True, help="Replace metadata instead of merging")
+def stream_update(
+    stream_id: str,
+    title: str | None,
+    new_status: str | None,
+    repos: str | None,
+    summary: str | None,
+    metadata_json: str | None,
+    replace_metadata: bool,
+) -> None:
+    """Update a stream."""
+    import json
+
+    metadata = json.loads(metadata_json) if metadata_json else None
+    repos_list = repos.split(",") if repos else None
+    state = _get_state()
+    try:
+        s = state.update_stream(
+            stream_id,
+            title=title,
+            status=new_status,
+            repos=repos_list,
+            summary=summary,
+            metadata=metadata,
+            merge_metadata=not replace_metadata,
+        )
+    except ValueError as e:
+        click.echo(json.dumps({"error": str(e)}))
+        raise SystemExit(1)
+    if s is None:
+        click.echo(json.dumps({"error": f"Stream {stream_id} not found"}))
+        raise SystemExit(1)
+    click.echo(json.dumps({"id": s.id, "status": s.status, "updated_at": s.updated_at.isoformat()}, indent=2))
+    state.close()
+
+
+@stream.command("complete")
+@click.argument("stream_id")
+@click.option("--summary", required=True, help="Completion summary")
+def stream_complete(stream_id: str, summary: str) -> None:
+    """Mark a stream as completed."""
+    import json
+
+    state = _get_state()
+    state.complete_stream(stream_id, summary)
+    click.echo(json.dumps({"completed": stream_id, "summary": summary}))
+    state.close()
+
+
+@stream.command("delete")
+@click.argument("entry_id")
+@click.option("--type", "entry_type", required=True, type=click.Choice(["stream", "update", "decision"]))
+def stream_delete(entry_id: str, entry_type: str) -> None:
+    """Delete a stream, update, or decision."""
+    import json
+
+    state = _get_state()
+    if entry_type == "update":
+        state.delete_update(entry_id)
+    elif entry_type == "decision":
+        state.delete_decision(entry_id)
+    elif entry_type == "stream":
+        state.delete_stream(entry_id)
+    click.echo(json.dumps({"deleted": entry_id, "type": entry_type}))
+    state.close()
+
+
+@stream.command("log")
+@click.argument("stream_id")
+@click.option("--content", required=True, help="Update content")
+@click.option("--summary", required=True, help="Short summary")
+@click.option("--metadata", "metadata_json", default=None, help="JSON metadata")
+def stream_log(stream_id: str, content: str, summary: str, metadata_json: str | None) -> None:
+    """Log a progress update to a stream."""
+    import json
+
+    metadata = json.loads(metadata_json) if metadata_json else None
+    state = _get_state()
+    try:
+        u = state.add_update(stream_id, content, summary, metadata=metadata)
+    except ValueError as e:
+        click.echo(json.dumps({"error": str(e)}))
+        raise SystemExit(1)
+    click.echo(json.dumps({"id": u.id, "summary": u.summary}, indent=2))
+    state.close()
+
+
+@stream.command("decide")
+@click.argument("stream_id")
+@click.option("--what", required=True, help="What was decided")
+@click.option("--why", required=True, help="Why this decision")
+@click.option("--metadata", "metadata_json", default=None, help="JSON metadata")
+def stream_decide(stream_id: str, what: str, why: str, metadata_json: str | None) -> None:
+    """Log a decision to a stream."""
+    import json
+
+    metadata = json.loads(metadata_json) if metadata_json else None
+    state = _get_state()
+    try:
+        d = state.add_decision(stream_id, what, why, metadata=metadata)
+    except ValueError as e:
+        click.echo(json.dumps({"error": str(e)}))
+        raise SystemExit(1)
+    click.echo(json.dumps({"id": d.id, "what": d.what}, indent=2))
+    state.close()
+
+
+@stream.command("edit")
+@click.argument("entry_id")
+@click.option("--type", "entry_type", required=True, type=click.Choice(["update", "decision"]))
+@click.option("--content", default=None)
+@click.option("--summary", default=None)
+@click.option("--what", default=None)
+@click.option("--why", default=None)
+@click.option("--metadata", "metadata_json", default=None, help="JSON metadata")
+def stream_edit(
+    entry_id: str,
+    entry_type: str,
+    content: str | None,
+    summary: str | None,
+    what: str | None,
+    why: str | None,
+    metadata_json: str | None,
+) -> None:
+    """Edit an existing update or decision."""
+    import json
+
+    metadata = json.loads(metadata_json) if metadata_json else None
+    state = _get_state()
+    if entry_type == "update":
+        result = state.edit_update(entry_id, content=content, summary=summary, metadata=metadata)
+    else:
+        result = state.edit_decision(entry_id, what=what, why=why, metadata=metadata)
+    if result is None:
+        click.echo(json.dumps({"error": f"{entry_type} {entry_id} not found"}))
+        raise SystemExit(1)
+    click.echo(json.dumps({"id": result.id, "type": entry_type, "edited": True}, indent=2))
+    state.close()
+
+
+@stream.command("search")
+@click.argument("query")
+def stream_search(query: str) -> None:
+    """Search across updates, decisions, and checkpoints."""
+    import json
+
+    from cortex.models import Checkpoint, Decision, Update
+
+    state = _get_state()
+    results = state.search(query)
+    items = []
+    for r in results:
+        if isinstance(r, Update):
+            items.append({"type": "update", "id": r.id, "stream_id": r.stream_id, "content": r.content, "summary": r.summary, "created_at": r.created_at.isoformat()})
+        elif isinstance(r, Decision):
+            items.append({"type": "decision", "id": r.id, "stream_id": r.stream_id, "what": r.what, "why": r.why, "created_at": r.created_at.isoformat()})
+        elif isinstance(r, Checkpoint):
+            items.append({"type": "checkpoint", "id": r.id, "week_of": r.week_of, "content": r.content[:200], "created_at": r.created_at.isoformat()})
+    click.echo(json.dumps({"query": query, "results": items}, indent=2, default=str))
+    state.close()
+
+
+@stream.command("link")
+@click.argument("session_id")
+@click.argument("stream_id")
+@click.option("--repo", default="", help="Repository name")
+@click.option("--branch", default="", help="Branch name")
+def stream_link(session_id: str, stream_id: str, repo: str, branch: str) -> None:
+    """Link a session to a stream."""
+    import json
+
+    state = _get_state()
+    try:
+        state.link_session(session_id, stream_id, repo=repo, branch=branch)
+    except ValueError as e:
+        click.echo(json.dumps({"error": str(e)}))
+        raise SystemExit(1)
+    click.echo(json.dumps({"linked": True, "session_id": session_id, "stream_id": stream_id}))
+    state.close()
+
+
+# ── cortex checkpoint ────────────────────────────────────────
+
+
+@cli.group()
+def checkpoint() -> None:
+    """Manage weekly checkpoints."""
+    pass
+
+
+@checkpoint.command("save")
+@click.option("--week", required=True, help="Week identifier (e.g. 2026-W12)")
+@click.option("--content", required=True, help="Checkpoint content")
+@click.option("--stream-ids", default=None, help="Comma-separated stream IDs (auto-captures active if omitted)")
+@click.option("--metadata", "metadata_json", default=None, help="JSON metadata")
+def checkpoint_save(week: str, content: str, stream_ids: str | None, metadata_json: str | None) -> None:
+    """Save or update a weekly checkpoint."""
+    import json
+
+    metadata = json.loads(metadata_json) if metadata_json else None
+    ids = stream_ids.split(",") if stream_ids else None
+    state = _get_state()
+    cp = state.save_checkpoint(week, content, stream_ids=ids, metadata=metadata)
+    click.echo(json.dumps({"id": cp.id, "week_of": cp.week_of, "stream_ids": cp.stream_ids}, indent=2))
+    state.close()
+
+
+@checkpoint.command("get")
+@click.option("--week", default=None, help="Week identifier (latest if omitted)")
+def checkpoint_get(week: str | None) -> None:
+    """Get a checkpoint (latest or specific week)."""
+    import json
+
+    state = _get_state()
+    cp = state.get_checkpoint(week)
+    if cp is None:
+        click.echo(json.dumps({"error": "No checkpoint found"}))
+        raise SystemExit(1)
+    click.echo(json.dumps({
+        "id": cp.id,
+        "week_of": cp.week_of,
+        "content": cp.content,
+        "stream_ids": cp.stream_ids,
+        "metadata": cp.metadata,
+        "created_at": cp.created_at.isoformat(),
+        "updated_at": cp.updated_at.isoformat(),
+    }, indent=2))
+    state.close()
+
+
+# ── cortex pr ────────────────────────────────────────────────
+
+
+@cli.group()
+def pr() -> None:
+    """GitHub PR operations."""
+    pass
+
+
+@pr.command("state")
+@click.argument("number", type=int)
+@click.option("--repo", default=None, help="Repository in owner/repo format")
+def pr_state(number: int, repo: str | None) -> None:
+    """Get PR state summary."""
+    import json
+
+    from cortex import github
+
+    try:
+        result = github.pr_state(number, repo=repo)
+        click.echo(json.dumps(result, indent=2))
+    except Exception as e:
+        click.echo(json.dumps({"error": str(e)}))
+        raise SystemExit(1)
+
+
+@pr.command("threads")
+@click.argument("number", type=int)
+@click.option("--repo", default=None, help="Repository in owner/repo format")
+def pr_threads(number: int, repo: str | None) -> None:
+    """List PR review threads."""
+    import json
+
+    from cortex import github
+
+    try:
+        result = github.pr_threads(number, repo=repo)
+        click.echo(json.dumps(result, indent=2))
+    except Exception as e:
+        click.echo(json.dumps({"error": str(e)}))
+        raise SystemExit(1)
+
+
+@pr.command("checks")
+@click.argument("number", type=int)
+@click.option("--repo", default=None, help="Repository in owner/repo format")
+def pr_checks(number: int, repo: str | None) -> None:
+    """Get CI check details for a PR."""
+    import json
+
+    from cortex import github
+
+    try:
+        result = github.pr_checks(number, repo=repo)
+        click.echo(json.dumps(result, indent=2))
+    except Exception as e:
+        click.echo(json.dumps({"error": str(e)}))
+        raise SystemExit(1)
+
+
+@pr.command("react")
+@click.argument("number", type=int)
+@click.argument("comment_id", type=int)
+@click.argument("reaction")
+@click.option("--repo", default=None, help="Repository in owner/repo format")
+def pr_react(number: int, comment_id: int, reaction: str, repo: str | None) -> None:
+    """React to a PR review comment (+1 or -1)."""
+    import json
+
+    from cortex import github
+
+    try:
+        github.pr_react(number, comment_id, reaction, repo=repo)
+        click.echo(json.dumps({"ok": True, "reaction": reaction, "comment_id": comment_id}))
+    except Exception as e:
+        click.echo(json.dumps({"error": str(e)}))
+        raise SystemExit(1)
+
+
+@pr.command("resolve")
+@click.argument("thread_id")
+def pr_resolve(thread_id: str) -> None:
+    """Resolve a PR review thread."""
+    import json
+
+    from cortex import github
+
+    try:
+        github.pr_resolve(thread_id)
+        click.echo(json.dumps({"ok": True, "thread_id": thread_id, "resolved": True}))
+    except Exception as e:
+        click.echo(json.dumps({"error": str(e)}))
+        raise SystemExit(1)
+
+
+@pr.command("batch-resolve")
+@click.option("--items", required=True, help="JSON array of {comment_id, thread_id, reaction}")
+@click.option("--repo", default=None, help="Repository in owner/repo format")
+def pr_batch_resolve(items: str, repo: str | None) -> None:
+    """React to and resolve multiple PR threads."""
+    import json
+
+    from cortex import github
+
+    parsed = json.loads(items)
+    results = []
+    for item in parsed:
+        entry: dict = {"comment_id": item["comment_id"], "thread_id": item["thread_id"]}
+        try:
+            github.pr_react(0, item["comment_id"], item["reaction"], repo=repo)
+            entry["reacted"] = True
+        except Exception as e:
+            entry["react_error"] = str(e)
+            entry["reacted"] = False
+        try:
+            github.pr_resolve(item["thread_id"])
+            entry["resolved"] = True
+        except Exception as e:
+            entry["resolve_error"] = str(e)
+            entry["resolved"] = False
+        results.append(entry)
+    click.echo(json.dumps(results, indent=2))
+
+
+@pr.command("reply")
+@click.argument("number", type=int)
+@click.argument("comment_id", type=int)
+@click.option("--body", required=True, help="Reply text")
+@click.option("--repo", default=None, help="Repository in owner/repo format")
+def pr_reply(number: int, comment_id: int, body: str, repo: str | None) -> None:
+    """Reply to a PR review comment."""
+    import json
+
+    from cortex import github
+
+    try:
+        github.pr_reply(number, comment_id, body, repo=repo)
+        click.echo(json.dumps({"ok": True, "comment_id": comment_id}))
+    except Exception as e:
+        click.echo(json.dumps({"error": str(e)}))
+        raise SystemExit(1)
+
+
+@pr.command("watch")
+@click.argument("number", type=int)
+@click.argument("session_id")
+@click.option("--repo", default=None, help="Repository in owner/repo format")
+@click.option("--message", default=None, help="Custom message for when changes detected")
+def pr_watch(number: int, session_id: str, repo: str | None, message: str | None) -> None:
+    """Register a session to watch a PR for changes."""
+    import json
+
+    from cortex import github
+    from cortex.session_registry import MongoSessionRepo
+
+    try:
+        state = github.pr_state(number, repo=repo)
+        watch_config: dict = {
+            "type": "pr",
+            "repo": repo,
+            "number": number,
+            "last_state": state,
+        }
+        if message:
+            watch_config["message"] = message
+        repo_session = MongoSessionRepo(get_db())
+        repo_session.update(session_id, {"status": "watching", "watch": watch_config}, trigger="pr-watch")
+        click.echo(json.dumps({"ok": True, "session_id": session_id, "pr": number, "baseline": state}, indent=2))
+    except Exception as e:
+        click.echo(json.dumps({"error": str(e)}))
+        raise SystemExit(1)
+
+
 @cli.command()
 def dashboard() -> None:
     """Open the interactive TUI dashboard."""
