@@ -1,6 +1,15 @@
 {
   "name": "cortex",
   "description": "Persistent context brain — session orchestration, PR operations, cron scheduling",
-  "version": "0.1.0",
-  "author": {"name": "Suren"}
+  "version": "0.2.0",
+  "author": {"name": "Suren"},
+  "hooks": "hooks/hooks.json",
+  "agents": ["agents/dream.md", "agents/meditate.md"],
+  "skills": [
+    "skills/cortex-cli",
+    "skills/babysit-pr",
+    "skills/check-watches",
+    "skills/dashboard",
+    "skills/spawn"
+  ]
 }
