@@ -1,7 +1,3 @@
-import json
-from unittest.mock import patch
-
-from cortex import server
 from cortex.mongo_state import MongoStateManager
 
 
@@ -65,36 +61,26 @@ class TestCrossInstanceVisibility:
         assert found.title == "Visible Stream"
 
 
-class TestMCPWriteThenRead:
-    """MCP tool writes are immediately queryable via MCP tool reads."""
+class TestWriteThenRead:
+    """Writes are immediately queryable via reads (previously tested via MCP, now direct)."""
 
     def test_log_update_then_search(self, state: MongoStateManager):
-        stream = state.create_stream("MCP Test", ["repo"])
-        with patch.object(server, "_state", state):
-            raw = server.cortex_log_update(stream.id, "deployed new service", "Service deployed")
-            data = json.loads(raw)
-            assert "id" in data
-
-            search_raw = server.cortex_search_history("deployed")
-            search_data = json.loads(search_raw)
-            assert len(search_data["results"]) >= 1
-            assert any("deployed" in r.get("content", "") for r in search_data["results"])
+        stream = state.create_stream("Test", ["repo"])
+        update = state.add_update(stream.id, "deployed new service", "Service deployed")
+        assert update.id
+        results = state.search("deployed")
+        assert len(results) >= 1
+        assert any("deployed" in getattr(r, "content", "") for r in results)
 
     def test_log_decision_then_search(self, state: MongoStateManager):
-        stream = state.create_stream("MCP Test", ["repo"])
-        with patch.object(server, "_state", state):
-            raw = server.cortex_log_decision(stream.id, "Use PostgreSQL", "ACID compliance needed")
-            data = json.loads(raw)
-            assert "id" in data
-
-            search_raw = server.cortex_search_history("PostgreSQL")
-            search_data = json.loads(search_raw)
-            assert len(search_data["results"]) >= 1
+        stream = state.create_stream("Test", ["repo"])
+        decision = state.add_decision(stream.id, "Use PostgreSQL", "ACID compliance needed")
+        assert decision.id
+        results = state.search("PostgreSQL")
+        assert len(results) >= 1
 
     def test_log_update_then_get_context(self, state: MongoStateManager):
-        stream = state.create_stream("MCP Test", ["repo"])
-        with patch.object(server, "_state", state):
-            server.cortex_log_update(stream.id, "context visible content", "Context test")
-            ctx_raw = server.cortex_get_context("context visible")
-            ctx_data = json.loads(ctx_raw)
-            assert len(ctx_data["results"]) >= 1
+        stream = state.create_stream("Test", ["repo"])
+        state.add_update(stream.id, "context visible content", "Context test")
+        ctx = state.get_stream_context(stream.id)
+        assert len(ctx["updates"]) >= 1
