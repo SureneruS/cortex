@@ -1,0 +1,11 @@
+{
+  "name": "cortex",
+  "owner": { "name": "Suren" },
+  "plugins": [
+    {
+      "name": "cortex",
+      "source": "./plugin",
+      "description": "Persistent context brain — session orchestration, PR operations, cron scheduling"
+    }
+  ]
+}

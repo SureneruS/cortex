@@ -1,0 +1,40 @@
+{
+  "name": "cortex",
+  "version": "0.2.0",
+  "description": "Persistent context brain — session orchestration, PR operations, cron scheduling",
+  "author": { "name": "Suren" },
+  "skills": "./skills/",
+  "agents": ["./agents/dream.md", "./agents/meditate.md"],
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cortex-hook-session-start"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cortex-hook-user-prompt"
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cortex-hook-pre-compact"
+          }
+        ]
+      }
+    ]
+  }
+}

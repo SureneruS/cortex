@@ -22,6 +22,9 @@ dependencies = [
 [project.scripts]
 cortex = "cortex.cli:cli"
 cortex-mcp = "cortex.server:main"
+cortex-hook-session-start = "nova.hooks.session_start:main"
+cortex-hook-user-prompt = "nova.hooks.user_prompt:main"
+cortex-hook-pre-compact = "nova.hooks.pre_compact:main"
 nova-session-start = "nova.hooks.session_start:main"
 nova-user-prompt = "nova.hooks.user_prompt:main"
 nova-transcripts = "nova.cli.transcripts:main"
