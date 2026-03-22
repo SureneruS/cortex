@@ -17,7 +17,7 @@ function dev-server -d "Manage local dev servers in tmux"
             # cercli-backend
             tmux new-session -d -s $session -n cercli-backend -c "$base/cercli-backend"
             tmux send-keys -t $session:cercli-backend \
-                "git checkout main && git pull && poetry install && poetry run python manage.py runserver_ui" Enter
+                "git checkout main && git pull && poetry install --no-root && poetry run python manage.py runserver_ui" Enter
 
             # recruitment-backend
             tmux new-window -t $session -n recruitment-backend -c "$base/recruitment-backend"
@@ -124,7 +124,7 @@ function dev-server -d "Manage local dev servers in tmux"
             switch $service
                 case cercli-backend
                     tmux send-keys -t $session:$service \
-                        "cd $target_dir && poetry install && poetry run python manage.py runserver_ui" Enter
+                        "cd $target_dir && poetry install --no-root && poetry run python manage.py runserver_ui" Enter
                 case recruitment-backend
                     tmux send-keys -t $session:$service \
                         "cd $target_dir && uv sync && docker compose -f docker-compose.dev.yml up --build" Enter
