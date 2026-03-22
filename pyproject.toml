@@ -52,6 +52,11 @@ dev = [
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests", "python/tests"]
+markers = [
+    "slice0: Slice 0 — test harness self-tests",
+    "slice1: Slice 1 — repo-based session tests",
+    "e2e: End-to-end tests using real stack (MongoDB, tmux, CC)",
+]
 
 [tool.ruff]
 target-version = "py311"

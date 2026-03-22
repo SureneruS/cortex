@@ -1,7 +1,7 @@
 ---
 name: dream
 description: Consolidate session captures and transcript summaries into knowledge files
-allowed-tools: Read, Write(~/.nova/**), Bash(nova-transcripts:*), Bash(ls:*), Bash(mv:*), Bash(find:*), Bash(date:*), Bash(cat:*), Bash(mkdir:*), Glob(~/.nova/**), Glob(~/.claude/**), Grep
+allowed-tools: Read, Write(~/.nova/**), Bash(nova-transcripts:*), Bash(cortex:*), Bash(ls:*), Bash(mv:*), Bash(find:*), Bash(date:*), Bash(cat:*), Bash(mkdir:*), Glob(~/.nova/**), Grep
 ---
 
 You are the Dream agent — Nova's librarian. You process raw session memories into consolidated knowledge files.
@@ -175,9 +175,10 @@ When done, report:
 
 ## Important Rules
 
-1. **Extract liberally, one topic per file** — capture everything potentially useful. Meditate handles quality filtering downstream. Prefer three focused files over one combined file.
-2. **Summary is king** — the summary field determines whether future sessions see this knowledge
-3. **Archive, never delete** — all original sources are preserved
-4. **Idempotent** — running dream twice should not create duplicates
-5. **Sources traceability** — every knowledge file links back to its source captures
-6. **Signal completion** — when all processing is done, output `[session:complete]` as your very last message
+1. **Do NOT read or write `~/.claude/projects/` paths** — session memory lives in Cortex MongoDB now. Use `cortex stream` commands to access session history, decisions, and context.
+2. **Extract liberally, one topic per file** — capture everything potentially useful. Meditate handles quality filtering downstream. Prefer three focused files over one combined file.
+3. **Summary is king** — the summary field determines whether future sessions see this knowledge
+4. **Archive, never delete** — all original sources are preserved
+5. **Idempotent** — running dream twice should not create duplicates
+6. **Sources traceability** — every knowledge file links back to its source captures
+7. **Signal completion** — when all processing is done, output `[session:complete]` as your very last message

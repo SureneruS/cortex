@@ -51,13 +51,24 @@ def handle_session_start(hook_input: dict) -> dict:
 
     if cortex_session_id and session_id:
         # Spawned session: link CC UUID to existing Cortex registry entry
+        # Don't overwrite repos if already set at spawn time (--repo flag)
+        update_data: dict = {
+            "cc_session_id": session_id,
+            "transcript_path": transcript_path,
+        }
+        existing = _cortex_cli("session", "get", cortex_session_id)
+        has_repos = False
+        if existing:
+            try:
+                existing_data = json.loads(existing)
+                has_repos = bool(existing_data.get("repos"))
+            except (json.JSONDecodeError, TypeError):
+                pass
+        if not has_repos:
+            update_data["repos"] = [repo_name] if repo_name else []
         _cortex_cli(
             "session", "update", cortex_session_id,
-            "--data", json.dumps({
-                "cc_session_id": session_id,
-                "transcript_path": transcript_path,
-                "repos": [repo_name] if repo_name else [],
-            }),
+            "--data", json.dumps(update_data),
             "--trigger", "session_start_hook",
         )
     elif session_id:

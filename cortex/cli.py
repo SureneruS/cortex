@@ -856,17 +856,49 @@ def _cli_log():
 @click.option("--model", default=None, help="Claude model (e.g. haiku, sonnet, opus)")
 @click.option("--split", is_flag=True, default=False, help="Split current pane horizontally instead of new tab")
 @click.option("--resume", "resume_id", default=None, help="CC session UUID to resume (continues previous conversation)")
-def spawn(name: str, goal: str | None, prompt: str | None, workspace: str, model: str | None, split: bool, resume_id: str | None) -> None:
+@click.option("--repo", default=None, help="Repo name under ~/workspace/cercli/ to use as cwd")
+@click.option("--permission-mode", default=None, help="CC permission mode (e.g. plan, full)")
+@click.option("--effort", default=None, help="CC effort level (e.g. low, medium, high)")
+@click.option("--agent", "agent_name", default=None, help="CC agent name to use")
+@click.option("--allowed-tools", default=None, help="CC allowed tools (comma-separated)")
+@click.option("--worktree", default=None, help="CC worktree name")
+def spawn(
+    name: str,
+    goal: str | None,
+    prompt: str | None,
+    workspace: str,
+    model: str | None,
+    split: bool,
+    resume_id: str | None,
+    repo: str | None,
+    permission_mode: str | None,
+    effort: str | None,
+    agent_name: str | None,
+    allowed_tools: str | None,
+    worktree: str | None,
+) -> None:
     """Spawn a new Claude Code session in a tmux pane."""
     import json
     import subprocess
 
     from cortex.session_registry import _new_id
 
-    log = _cli_log()
-    log.info("CLI spawn called: name=%s goal=%s prompt=%s workspace=%s resume=%s", name, goal, bool(prompt), workspace, resume_id)
+    from pathlib import Path
 
-    repo = _get_session_repo()
+    log = _cli_log()
+    log.info("CLI spawn called: name=%s goal=%s prompt=%s workspace=%s resume=%s repo=%s", name, goal, bool(prompt), workspace, resume_id, repo)
+
+    repo_path: Path | None = None
+    if repo:
+        repo_path = Path.home() / "workspace" / "cercli" / repo
+        if not repo_path.is_dir():
+            click.echo(json.dumps({"error": f"Repo directory not found: {repo_path}"}))
+            raise SystemExit(1)
+        if not (repo_path / ".git").exists():
+            click.echo(json.dumps({"error": f"Not a git repo (no .git): {repo_path}"}))
+            raise SystemExit(1)
+
+    session_repo = _get_session_repo()
     session_id = _new_id()
     log.info("Generated session_id: %s", session_id)
 
@@ -884,16 +916,16 @@ def spawn(name: str, goal: str | None, prompt: str | None, workspace: str, model
     if resume_id:
         data["cc_session_id"] = resume_id
         data["resumed_from"] = resume_id
+    if repo:
+        data["repos"] = [repo]
 
-    repo.register(session_id, data)
+    session_repo.register(session_id, data)
     log.info("Session registered in MongoDB")
 
     system_prompt = (
         f"You are a worker session (ID: {session_id}, name: {name})."
         f" Focus on your assigned task. Self-update your status via cortex session update."
     )
-
-    from pathlib import Path
 
     prompt_dir = Path.home() / ".cortex" / "session-prompts"
     prompt_dir.mkdir(parents=True, exist_ok=True)
@@ -903,16 +935,22 @@ def spawn(name: str, goal: str | None, prompt: str | None, workspace: str, model
 
     model_flag = f"--model {model} " if model else ""
     resume_flag = f"--resume {resume_id} " if resume_id else ""
+    permission_mode_flag = f"--permission-mode {permission_mode} " if permission_mode else ""
+    effort_flag = f"--effort {effort} " if effort else ""
+    agent_flag = f"--agent {agent_name} " if agent_name else ""
+    allowed_tools_flag = f"--allowed-tools {allowed_tools} " if allowed_tools else ""
+    worktree_flag = f"--worktree {worktree} " if worktree else ""
+    cc_flags = f"{permission_mode_flag}{effort_flag}{agent_flag}{allowed_tools_flag}{worktree_flag}"
     fish_cmd = (
         f"set -x CORTEX_SESSION_ROLE worker; "
         f"set -x CORTEX_SESSION_ID {session_id}; "
-        f"claude {model_flag}{resume_flag}--name {name} --append-system-prompt-file {prompt_file}; exit"
+        f"claude {model_flag}{resume_flag}{cc_flags}--name {name} --append-system-prompt-file {prompt_file}; exit"
     )
 
     import os
 
     spawn_mode = "split" if split else os.environ.get("CORTEX_SPAWN_MODE", "tab")
-    cwd = os.getcwd()
+    cwd = str(repo_path) if repo_path else os.getcwd()
     log.info("Spawn cwd: %s spawn_mode: %s", cwd, spawn_mode)
 
     pane_fmt = "-P", "-F", "#{pane_id}"
@@ -954,7 +992,7 @@ def spawn(name: str, goal: str | None, prompt: str | None, workspace: str, model
                 fish_cmd,
             ]
     elif spawn_mode == "split":
-        caller_pane = _resolve_caller_pane(repo)
+        caller_pane = _resolve_caller_pane(session_repo)
         split_target = ["-t", caller_pane] if caller_pane else []
         tmux_cmd = ["tmux", "split-window", "-h", *split_target, *pane_fmt, "-c", cwd, "fish", "-c", fish_cmd]
     else:
@@ -973,7 +1011,7 @@ def spawn(name: str, goal: str | None, prompt: str | None, workspace: str, model
     pane_id = result.stdout.strip() if result.returncode == 0 else None
 
     if pane_id:
-        repo.update(session_id, {"pane_id": pane_id})
+        session_repo.update(session_id, {"pane_id": pane_id})
         log.info("Updated session with pane_id=%s", pane_id)
 
         if prompt:
@@ -1506,6 +1544,163 @@ def cleanup() -> None:
 
     log.info("Cleanup complete: %d sessions closed", len(closed))
     click.echo(json.dumps({"closed": closed, "count": len(closed)}, indent=2, default=str))
+
+
+# ── cortex test ──────────────────────────────────────────────
+
+
+SUITES = {
+    "slice-0": {"marker": "slice0", "description": "Test harness self-tests"},
+    "slice-1": {"marker": "slice1", "description": "Repo-based session tests"},
+}
+
+
+def _preflight_checks() -> list[str]:
+    """Run pre-flight checks. Returns list of error messages (empty = all pass)."""
+    import shutil
+    import subprocess
+
+    errors: list[str] = []
+
+    try:
+        from pymongo import MongoClient
+        client = MongoClient("mongodb://localhost:27017", serverSelectionTimeoutMS=2000)
+        client.admin.command("ping")
+        client.close()
+    except Exception:
+        errors.append("MongoDB is not reachable at localhost:27017")
+
+    result = subprocess.run(["tmux", "list-sessions"], capture_output=True, text=True)
+    if result.returncode != 0:
+        errors.append("tmux server is not running (start with: tmux new-session -d)")
+
+    if not shutil.which("cortex"):
+        errors.append("'cortex' CLI not found on PATH (install with: uv tool install --editable . --force)")
+
+    if not shutil.which("claude"):
+        errors.append("'claude' CLI not found on PATH")
+
+    return errors
+
+
+@cli.group("test")
+def test_group() -> None:
+    """Run E2E test suites."""
+    pass
+
+
+@test_group.command("list")
+def test_list() -> None:
+    """List available test suites."""
+    click.echo("Available test suites:\n")
+    for name, info in SUITES.items():
+        click.echo(f"  {name:12s} {info['description']}")
+    click.echo("\nRun with: cortex test run <suite>")
+
+
+@test_group.command("run")
+@click.argument("suite")
+@click.option("-v", "--verbose", is_flag=True, help="Verbose pytest output")
+@click.option("-k", "--filter", "test_filter", default=None, help="pytest -k filter expression")
+def test_run(suite: str, verbose: bool, test_filter: str | None) -> None:
+    """Run a test suite with pre-flight checks."""
+    import subprocess
+    import sys
+
+    if suite not in SUITES:
+        click.echo(f"Unknown suite: {suite}")
+        click.echo(f"Available: {', '.join(SUITES)}")
+        raise SystemExit(1)
+
+    click.echo("Pre-flight checks:")
+    errors = _preflight_checks()
+    checks = [
+        ("MongoDB reachable", "MongoDB is not reachable"),
+        ("tmux running", "tmux server is not running"),
+        ("cortex on PATH", "'cortex' CLI not found"),
+        ("claude on PATH", "'claude' CLI not found"),
+    ]
+    for label, err_prefix in checks:
+        failed = any(e.startswith(err_prefix) for e in errors)
+        status = "FAIL" if failed else "OK"
+        click.echo(f"  [{status}] {label}")
+
+    if errors:
+        click.echo(f"\nPre-flight failed ({len(errors)} error(s)):")
+        for e in errors:
+            click.echo(f"  - {e}")
+        raise SystemExit(1)
+
+    click.echo(f"\nRunning suite: {suite} (marker: {SUITES[suite]['marker']})\n")
+
+    marker = SUITES[suite]["marker"]
+    cmd = [
+        "uv", "run", "python", "-m", "pytest",
+        "tests/e2e/", "-m", marker, "--tb=short",
+    ]
+    if verbose:
+        cmd.append("-v")
+    if test_filter:
+        cmd.extend(["-k", test_filter])
+
+    result = subprocess.run(cmd, cwd="/Users/suren/workspace/cercli/cortex")
+    raise SystemExit(result.returncode)
+
+
+@test_group.command("smoke")
+@click.argument("suite")
+def test_smoke(suite: str) -> None:
+    """Generate a smoke test checklist for manual verification."""
+    from pathlib import Path
+
+    if suite != "slice-1":
+        click.echo(f"No smoke checklist defined for suite: {suite}")
+        raise SystemExit(1)
+
+    checklist = """# Smoke Test Checklist: Slice 1 (Repo-Based Sessions)
+
+## AC-1.3: Repo CLAUDE.md loads
+- [ ] Spawn session in recruitment-backend: `cortex session spawn --repo recruitment-backend --name smoke-claudemd`
+- [ ] Run `/memory` in the session
+- [ ] Verify it lists `~/.claude/CLAUDE.md` (global) + `recruitment-backend/CLAUDE.md` (repo)
+- [ ] Verify it does NOT list other repos' CLAUDE.md
+
+## AC-1.4: .mcp.json activates
+- [ ] Spawn session in a repo with `.mcp.json`
+- [ ] Run `/mcp` in the session
+- [ ] Verify configured MCPs show as connected
+- [ ] Verify no trust prompt appeared (enableAllProjectMcpServers)
+
+## AC-1.5: Memory isolation
+- [ ] In a recruitment-backend session, trigger auto-memory save
+- [ ] Check that memory writes to `~/.claude/projects/...-recruitment-backend/memory/`
+- [ ] Verify NOT written to workspace-level memory
+
+## AC-1.9: Global rules loading
+- [ ] Spawn session in any repo
+- [ ] Verify `~/.claude/rules/*.md` files are loaded (check via /memory or behavior)
+- [ ] Test in at least 2 different repos
+
+## AC-1.10: Old sessions resumable
+- [ ] Find a session ID from before migration: `cortex session list --status completed --limit 5`
+- [ ] Resume it: `claude --resume <id>`
+- [ ] Verify no crash, context loads
+
+## AC-1.13/1.17: Notifications
+- [ ] Trigger a permission prompt in a session
+- [ ] Verify macOS notification appears
+- [ ] End a session and verify completion notification
+
+---
+Generated by `cortex test smoke slice-1`
+"""
+    click.echo(checklist)
+
+    out_dir = Path.home() / ".cortex"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / "smoke-test-slice-1.md"
+    out_path.write_text(checklist)
+    click.echo(f"Written to: {out_path}")
 
 
 if __name__ == "__main__":
