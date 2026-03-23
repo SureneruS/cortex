@@ -41,8 +41,11 @@ class TmuxBackend(DaemonBackend):
         if self.status(name) == "running":
             raise RuntimeError(f"Daemon '{name}' is already running")
         self._ensure_session()
+        from pathlib import Path
+        log_file = Path.home() / ".cortex" / "logs" / "cortex-cli.log"
+        shell_cmd = " ".join(command) + f" & tail -f {log_file}"
         subprocess.run(
-            ["tmux", "new-window", "-t", self.SESSION, "-n", name, *command],
+            ["tmux", "new-window", "-t", self.SESSION, "-n", name, "fish", "-c", shell_cmd],
             capture_output=True,
             check=True,
         )

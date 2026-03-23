@@ -101,7 +101,10 @@ Managed Claude Code worker sessions in tmux panes.
 
 ```bash
 # Spawn new session
-cortex session spawn --name <name> [--goal "..."] [--prompt "..."] [--workspace default] [--model sonnet] [--split h|v]
+cortex session spawn --name <name> [--goal "..."] [--prompt "..."] [--repo <name>] \
+  [--beside <ref>] [--below <ref>] [--color <name>] \
+  [--model sonnet] [--permission-mode plan] [--effort high] \
+  [--worktree <name>] [--resume <cc-uuid>] [--workspace default|background]
 
 # List (default: active, brief)
 cortex session list [--status active|watching|all] [--limit 20] [--brief]
@@ -121,6 +124,24 @@ cortex session capture <session_id> [--lines 50]
 # Close session
 cortex session close <session_id> [--force]
 
+# Pause (send /exit, preserve cc_session_id for resume)
+cortex session pause <session_id_or_name>
+
+# Resume a paused session (spawns with --resume)
+cortex session resume <session_id_or_name>
+
+# Hide (move to background workspace, still running)
+cortex session hide <session_id_or_name>
+
+# Show (bring back from background)
+cortex session show <session_id_or_name>
+
+# Spatial layout (JSON: pane positions, sizes, session mapping)
+cortex session layout [--window <name>]
+
+# Paint tmux borders by runtime state (demo)
+cortex session paint [<ref>] [--color <name|hex>]
+
 # Health check (stale sessions, dead panes)
 cortex session health
 
@@ -131,6 +152,8 @@ cortex session cleanup
 ### Session spawn notes
 - `--goal` is metadata only (shows in list/get)
 - `--prompt` is what gets typed into the session
+- `--beside`/`--below` resolve by session name, ID prefix, or %pane_id
+- `--color` auto-cycles (blue/green/yellow/purple/orange/pink/cyan/red) if omitted
 - Don't use both `--prompt` and `session send` — pick one
 
 ## Cron Jobs
