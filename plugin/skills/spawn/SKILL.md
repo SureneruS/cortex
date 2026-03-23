@@ -7,27 +7,73 @@ description: Use when the user asks to spawn, create, or start a new worker sess
 
 Create a new Cortex-managed Claude Code worker session in a tmux pane.
 
+## CLI Command
+
+```
+cortex session spawn --name <name> [options]
+```
+
+## Available Flags
+
+| Flag | Description |
+|------|------------|
+| `--name` | Session name (required) |
+| `--goal` | Purpose description (registry metadata) |
+| `--prompt` | First prompt sent to CC after startup |
+| `--repo` | Repo under ~/workspace/cercli/ (sets cwd) |
+| `--beside <ref>` | Split horizontally beside a session (name, ID prefix, or %pane_id) |
+| `--below <ref>` | Split vertically below a session |
+| `--color <name>` | CC session color (auto-assigned if omitted, cycles: blue/green/yellow/purple/orange/pink/cyan/red) |
+| `--model` | Claude model (haiku, sonnet, opus) |
+| `--permission-mode` | CC mode (e.g., plan) |
+| `--effort` | CC effort (low, medium, high) |
+| `--worktree` | CC worktree name (creates branch + isolated dir) |
+| `--resume` | CC session UUID to resume |
+| `--split` | Split current pane (legacy, prefer --beside/--below) |
+| `--workspace` | default or background |
+
 ## Workflow
 
 1. Parse the invocation for pre-filled values:
-   - `/spawn` — interactive, ask for name and goal
-   - `/spawn fix auth bug` — use as goal, generate name from it
-   - `/spawn --name worker-1 --goal "fix the auth bug"` — use both directly
+   - `/spawn` — interactive, ask for details
+   - `/spawn fix auth bug in recruitment-backend` — infer name, goal, and repo
+   - `/spawn --name worker-1 --repo cortex --goal "fix the auth bug"` — use directly
 
-2. If name is missing, generate a short kebab-case name from the goal (e.g., "fix auth bug" → "fix-auth-bug").
+2. **Infer from goal text**:
+   - Repo: if goal mentions a known repo name, suggest `--repo <name>`
+   - Name: generate short kebab-case from goal (e.g., "fix auth bug" → "fix-auth-bug")
+   - If the user says `/spawn ATS-XXX`, read the Linear ticket to derive goal, repo, and name
 
-3. If goal is missing, ask the user what the session should accomplish.
+3. **Decide placement**:
+   - Related to an existing session? Use `--beside` or `--below` that session
+   - Two related sessions? Spawn the first as a tab, second `--beside` the first
+   - Unrelated? New tab (default behavior)
 
-4. Call `cortex_session_spawn` with the name, goal, and workspace (default: "default").
+4. Run `cortex session spawn` with the assembled flags.
 
-5. Report the result: session_id, pane_id, and how to interact:
-   - Switch to it: `Ctrl-b n` (next window) or click the tmux tab
-   - Send it text: `cortex_session_send <session_id> "text"`
-   - Read its output: `cortex_session_capture <session_id>`
-   - Close it: `cortex_session_close <session_id>`
+5. Report: session_id, pane_id, color, and how to interact:
+   - Switch to it: click the tmux tab or `Ctrl-b n`
+   - Send text: `cortex session send <name> "text"`
+   - Read output: `cortex session capture <name>`
+   - Check layout: `cortex session layout`
+   - Close: `cortex session close <name>`
 
-## Important
+## Examples
 
-- Always use `cortex_session_spawn` MCP tool — never raw tmux commands for session lifecycle
-- The spawned session gets CORTEX_SESSION_ROLE=worker and a system prompt automatically
-- Goal is injected into the worker's prompt after CC starts up
+```
+# Simple
+cortex session spawn --name fix-login --repo recruitment-backend --goal "fix login redirect bug"
+
+# Side by side
+cortex session spawn --name fe-work --repo frontend
+cortex session spawn --name be-work --repo recruitment-backend --beside fe-work
+
+# With prompt
+cortex session spawn --name reviewer --repo cortex --prompt "review the latest PR changes"
+
+# Plan mode
+cortex session spawn --name planner --repo recruitment-backend --permission-mode plan
+
+# With worktree
+cortex session spawn --name feat-avatar --repo recruitment-backend --worktree feat/avatar-upload
+```

@@ -862,6 +862,9 @@ def _cli_log():
 @click.option("--agent", "agent_name", default=None, help="CC agent name to use")
 @click.option("--allowed-tools", default=None, help="CC allowed tools (comma-separated)")
 @click.option("--worktree", default=None, help="CC worktree name")
+@click.option("--beside", default=None, help="Split horizontally beside this session/pane (name, ID prefix, or %%pane_id)")
+@click.option("--below", default=None, help="Split vertically below this session/pane (name, ID prefix, or %%pane_id)")
+@click.option("--color", default=None, help="CC session color (sent via /color after startup)")
 def spawn(
     name: str,
     goal: str | None,
@@ -876,6 +879,9 @@ def spawn(
     agent_name: str | None,
     allowed_tools: str | None,
     worktree: str | None,
+    beside: str | None,
+    below: str | None,
+    color: str | None,
 ) -> None:
     """Spawn a new Claude Code session in a tmux pane."""
     import json
@@ -919,6 +925,13 @@ def spawn(
     if repo:
         data["repos"] = [repo]
 
+    CC_COLORS = ["blue", "green", "yellow", "purple", "orange", "pink", "cyan", "red"]
+    if not color:
+        active = session_repo.list({"status": {"$nin": ["completed", "dead"]}})
+        used = {doc.get("color") for doc in active if doc.get("color")}
+        color = next((c for c in CC_COLORS if c not in used), CC_COLORS[0])
+    data["color"] = color
+
     session_repo.register(session_id, data)
     log.info("Session registered in MongoDB")
 
@@ -949,9 +962,39 @@ def spawn(
 
     import os
 
-    spawn_mode = "split" if split else os.environ.get("CORTEX_SPAWN_MODE", "tab")
+    # Resolve spatial spawn target
+    target_pane: str | None = None
+    split_orientation: str | None = None
+    if beside:
+        if beside.startswith("%"):
+            target_pane = beside
+        else:
+            resolved_target = _resolve_session(session_repo, beside)
+            target_pane = resolved_target.get("pane_id")
+        if not target_pane or not _pane_exists(target_pane):
+            click.echo(json.dumps({"error": f"Cannot resolve --beside target: {beside}"}))
+            raise SystemExit(1)
+        split_orientation = "h"
+    elif below:
+        if below.startswith("%"):
+            target_pane = below
+        else:
+            resolved_target = _resolve_session(session_repo, below)
+            target_pane = resolved_target.get("pane_id")
+        if not target_pane or not _pane_exists(target_pane):
+            click.echo(json.dumps({"error": f"Cannot resolve --below target: {below}"}))
+            raise SystemExit(1)
+        split_orientation = "v"
+
+    if target_pane:
+        spawn_mode = "spatial"
+    elif split:
+        spawn_mode = "split"
+    else:
+        spawn_mode = os.environ.get("CORTEX_SPAWN_MODE", "tab")
+
     cwd = str(repo_path) if repo_path else os.getcwd()
-    log.info("Spawn cwd: %s spawn_mode: %s", cwd, spawn_mode)
+    log.info("Spawn cwd: %s spawn_mode: %s target_pane: %s", cwd, spawn_mode, target_pane)
 
     pane_fmt = "-P", "-F", "#{pane_id}"
 
@@ -991,6 +1034,8 @@ def spawn(
                 "-c",
                 fish_cmd,
             ]
+    elif spawn_mode == "spatial":
+        tmux_cmd = ["tmux", "split-window", f"-{split_orientation}", "-t", target_pane, *pane_fmt, "-c", cwd, "fish", "-c", fish_cmd]
     elif spawn_mode == "split":
         caller_pane = _resolve_caller_pane(session_repo)
         split_target = ["-t", caller_pane] if caller_pane else []
@@ -1037,6 +1082,25 @@ def spawn(
                 ["fish", "-c", send_script], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
             )
             log.info("Launched background prompt sender for pane %s (log: %s)", pane_id, log_file)
+
+        if color:
+            log_file = Path.home() / ".cortex" / "logs" / "color-sender.log"
+            color_script = (
+                f"set log_file {log_file}; "
+                f"set attempt 0; "
+                f"while not tmux capture-pane -t {pane_id} -p 2>/dev/null | grep -q '❯'; "
+                f"set attempt (math $attempt + 1); "
+                f"if test $attempt -gt 30; echo (date) 'Color sender timed out for {pane_id}' >> $log_file; exit 1; end; "
+                f"sleep 1; end; "
+                f"tmux send-keys -t {pane_id} -l '/color {color}'; "
+                f"sleep 0.3; "
+                f"tmux send-keys -t {pane_id} Enter; "
+                f"echo (date) '/color {color} sent to {pane_id}' >> $log_file"
+            )
+            subprocess.Popen(
+                ["fish", "-c", color_script], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+            )
+            log.info("Launched background color sender for pane %s: /color %s", pane_id, color)
     else:
         log.error("Failed to get pane_id from tmux")
 
@@ -1546,12 +1610,148 @@ def cleanup() -> None:
     click.echo(json.dumps({"closed": closed, "count": len(closed)}, indent=2, default=str))
 
 
+@session.command()
+@click.option("--window", default=None, help="Filter to a specific window name or index")
+def layout(window: str | None) -> None:
+    """Show spatial layout of all panes with session mappings."""
+    import json
+    import subprocess
+
+    log = _cli_log()
+
+    result = subprocess.run(
+        [
+            "tmux", "list-panes", "-a", "-F",
+            "#{session_name}\t#{window_id}\t#{window_index}\t#{window_name}\t"
+            "#{pane_id}\t#{pane_index}\t#{pane_left}\t#{pane_top}\t"
+            "#{pane_width}\t#{pane_height}\t#{pane_active}\t#{pane_title}",
+        ],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        click.echo(json.dumps({"error": "tmux not running"}))
+        raise SystemExit(1)
+
+    repo = _get_session_repo()
+    sessions = repo.list({"status": {"$nin": ["completed", "dead"]}})
+    pane_to_session: dict[str, str | None] = {}
+    pane_to_color: dict[str, str | None] = {}
+    for doc in sessions:
+        pid = doc.get("pane_id")
+        if pid:
+            pane_to_session[str(pid)] = doc.get("name")
+            pane_to_color[str(pid)] = doc.get("color")
+
+    windows: dict[str, dict] = {}
+    for line in result.stdout.strip().splitlines():
+        parts = line.split("\t")
+        if len(parts) < 12:
+            continue
+        (sess_name, win_id, win_idx, win_name, pane_id, pane_idx,
+         left, top, width, height, active, title) = parts[:12]
+
+        if window is not None and win_name != window and win_idx != window:
+            continue
+
+        if win_id not in windows:
+            windows[win_id] = {
+                "id": win_id,
+                "index": int(win_idx),
+                "name": win_name,
+                "workspace": sess_name,
+                "panes": [],
+            }
+
+        windows[win_id]["panes"].append({
+            "pane_id": pane_id,
+            "session": pane_to_session.get(pane_id),
+            "color": pane_to_color.get(pane_id),
+            "left": int(left),
+            "top": int(top),
+            "width": int(width),
+            "height": int(height),
+            "index": int(pane_idx),
+            "active": active == "1",
+            "title": title,
+        })
+
+    workspace = "work"
+    if windows:
+        workspace = next(iter(windows.values())).get("workspace", "work")
+
+    output = {
+        "workspace": workspace,
+        "windows": sorted(windows.values(), key=lambda w: w["index"]),
+    }
+    log.info("Layout: %d windows, %d panes", len(windows), sum(len(w["panes"]) for w in windows.values()))
+    click.echo(json.dumps(output, indent=2))
+
+
+RUNTIME_BORDER_STYLES = {
+    "working": "fg=#3fb950",
+    "waiting_input": "fg=#d29922",
+    "waiting_permission": "fg=#f85149",
+    "error": "fg=#f85149",
+    "unknown": "fg=#484f58",
+}
+
+
+@session.command()
+@click.argument("ref", required=False)
+@click.option("--color", default=None, help="Color name or #hex (green, red, amber, blue, purple, gray)")
+def paint(ref: str | None, color: str | None) -> None:
+    """Set tmux pane border colors. Without args: paint all by runtime state."""
+    import json
+    import subprocess
+
+    log = _cli_log()
+    repo = _get_session_repo()
+    named_colors = {
+        "green": "#3fb950", "red": "#f85149", "amber": "#d29922",
+        "blue": "#58a6ff", "purple": "#bc8cff", "gray": "#484f58",
+    }
+
+    if ref is not None:
+        resolved = _resolve_session(repo, ref)
+        pane_id = resolved.get("pane_id")
+        if not pane_id or not _pane_exists(pane_id):
+            click.echo(json.dumps({"error": f"No live pane for session {ref}"}))
+            raise SystemExit(1)
+        style = named_colors.get(color, color) if color else RUNTIME_BORDER_STYLES.get(resolved.get("runtime", "unknown"), "fg=#484f58")
+        if not style.startswith("fg="):
+            style = f"fg={style}"
+        subprocess.run(["tmux", "set-option", "-p", "-t", pane_id, "pane-border-style", style], capture_output=True)
+        click.echo(json.dumps({"painted": [{"session_id": resolved["_id"], "pane_id": pane_id, "style": style}], "skipped": []}))
+        return
+
+    sessions = repo.list({"status": {"$nin": ["completed", "dead"]}})
+    painted = []
+    skipped = []
+    for doc in sessions:
+        pane_id = doc.get("pane_id")
+        session_id = doc["_id"]
+        if not pane_id or not _pane_exists(pane_id):
+            skipped.append({"session_id": session_id, "name": doc.get("name"), "reason": "no live pane"})
+            continue
+        if doc.get("color"):
+            skipped.append({"session_id": session_id, "name": doc.get("name"), "reason": "has explicit color"})
+            continue
+        runtime = doc.get("runtime", "unknown")
+        style = RUNTIME_BORDER_STYLES.get(runtime, "fg=#484f58")
+        subprocess.run(["tmux", "set-option", "-p", "-t", pane_id, "pane-border-style", style], capture_output=True)
+        painted.append({"session_id": session_id, "pane_id": pane_id, "runtime": runtime, "style": style})
+
+    log.info("Paint: %d painted, %d skipped", len(painted), len(skipped))
+    click.echo(json.dumps({"painted": painted, "skipped": skipped}, indent=2))
+
+
 # ── cortex test ──────────────────────────────────────────────
 
 
 SUITES = {
     "slice-0": {"marker": "slice0", "description": "Test harness self-tests"},
     "slice-1": {"marker": "slice1", "description": "Repo-based session tests"},
+    "slice-2": {"marker": "slice2", "description": "Spatial spawn + layout tests"},
 }
 
 
@@ -1653,11 +1853,27 @@ def test_smoke(suite: str) -> None:
     """Generate a smoke test checklist for manual verification."""
     from pathlib import Path
 
-    if suite != "slice-1":
+    smoke_checklists = {
+        "slice-1": _smoke_slice1,
+        "slice-2": _smoke_slice2,
+    }
+    if suite not in smoke_checklists:
         click.echo(f"No smoke checklist defined for suite: {suite}")
+        click.echo(f"Available: {', '.join(smoke_checklists)}")
         raise SystemExit(1)
 
-    checklist = """# Smoke Test Checklist: Slice 1 (Repo-Based Sessions)
+    checklist = smoke_checklists[suite]()
+    click.echo(checklist)
+
+    out_dir = Path.home() / ".cortex"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / f"smoke-test-{suite}.md"
+    out_path.write_text(checklist)
+    click.echo(f"Written to: {out_path}")
+
+
+def _smoke_slice1() -> str:
+    return """# Smoke Test Checklist: Slice 1 (Repo-Based Sessions)
 
 ## AC-1.3: Repo CLAUDE.md loads
 - [ ] Spawn session in recruitment-backend: `cortex session spawn --repo recruitment-backend --name smoke-claudemd`
@@ -1694,13 +1910,32 @@ def test_smoke(suite: str) -> None:
 ---
 Generated by `cortex test smoke slice-1`
 """
-    click.echo(checklist)
 
-    out_dir = Path.home() / ".cortex"
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / "smoke-test-slice-1.md"
-    out_path.write_text(checklist)
-    click.echo(f"Written to: {out_path}")
+
+def _smoke_slice2() -> str:
+    return """# Smoke Test Checklist: Slice 2 (Spatial Spawn)
+
+## AC-2.7: tmux border colors by runtime (demo)
+- [ ] Spawn 2+ sessions side by side: `cortex session spawn --name s1 --repo cortex` then `cortex session spawn --name s2 --beside s1`
+- [ ] Let one go idle (waiting_input), keep other working
+- [ ] Run `cortex session paint`
+- [ ] Evaluate: do tmux border colors help distinguish session states?
+- [ ] Decision: keep/iterate/drop tmux border colors
+
+## AC-2.13: Visual layout verification
+- [ ] Run `cortex session layout`
+- [ ] Compare JSON output with actual tmux pane positions
+- [ ] Verify session names map correctly to panes
+- [ ] Verify untracked panes show `session: null`
+
+## CC /color verification
+- [ ] Spawn with color: `cortex session spawn --name colored --color blue`
+- [ ] Verify CC session shows blue accent color
+- [ ] Check registry: `cortex session get colored` shows `color: "blue"`
+
+---
+Generated by `cortex test smoke slice-2`
+"""
 
 
 if __name__ == "__main__":
