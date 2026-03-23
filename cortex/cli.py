@@ -1835,6 +1835,81 @@ def show(session_id: str) -> None:
 
 
 @session.command()
+@click.argument("session_id")
+def restart(session_id: str) -> None:
+    """Restart CC in the same pane (picks up new CC version, preserves conversation)."""
+    import json
+    import subprocess
+
+    log = _cli_log()
+    repo = _get_session_repo()
+    doc = _resolve_session(repo, session_id)
+    session_id = doc["_id"]
+
+    pane_id = doc.get("pane_id")
+    if not pane_id:
+        click.echo(json.dumps({"error": "No pane_id — cannot restart"}))
+        raise SystemExit(1)
+
+    cc_session_id = doc.get("cc_session_id")
+    if not cc_session_id:
+        click.echo(json.dumps({"error": "No cc_session_id — session was never started"}))
+        raise SystemExit(1)
+
+    name = doc.get("name", session_id)
+    repos = doc.get("repos", [])
+    color = doc.get("color")
+    model = doc.get("model")
+    from pathlib import Path
+
+    prompt_dir = Path.home() / ".cortex" / "session-prompts"
+    prompt_file = prompt_dir / f"{session_id}.txt"
+
+    model_flag = f"--model {model} " if model else ""
+    resume_flag = f"--resume {cc_session_id} "
+    fish_cmd = (
+        f"set -x CORTEX_SESSION_ROLE worker; "
+        f"set -x CORTEX_SESSION_ID {session_id}; "
+        f"claude {model_flag}{resume_flag}--name {name}"
+    )
+    if prompt_file.exists():
+        fish_cmd += f" --append-system-prompt-file {prompt_file}"
+    fish_cmd += "; exit"
+
+    cwd = str(Path.home() / "workspace" / "cercli" / repos[0]) if repos else None
+    cwd_args = ["-c", cwd] if cwd else []
+
+    result = subprocess.run(
+        ["tmux", "respawn-pane", "-k", "-t", pane_id, *cwd_args, "fish", "-c", fish_cmd],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        click.echo(json.dumps({"error": f"respawn-pane failed: {result.stderr}"}))
+        raise SystemExit(1)
+
+    repo.update(session_id, {"status": "active", "runtime": "unknown"}, trigger="restart")
+
+    if color:
+        log_file = Path.home() / ".cortex" / "logs" / "color-sender.log"
+        color_script = (
+            f"set attempt 0; "
+            f"while not tmux capture-pane -t {pane_id} -p 2>/dev/null | grep -q '❯'; "
+            f"set attempt (math $attempt + 1); "
+            f"if test $attempt -gt 30; exit 1; end; "
+            f"sleep 1; end; "
+            f"tmux send-keys -t {pane_id} -l '/color {color}'; "
+            f"sleep 0.3; "
+            f"tmux send-keys -t {pane_id} Enter; "
+            f"echo (date) '/color {color} sent to {pane_id} (restart)' >> {log_file}"
+        )
+        subprocess.Popen(["fish", "-c", color_script], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    doc = repo.get(session_id)
+    log.info("Session %s restarted in pane %s", session_id, pane_id)
+    click.echo(json.dumps(doc, indent=2, default=str))
+
+
+@session.command()
 @click.argument("refs", nargs=-1, required=True)
 @click.option("--layout", "layout_name", default="tiled", help="Layout: tiled, even-horizontal, even-vertical, main-horizontal, main-vertical")
 def gather(refs: tuple[str, ...], layout_name: str) -> None:

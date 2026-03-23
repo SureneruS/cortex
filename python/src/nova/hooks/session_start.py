@@ -49,6 +49,14 @@ def handle_session_start(hook_input: dict) -> dict:
 
     cortex_session_id = os.environ.get("CORTEX_SESSION_ID")
 
+    cc_version = None
+    try:
+        vr = subprocess.run(["claude", "--version"], capture_output=True, text=True, timeout=3)
+        if vr.returncode == 0:
+            cc_version = vr.stdout.strip()
+    except Exception:
+        pass
+
     if cortex_session_id and session_id:
         # Check if the cortex session is still active (may be closed by /clear)
         existing = _cortex_cli("session", "get", cortex_session_id)
@@ -67,6 +75,8 @@ def handle_session_start(hook_input: dict) -> dict:
                 "cc_session_id": session_id,
                 "transcript_path": transcript_path,
             }
+            if cc_version:
+                update_data["cc_version"] = cc_version
             if not existing_data.get("repos"):
                 update_data["repos"] = [repo_name] if repo_name else []
             _cortex_cli(
