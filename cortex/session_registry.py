@@ -113,7 +113,12 @@ class MongoSessionRepo:
             options = ", ".join(f"{d['_id']} ({d.get('status')})" for d in by_name)
             raise ValueError(f"Ambiguous name '{ref}' matches {len(by_name)} sessions: {options}")
 
-        # 3. _id prefix match
+        # 3. cc_session_id match (CC UUID from hooks)
+        by_cc = self._col.find_one({"cc_session_id": ref, **active_filter})
+        if by_cc is not None:
+            return by_cc
+
+        # 4. _id prefix match
         by_prefix = list(
             self._col.find({"_id": {"$regex": f"^{ref}"}}).sort("created_at", -1).limit(5)
         )

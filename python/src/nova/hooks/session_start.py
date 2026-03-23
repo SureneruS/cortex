@@ -50,27 +50,43 @@ def handle_session_start(hook_input: dict) -> dict:
     cortex_session_id = os.environ.get("CORTEX_SESSION_ID")
 
     if cortex_session_id and session_id:
-        # Spawned session: link CC UUID to existing Cortex registry entry
-        # Don't overwrite repos if already set at spawn time (--repo flag)
-        update_data: dict = {
-            "cc_session_id": session_id,
-            "transcript_path": transcript_path,
-        }
+        # Check if the cortex session is still active (may be closed by /clear)
         existing = _cortex_cli("session", "get", cortex_session_id)
-        has_repos = False
+        existing_data = None
         if existing:
             try:
                 existing_data = json.loads(existing)
-                has_repos = bool(existing_data.get("repos"))
             except (json.JSONDecodeError, TypeError):
                 pass
-        if not has_repos:
-            update_data["repos"] = [repo_name] if repo_name else []
-        _cortex_cli(
-            "session", "update", cortex_session_id,
-            "--data", json.dumps(update_data),
-            "--trigger", "session_start_hook",
-        )
+
+        is_active = existing_data and existing_data.get("status") not in ("completed", "dead")
+
+        if is_active:
+            # Spawned session: link CC UUID to existing Cortex registry entry
+            update_data: dict = {
+                "cc_session_id": session_id,
+                "transcript_path": transcript_path,
+            }
+            if not existing_data.get("repos"):
+                update_data["repos"] = [repo_name] if repo_name else []
+            _cortex_cli(
+                "session", "update", cortex_session_id,
+                "--data", json.dumps(update_data),
+                "--trigger", "session_start_hook",
+            )
+        else:
+            # Session was closed (e.g. /clear) — register as new
+            _cortex_cli(
+                "session", "register",
+                "--data", json.dumps({
+                    "cc_session_id": session_id,
+                    "name": (existing_data or {}).get("name", repo_name or "cleared"),
+                    "role": os.environ.get("CORTEX_SESSION_ROLE", "worker"),
+                    "spawned_by": "clear",
+                    "transcript_path": transcript_path,
+                    "repos": (existing_data or {}).get("repos", [repo_name] if repo_name else []),
+                }),
+            )
     elif session_id:
         # Manual session: register new entry in Cortex registry
         _cortex_cli(
