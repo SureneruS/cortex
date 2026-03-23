@@ -229,6 +229,55 @@ class TestHideShow:
         assert len(output.strip()) > 0, "Pane should have content"
 
 
+class TestRestart:
+    """CTX-41: Restart CC in same pane. Needs real CC."""
+
+    def test_restart_respawns_in_same_pane(self, spawn_test_session):
+        doc = spawn_test_session("test-restart", repo="cortex")
+        time.sleep(3)
+
+        # Wait for cc_session_id
+        for _ in range(10):
+            reg = _get_session(doc["session_id"])
+            if reg.get("cc_session_id"):
+                break
+            time.sleep(1)
+
+        result = subprocess.run(
+            ["cortex", "session", "restart", doc["session_id"]],
+            capture_output=True, text=True, timeout=15,
+        )
+        assert result.returncode == 0, f"Restart failed: {result.stderr}"
+
+        time.sleep(3)
+        reg = _get_session(doc["session_id"])
+        assert reg["status"] == "active"
+        new_pane = reg["pane_id"]
+        assert new_pane is not None, "Should have a pane after restart"
+        assert _pane_exists(new_pane), "New pane should be alive after restart"
+
+
+class TestCCVersion:
+    """CTX-42: CC version tracked in registry. Needs real CC."""
+
+    def test_cc_version_populated(self, spawn_test_session):
+        doc = spawn_test_session("test-version", repo="cortex")
+        time.sleep(5)
+
+        # Wait for SessionStart hook to fire and set cc_version
+        for _ in range(10):
+            reg = _get_session(doc["session_id"])
+            if reg.get("cc_version"):
+                break
+            time.sleep(1)
+
+        reg = _get_session(doc["session_id"])
+        assert reg.get("cc_version") is not None, "cc_version should be set by SessionStart hook"
+        assert "claude" in reg["cc_version"].lower() or "." in reg["cc_version"], (
+            f"Unexpected cc_version format: {reg['cc_version']}"
+        )
+
+
 class TestCleanupVerification:
     """No test artifacts remain."""
 
