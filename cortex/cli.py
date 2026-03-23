@@ -1358,12 +1358,12 @@ def capture(session_id: str, lines: int) -> None:
 
 @session.command()
 @click.argument("session_id")
-@click.option("--force", is_flag=True, help="Skip /memorize and close immediately")
+@click.option("--force", is_flag=True, help="Skip /session-wrapup and close immediately")
 def close(session_id: str, force: bool) -> None:
     """Close a session with full wrapup lifecycle.
 
-    Steps: send /memorize, wait for completion, update linked stream, close registry, kill/exit pane.
-    Use --force to skip /memorize and close immediately.
+    Steps: send /session-wrapup, wait for completion, update linked stream, close registry, kill/exit pane.
+    Use --force to skip wrapup and close immediately.
     """
     import json
     import os
@@ -1380,23 +1380,23 @@ def close(session_id: str, force: bool) -> None:
     pane_alive = pane_id is not None and _pane_exists(pane_id)
     log.info("pane_id=%s pane_alive=%s", pane_id, pane_alive)
 
-    # Step 1: Send /memorize (unless --force or pane gone)
-    memorize_ok = False
+    # Step 1: Send /session-wrapup (unless --force or pane gone)
+    wrapup_ok = False
     if not force and pane_alive:
-        log.info("Sending /memorize to pane %s", pane_id)
-        if _send_to_pane(pane_id, "/memorize"):
-            log.info("Waiting for /memorize to complete (timeout=30s)")
-            memorize_ok = _wait_for_idle(pane_id, timeout=30)
-            if memorize_ok:
-                log.info("/memorize completed on pane %s", pane_id)
+        log.info("Sending /session-wrapup to pane %s", pane_id)
+        if _send_to_pane(pane_id, "/session-wrapup"):
+            log.info("Waiting for /session-wrapup to complete (timeout=30s)")
+            wrapup_ok = _wait_for_idle(pane_id, timeout=30)
+            if wrapup_ok:
+                log.info("/session-wrapup completed on pane %s", pane_id)
             else:
-                log.warning("/memorize timed out on pane %s, continuing with close", pane_id)
+                log.warning("/session-wrapup timed out on pane %s, continuing with close", pane_id)
         else:
-            log.warning("Failed to send /memorize to pane %s", pane_id)
+            log.warning("Failed to send /session-wrapup to pane %s", pane_id)
     elif force:
-        log.info("Skipping /memorize (--force)")
+        log.info("Skipping wrapup (--force)")
     else:
-        log.info("Skipping /memorize (pane not available)")
+        log.info("Skipping wrapup (pane not available)")
 
     # Step 2: Update linked Cortex stream (if any)
     config = load_config()
@@ -1409,7 +1409,7 @@ def close(session_id: str, force: bool) -> None:
             state.add_update(
                 sid,
                 f"Session {doc.get('name', session_id)} closed.",
-                f"Session closed (memorize={'ok' if memorize_ok else 'skipped'})",
+                f"Session closed (wrapup={'ok' if wrapup_ok else 'skipped'})",
                 metadata={"type": "session_close", "session_id": session_id},
             )
             log.info("Logged close update to stream %s", sid)
