@@ -1835,6 +1835,136 @@ def show(session_id: str) -> None:
 
 
 @session.command()
+@click.argument("refs", nargs=-1, required=True)
+@click.option("--layout", "layout_name", default="tiled", help="Layout: tiled, even-horizontal, even-vertical, main-horizontal, main-vertical")
+def gather(refs: tuple[str, ...], layout_name: str) -> None:
+    """Gather sessions into a single window with a layout."""
+    import json
+    import subprocess
+
+    log = _cli_log()
+    repo = _get_session_repo()
+
+    panes: list[dict] = []
+    for ref in refs:
+        doc = _resolve_session(repo, ref)
+        pane_id = doc.get("pane_id")
+        if not pane_id or not _pane_exists(pane_id):
+            click.echo(json.dumps({"error": f"No live pane for '{doc.get('name', ref)}'"}))
+            raise SystemExit(1)
+        panes.append({"session_id": doc["_id"], "name": doc.get("name"), "pane_id": pane_id})
+
+    if len(panes) < 2:
+        click.echo(json.dumps({"error": "Need at least 2 sessions to gather"}))
+        raise SystemExit(1)
+
+    target = panes[0]["pane_id"]
+    moved = []
+    for pane in panes[1:]:
+        result = subprocess.run(
+            ["tmux", "join-pane", "-s", pane["pane_id"], "-t", target, "-v"],
+            capture_output=True, text=True,
+        )
+        if result.returncode != 0:
+            log.warning("join-pane failed for %s: %s", pane["pane_id"], result.stderr)
+        else:
+            moved.append(pane["name"])
+
+    # Apply layout to the target window
+    result = subprocess.run(
+        ["tmux", "display-message", "-t", target, "-p", "#{session_name}:#{window_index}"],
+        capture_output=True, text=True,
+    )
+    win_target = result.stdout.strip()
+    subprocess.run(
+        ["tmux", "select-layout", "-t", win_target, layout_name],
+        capture_output=True, text=True,
+    )
+
+    log.info("Gathered %d sessions into window %s with layout %s", len(panes), win_target, layout_name)
+    click.echo(json.dumps({"gathered": [p["name"] for p in panes], "layout": layout_name, "window": win_target}))
+
+
+@session.command()
+@click.argument("refs", nargs=-1, required=True)
+def scatter(refs: tuple[str, ...]) -> None:
+    """Break sessions into separate windows (tabs)."""
+    import json
+    import subprocess
+
+    log = _cli_log()
+    repo = _get_session_repo()
+
+    scattered = []
+    for ref in refs:
+        doc = _resolve_session(repo, ref)
+        pane_id = doc.get("pane_id")
+        if not pane_id or not _pane_exists(pane_id):
+            log.warning("Skipping %s: no live pane", ref)
+            continue
+
+        result = subprocess.run(
+            ["tmux", "break-pane", "-s", pane_id, "-d", "-P", "-F", "#{pane_id}"],
+            capture_output=True, text=True,
+        )
+        if result.returncode == 0:
+            new_pane_id = result.stdout.strip()
+            if new_pane_id and new_pane_id != pane_id:
+                repo.update(doc["_id"], {"pane_id": new_pane_id}, trigger="scatter")
+            scattered.append(doc.get("name"))
+        else:
+            log.warning("break-pane failed for %s: %s", pane_id, result.stderr)
+
+    log.info("Scattered %d sessions into separate windows", len(scattered))
+    click.echo(json.dumps({"scattered": scattered, "count": len(scattered)}))
+
+
+@session.command()
+@click.argument("ref")
+@click.option("--beside", default=None, help="Move beside this session (horizontal)")
+@click.option("--below", default=None, help="Move below this session (vertical)")
+def move(ref: str, beside: str | None, below: str | None) -> None:
+    """Move a session's pane beside or below another session."""
+    import json
+    import subprocess
+
+    log = _cli_log()
+    repo = _get_session_repo()
+
+    if not beside and not below:
+        click.echo(json.dumps({"error": "Specify --beside or --below target"}))
+        raise SystemExit(1)
+
+    doc = _resolve_session(repo, ref)
+    pane_id = doc.get("pane_id")
+    if not pane_id or not _pane_exists(pane_id):
+        click.echo(json.dumps({"error": f"No live pane for '{doc.get('name', ref)}'"}))
+        raise SystemExit(1)
+
+    target_ref = beside or below
+    if target_ref.startswith("%"):
+        target_pane = target_ref
+    else:
+        target_doc = _resolve_session(repo, target_ref)
+        target_pane = target_doc.get("pane_id")
+    if not target_pane or not _pane_exists(target_pane):
+        click.echo(json.dumps({"error": f"No live pane for target '{target_ref}'"}))
+        raise SystemExit(1)
+
+    orientation = "-h" if beside else "-v"
+    result = subprocess.run(
+        ["tmux", "move-pane", "-s", pane_id, "-t", target_pane, orientation],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        click.echo(json.dumps({"error": f"move-pane failed: {result.stderr}"}))
+        raise SystemExit(1)
+
+    log.info("Moved %s %s %s", doc.get("name"), "beside" if beside else "below", target_ref)
+    click.echo(json.dumps({"moved": doc.get("name"), "beside" if beside else "below": target_ref}))
+
+
+@session.command()
 @click.option("--window", default=None, help="Filter to a specific window name or index")
 def layout(window: str | None) -> None:
     """Show spatial layout of all panes with session mappings."""
@@ -1977,6 +2107,7 @@ SUITES = {
     "slice-1": {"marker": "slice1", "description": "Repo-based session tests"},
     "slice-2": {"marker": "slice2", "description": "Spatial spawn + layout tests"},
     "slice-3": {"marker": "slice3", "description": "Session lifecycle (pause/resume/hide/show) tests"},
+    "slice-4": {"marker": "slice4", "description": "Layout control (gather/scatter/move) tests"},
 }
 
 

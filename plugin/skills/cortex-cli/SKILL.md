@@ -142,6 +142,16 @@ cortex session layout [--window <name>]
 # Paint tmux borders by runtime state (demo)
 cortex session paint [<ref>] [--color <name|hex>]
 
+# Gather sessions into one window
+cortex session gather <name1> <name2> [<name3>...] [--layout tiled|even-horizontal|even-vertical]
+
+# Scatter panes into separate windows (tabs)
+cortex session scatter <name1> <name2> [<name3>...]
+
+# Move a pane beside or below another
+cortex session move <name> --beside <other>
+cortex session move <name> --below <other>
+
 # Health check (stale sessions, dead panes)
 cortex session health
 
