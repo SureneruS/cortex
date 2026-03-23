@@ -56,6 +56,7 @@ markers = [
     "slice0: Slice 0 — test harness self-tests",
     "slice1: Slice 1 — repo-based session tests",
     "slice2: Slice 2 — spatial spawn + layout tests",
+    "slice3: Slice 3 — session lifecycle (pause/resume/hide/show) tests",
     "e2e: End-to-end tests using real stack (MongoDB, tmux, CC)",
 ]
 

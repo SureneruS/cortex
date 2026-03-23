@@ -865,6 +865,7 @@ def _cli_log():
 @click.option("--beside", default=None, help="Split horizontally beside this session/pane (name, ID prefix, or %%pane_id)")
 @click.option("--below", default=None, help="Split vertically below this session/pane (name, ID prefix, or %%pane_id)")
 @click.option("--color", default=None, help="CC session color (sent via /color after startup)")
+@click.option("--command", "custom_command", default=None, hidden=True, help="Override the claude command (for testing)")
 def spawn(
     name: str,
     goal: str | None,
@@ -882,6 +883,7 @@ def spawn(
     beside: str | None,
     below: str | None,
     color: str | None,
+    custom_command: str | None,
 ) -> None:
     """Spawn a new Claude Code session in a tmux pane."""
     import json
@@ -954,11 +956,18 @@ def spawn(
     allowed_tools_flag = f"--allowed-tools {allowed_tools} " if allowed_tools else ""
     worktree_flag = f"--worktree {worktree} " if worktree else ""
     cc_flags = f"{permission_mode_flag}{effort_flag}{agent_flag}{allowed_tools_flag}{worktree_flag}"
-    fish_cmd = (
-        f"set -x CORTEX_SESSION_ROLE worker; "
-        f"set -x CORTEX_SESSION_ID {session_id}; "
-        f"claude {model_flag}{resume_flag}{cc_flags}--name {name} --append-system-prompt-file {prompt_file}; exit"
-    )
+    if custom_command:
+        fish_cmd = (
+            f"set -x CORTEX_SESSION_ROLE worker; "
+            f"set -x CORTEX_SESSION_ID {session_id}; "
+            f"{custom_command}"
+        )
+    else:
+        fish_cmd = (
+            f"set -x CORTEX_SESSION_ROLE worker; "
+            f"set -x CORTEX_SESSION_ID {session_id}; "
+            f"claude {model_flag}{resume_flag}{cc_flags}--name {name} --append-system-prompt-file {prompt_file}; exit"
+        )
 
     import os
 
@@ -1611,6 +1620,221 @@ def cleanup() -> None:
 
 
 @session.command()
+@click.argument("session_id")
+def pause(session_id: str) -> None:
+    """Pause a session — sends /exit, preserves cc_session_id for resume."""
+    import json
+    import time
+
+    log = _cli_log()
+    repo = _get_session_repo()
+    doc = _resolve_session(repo, session_id)
+    session_id = doc["_id"]
+
+    pane_id = doc.get("pane_id")
+    if not pane_id or not _pane_exists(pane_id):
+        click.echo(json.dumps({"error": f"No live pane for session '{doc.get('name', session_id)}' — cannot pause"}))
+        raise SystemExit(1)
+
+    if doc.get("status") == "paused":
+        click.echo(json.dumps({"error": "Session is already paused"}))
+        raise SystemExit(1)
+
+    log.info("Pausing session %s (pane %s)", session_id, pane_id)
+    _send_to_pane(pane_id, "/exit")
+
+    for _ in range(15):
+        time.sleep(1)
+        if not _pane_exists(pane_id):
+            break
+    else:
+        log.warning("Pane %s didn't die after /exit, killing", pane_id)
+        _kill_pane(pane_id)
+
+    repo.update(session_id, {"status": "paused"}, trigger="pause")
+    doc = repo.get(session_id)
+    log.info("Session %s paused (cc_session_id=%s)", session_id, doc.get("cc_session_id"))
+    click.echo(json.dumps(doc, indent=2, default=str))
+
+
+@session.command()
+@click.argument("session_id")
+def resume(session_id: str) -> None:
+    """Resume a paused session — spawns with --resume to restore conversation."""
+    import json
+    import subprocess
+
+    log = _cli_log()
+    repo = _get_session_repo()
+    doc = _resolve_session(repo, session_id)
+    session_id = doc["_id"]
+
+    if doc.get("status") not in ("paused", "completed", "dead"):
+        click.echo(json.dumps({"error": f"Session is {doc.get('status')}, not paused — cannot resume"}))
+        raise SystemExit(1)
+
+    cc_session_id = doc.get("cc_session_id")
+    if not cc_session_id:
+        click.echo(json.dumps({"error": "No cc_session_id — session was never started or hook didn't fire"}))
+        raise SystemExit(1)
+
+    name = doc.get("name", session_id)
+    repos = doc.get("repos", [])
+    color = doc.get("color")
+    model = doc.get("model")
+
+    cmd = ["cortex", "session", "spawn", "--name", name, "--resume", cc_session_id]
+    if repos:
+        cmd.extend(["--repo", repos[0]])
+    if color:
+        cmd.extend(["--color", color])
+    if model:
+        cmd.extend(["--model", model])
+
+    log.info("Resuming session %s with cc_session_id=%s", session_id, cc_session_id)
+
+    # Close the old registry entry first (spawn will create a fresh one)
+    # Instead, reuse the existing entry: update status back to active
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+    if result.returncode != 0:
+        click.echo(json.dumps({"error": f"Spawn failed: {result.stderr}"}))
+        raise SystemExit(1)
+
+    spawn_doc = json.loads(result.stdout)
+    new_session_id = spawn_doc["session_id"]
+    new_pane_id = spawn_doc.get("pane_id")
+
+    # Update original session: point to new pane, mark active, link to new spawn
+    repo.update(session_id, {
+        "status": "active",
+        "pane_id": new_pane_id,
+        "resumed_session_id": new_session_id,
+    }, trigger="resume")
+
+    # Mark the new spawn entry as a shadow (the original is the canonical one)
+    repo.update(new_session_id, {"status": "completed", "shadow_of": session_id}, trigger="resume-link")
+
+    doc = repo.get(session_id)
+    log.info("Session %s resumed with pane %s", session_id, new_pane_id)
+    click.echo(json.dumps(doc, indent=2, default=str))
+
+
+@session.command()
+@click.argument("session_id")
+def hide(session_id: str) -> None:
+    """Move a session to the background workspace (out of sight, still running)."""
+    import json
+    import subprocess
+
+    log = _cli_log()
+    repo = _get_session_repo()
+    doc = _resolve_session(repo, session_id)
+    session_id = doc["_id"]
+
+    pane_id = doc.get("pane_id")
+    if not pane_id or not _pane_exists(pane_id):
+        click.echo(json.dumps({"error": f"No live pane for session '{doc.get('name', session_id)}'"}))
+        raise SystemExit(1)
+
+    # Ensure background tmux session exists
+    bg_exists = subprocess.run(
+        ["tmux", "has-session", "-t", "background"], capture_output=True,
+    ).returncode == 0
+    if not bg_exists:
+        subprocess.run(["tmux", "new-session", "-d", "-s", "background"], capture_output=True)
+        log.info("Created background tmux session")
+
+    # Break pane into its own window (stays in current tmux session)
+    result = subprocess.run(
+        ["tmux", "break-pane", "-s", pane_id, "-d", "-P", "-F", "#{session_name}:#{window_index}.#{pane_id}"],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        click.echo(json.dumps({"error": f"break-pane failed: {result.stderr}"}))
+        raise SystemExit(1)
+
+    # Parse the new location: "work:N.%ID"
+    parts = result.stdout.strip()
+    src_session = parts.split(":")[0] if ":" in parts else "work"
+    window_part = parts.split(":")[1].split(".")[0] if ":" in parts else "0"
+    src_target = f"{src_session}:{window_part}"
+
+    # Move the window to background session
+    result = subprocess.run(
+        ["tmux", "move-window", "-s", src_target, "-t", "background:"],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        click.echo(json.dumps({"error": f"move-window failed: {result.stderr}"}))
+        raise SystemExit(1)
+
+    # Find the pane's new ID in background (it may have changed)
+    result = subprocess.run(
+        ["tmux", "list-panes", "-t", "background:", "-a", "-F", "#{pane_id}\t#{pane_title}"],
+        capture_output=True, text=True,
+    )
+    new_pane_id = pane_id  # default: assume unchanged
+    for line in result.stdout.strip().splitlines():
+        pid, title = line.split("\t", 1)
+        if pid == pane_id:
+            new_pane_id = pid
+            break
+
+    repo.update(session_id, {
+        "status": "hidden",
+        "pane_id": new_pane_id,
+        "hidden_from": src_session,
+    }, trigger="hide")
+
+    doc = repo.get(session_id)
+    log.info("Session %s hidden to background (pane %s)", session_id, new_pane_id)
+    click.echo(json.dumps(doc, indent=2, default=str))
+
+
+@session.command()
+@click.argument("session_id")
+def show(session_id: str) -> None:
+    """Bring a hidden session back from background to the work workspace."""
+    import json
+    import subprocess
+
+    log = _cli_log()
+    repo = _get_session_repo()
+    doc = _resolve_session(repo, session_id)
+    session_id = doc["_id"]
+
+    if doc.get("status") != "hidden":
+        click.echo(json.dumps({"error": f"Session is {doc.get('status')}, not hidden"}))
+        raise SystemExit(1)
+
+    pane_id = doc.get("pane_id")
+    if not pane_id or not _pane_exists(pane_id):
+        click.echo(json.dumps({"error": "Pane is dead — cannot show (use resume instead)"}))
+        raise SystemExit(1)
+
+    # Find which window in background holds this pane
+    result = subprocess.run(
+        ["tmux", "display-message", "-t", pane_id, "-p", "#{session_name}:#{window_index}"],
+        capture_output=True, text=True,
+    )
+    src_target = result.stdout.strip()
+
+    target_session = doc.get("hidden_from", "work")
+    result = subprocess.run(
+        ["tmux", "move-window", "-s", src_target, "-t", f"{target_session}:"],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        click.echo(json.dumps({"error": f"move-window failed: {result.stderr}"}))
+        raise SystemExit(1)
+
+    repo.update(session_id, {"status": "active"}, trigger="show")
+    doc = repo.get(session_id)
+    log.info("Session %s shown (back to %s)", session_id, target_session)
+    click.echo(json.dumps(doc, indent=2, default=str))
+
+
+@session.command()
 @click.option("--window", default=None, help="Filter to a specific window name or index")
 def layout(window: str | None) -> None:
     """Show spatial layout of all panes with session mappings."""
@@ -1752,6 +1976,7 @@ SUITES = {
     "slice-0": {"marker": "slice0", "description": "Test harness self-tests"},
     "slice-1": {"marker": "slice1", "description": "Repo-based session tests"},
     "slice-2": {"marker": "slice2", "description": "Spatial spawn + layout tests"},
+    "slice-3": {"marker": "slice3", "description": "Session lifecycle (pause/resume/hide/show) tests"},
 }
 
 
@@ -1856,6 +2081,7 @@ def test_smoke(suite: str) -> None:
     smoke_checklists = {
         "slice-1": _smoke_slice1,
         "slice-2": _smoke_slice2,
+        "slice-3": _smoke_slice3,
     }
     if suite not in smoke_checklists:
         click.echo(f"No smoke checklist defined for suite: {suite}")
@@ -1935,6 +2161,23 @@ def _smoke_slice2() -> str:
 
 ---
 Generated by `cortex test smoke slice-2`
+"""
+
+
+def _smoke_slice3() -> str:
+    return """# Smoke Test Checklist: Slice 3 (Session Lifecycle)
+
+## AC-3.10: Pause → Resume preserves conversation
+- [ ] Spawn session: `cortex session spawn --name smoke-pause --repo cortex`
+- [ ] Send it a prompt and wait for a response
+- [ ] Pause: `cortex session pause smoke-pause`
+- [ ] Verify pane is gone, registry shows status=paused
+- [ ] Resume: `cortex session resume smoke-pause`
+- [ ] Verify CC remembers the previous conversation (check pane output)
+- [ ] Close: `cortex session close smoke-pause --force`
+
+---
+Generated by `cortex test smoke slice-3`
 """
 
 

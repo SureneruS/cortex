@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 
 from pymongo.database import Database
 
-VALID_STATUS = {"active", "idle", "paused", "blocked", "watching", "completed", "dead"}
+VALID_STATUS = {"active", "idle", "paused", "blocked", "watching", "hidden", "completed", "dead"}
 VALID_RUNTIME = {"working", "waiting_input", "waiting_permission", "error", "unknown"}
 
 
