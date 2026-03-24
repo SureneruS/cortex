@@ -50,6 +50,10 @@ cortex session spawn --name <name> [options]
    - Unrelated? New tab (default behavior)
 
 4. Run `cortex session spawn` with the assembled flags.
+   - When `--repo` is provided, always include `--worktree` with name derived from the session name:
+     ```
+     cortex session spawn --name rb-copy-skill --repo recruitment-backend --worktree rb-copy-skill --goal '...'
+     ```
 
 5. Report: session_id, pane_id, color, and how to interact:
    - Switch to it: click the tmux tab or `Ctrl-b n`
@@ -77,3 +81,7 @@ cortex session spawn --name planner --repo recruitment-backend --permission-mode
 # With worktree
 cortex session spawn --name feat-avatar --repo recruitment-backend --worktree feat/avatar-upload
 ```
+
+## Important
+
+- Always pass `--worktree` when `--repo` is specified — worktree name defaults to the session name. This ensures workers never edit the main repo directly.
