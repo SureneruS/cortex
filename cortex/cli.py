@@ -1068,48 +1068,41 @@ def spawn(
         session_repo.update(session_id, {"pane_id": pane_id})
         log.info("Updated session with pane_id=%s", pane_id)
 
+        log_file = Path.home() / ".cortex" / "logs" / "post-spawn-sender.log"
+        wait_for_prompt = (
+            f"set attempt 0; "
+            f"while not tmux capture-pane -t {pane_id} -p 2>/dev/null | grep -q '❯'; "
+            f"set attempt (math $attempt + 1); "
+            f'echo (date) "Attempt $attempt: waiting for prompt on pane {pane_id}" >> $log_file; '
+            f"if test $attempt -gt 30; echo (date) 'Timed out after 30 attempts' >> $log_file; exit 1; end; "
+            f"sleep 1; end"
+        )
+
+        parts = [f"set log_file {log_file}; echo (date) 'Post-spawn sender started for pane {pane_id}' >> $log_file"]
+        parts.append(wait_for_prompt)
+
+        if color:
+            parts.append(f"tmux send-keys -t {pane_id} -l '/color {color}'")
+            parts.append(f"sleep 0.3; tmux send-keys -t {pane_id} Enter")
+            parts.append(f"echo (date) '/color {color} sent to {pane_id}' >> $log_file")
+            if prompt:
+                parts.append("sleep 2")
+                parts.append(wait_for_prompt)
+
         if prompt:
             prompt_file_path = prompt_dir / f"{session_id}-prompt.txt"
             prompt_file_path.write_text(prompt)
-            log_file = Path.home() / ".cortex" / "logs" / "prompt-sender.log"
-            send_script = (
-                f"set log_file {log_file}; "
-                f"echo (date) 'Prompt sender started for pane {pane_id}' >> $log_file; "
-                f"set attempt 0; "
-                f"while not tmux capture-pane -t {pane_id} -p 2>/dev/null | grep -q '❯'; "
-                f"set attempt (math $attempt + 1); "
-                f'echo (date) "Attempt $attempt: waiting for prompt on pane {pane_id}" >> $log_file; '
-                f"if test $attempt -gt 30; echo (date) 'Timed out after 30 attempts' >> $log_file; exit 1; end; "
-                f"sleep 1; end; "
-                f"echo (date) 'Prompt detected, sending to pane {pane_id}' >> $log_file; "
-                f"tmux send-keys -t {pane_id} -l (cat {prompt_file_path}); "
-                f"sleep 0.5; "
-                f"tmux send-keys -t {pane_id} Enter; "
-                f"echo (date) 'Prompt sent successfully to pane {pane_id}' >> $log_file"
-            )
+            parts.append(f"echo (date) 'Sending prompt to pane {pane_id}' >> $log_file")
+            parts.append(f"tmux send-keys -t {pane_id} -l (cat {prompt_file_path})")
+            parts.append(f"sleep 0.5; tmux send-keys -t {pane_id} Enter")
+            parts.append(f"echo (date) 'Prompt sent successfully to pane {pane_id}' >> $log_file")
+
+        if color or prompt:
+            send_script = "; ".join(parts)
             subprocess.Popen(
                 ["fish", "-c", send_script], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
             )
-            log.info("Launched background prompt sender for pane %s (log: %s)", pane_id, log_file)
-
-        if color:
-            log_file = Path.home() / ".cortex" / "logs" / "color-sender.log"
-            color_script = (
-                f"set log_file {log_file}; "
-                f"set attempt 0; "
-                f"while not tmux capture-pane -t {pane_id} -p 2>/dev/null | grep -q '❯'; "
-                f"set attempt (math $attempt + 1); "
-                f"if test $attempt -gt 30; echo (date) 'Color sender timed out for {pane_id}' >> $log_file; exit 1; end; "
-                f"sleep 1; end; "
-                f"tmux send-keys -t {pane_id} -l '/color {color}'; "
-                f"sleep 0.3; "
-                f"tmux send-keys -t {pane_id} Enter; "
-                f"echo (date) '/color {color} sent to {pane_id}' >> $log_file"
-            )
-            subprocess.Popen(
-                ["fish", "-c", color_script], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
-            )
-            log.info("Launched background color sender for pane %s: /color %s", pane_id, color)
+            log.info("Launched post-spawn sender for pane %s (color=%s, prompt=%s)", pane_id, color, bool(prompt))
     else:
         log.error("Failed to get pane_id from tmux")
 
