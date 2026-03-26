@@ -2164,6 +2164,397 @@ def _preflight_checks() -> list[str]:
     return errors
 
 
+
+# ── cortex team ─────────────────────────────────────────────
+
+
+@cli.group()
+def team() -> None:
+    """Team session management — spawn, communicate, monitor."""
+    pass
+
+
+def _slugify(text: str) -> str:
+    import re
+
+    slug = text.lower().strip()
+    slug = re.sub(r"[^a-z0-9]+", "-", slug)
+    return slug.strip("-")[:50]
+
+
+def _unique_team_name(repo, name: str) -> str:
+    """Ensure name is unique among active team sessions."""
+    existing = repo._col.find_one(
+        {"name": name, "status": {"$nin": ["completed", "dead"]}}
+    )
+    if not existing:
+        return name
+    suffix = 2
+    while True:
+        candidate = f"{name}-{suffix}"
+        if not repo._col.find_one(
+            {"name": candidate, "status": {"$nin": ["completed", "dead"]}}
+        ):
+            click.echo(f"Warning: name collision — using '{candidate}'", err=True)
+            return candidate
+        suffix += 1
+
+
+def _sweep_stale_sessions(repo) -> int:
+    """Mark stale team sessions as dead and expire their pending messages."""
+    from datetime import datetime, timedelta, timezone
+
+    db = repo._col.database
+    messages_col = db["messages"]
+    threshold = datetime.now(timezone.utc).isoformat()
+    stale_cutoff = (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat()
+
+    stale = list(repo._col.find({
+        "team": {"$exists": True},
+        "status": {"$nin": ["completed", "dead"]},
+        "$or": [
+            {"last_seen": None},
+            {"last_seen": {"$exists": False}},
+            {"last_seen": {"$lt": stale_cutoff}},
+        ],
+    }))
+
+    count = 0
+    for s in stale:
+        repo.update(s["_id"], {"status": "dead"}, trigger="stale-sweep")
+        messages_col.update_many(
+            {"to": s["name"], "status": "pending"},
+            {"$set": {"status": "expired", "delivered_at": threshold}},
+        )
+        count += 1
+    return count
+
+
+@team.command("spawn")
+@click.option("--task", required=True, help="Task description (used as session name)")
+@click.option("--prompt", default=None, help="Detailed task instructions sent to the session")
+@click.option("--repo", default=None, help="Repo name under ~/workspace/cercli/")
+def team_spawn(task: str, prompt: str | None, repo: str | None) -> None:
+    """Spawn a new team session."""
+    import json
+    import os
+    import subprocess
+    from pathlib import Path
+
+    from cortex.session_registry import _new_id
+
+    log = _cli_log()
+    session_repo = _get_session_repo()
+
+    swept = _sweep_stale_sessions(session_repo)
+    if swept:
+        log.info("Swept %d stale sessions", swept)
+
+    name = _slugify(task)
+    if not name:
+        click.echo(json.dumps({"error": "Task string produced empty name"}))
+        raise SystemExit(1)
+
+    name = _unique_team_name(session_repo, name)
+    session_id = _new_id()
+
+    repo_path: Path | None = None
+    if repo:
+        repo_path = Path.home() / "workspace" / "cercli" / repo
+        if not repo_path.is_dir():
+            click.echo(json.dumps({"error": f"Repo directory not found: {repo_path}"}))
+            raise SystemExit(1)
+
+    spawned_by = os.environ.get("CORTEX_SESSION_NAME", "human")
+
+    session_repo.register(session_id, {
+        "name": name,
+        "task": task,
+        "team": "default",
+        "status": "active",
+        "last_seen": None,
+        "spawned_by": spawned_by,
+        "role": "worker",
+        "runtime": "unknown",
+    })
+    log.info("Registered team session: %s (%s)", name, session_id)
+
+    from cortex.mongo import MONGO_URI, MONGO_DB
+
+    mongodb_uri = f"{MONGO_URI}/{MONGO_DB}"
+
+    fish_cmd = (
+        f"set -x CORTEX_SESSION_ROLE worker; "
+        f"set -x CORTEX_SESSION_ID {session_id}; "
+        f"set -x CORTEX_SESSION_NAME {name}; "
+        f"set -x CORTEX_MONGODB_URI {mongodb_uri}; "
+        f"claude "
+        f"--dangerously-load-development-channels server:cortex-team "
+        f"--name {name}; exit"
+    )
+
+    cwd = str(repo_path) if repo_path else os.getcwd()
+    pane_fmt = ("-P", "-F", "#{pane_id}")
+
+    # Target the "work" tmux session (where team sessions live)
+    tmux_target = os.environ.get("CORTEX_TMUX_SESSION", "work")
+    tmux_cmd = [
+        "tmux", "new-window", "-t", tmux_target,
+        "-n", name,  # name the window after the session
+        *pane_fmt, "-c", cwd, "fish", "-c", fish_cmd,
+    ]
+
+    log.info("Launching team session: %s", " ".join(tmux_cmd))
+    result = subprocess.run(tmux_cmd, capture_output=True, text=True)
+    pane_id = result.stdout.strip() if result.returncode == 0 else None
+
+    if pane_id:
+        session_repo.update(session_id, {"pane_id": pane_id})
+        # Auto-accept the --dangerously-load-development-channels confirmation prompt
+        import time
+        time.sleep(1)
+        subprocess.run(["tmux", "send-keys", "-t", pane_id, "Enter"], capture_output=True)
+        # Switch to the new window so the user can see it
+        subprocess.run(["tmux", "select-window", "-t", f"{tmux_target}:{name}"], capture_output=True)
+    else:
+        log.error("tmux launch failed, marking session dead: %s", result.stderr)
+        session_repo.update(session_id, {"status": "dead"}, trigger="spawn-fail")
+        click.echo(json.dumps({"error": "Failed to launch tmux pane", "stderr": result.stderr}))
+        raise SystemExit(1)
+
+    # Deliver prompt via tmux send-keys after CC starts (matching session spawn pattern)
+    if prompt and pane_id:
+        prompt_dir = Path.home() / ".cortex" / "session-prompts"
+        prompt_dir.mkdir(parents=True, exist_ok=True)
+        prompt_file = prompt_dir / f"{session_id}-prompt.txt"
+        prompt_file.write_text(prompt)
+
+        log_file = Path.home() / ".cortex" / "logs" / "post-spawn-sender.log"
+        send_script = (
+            f"set log_file {log_file}; "
+            f"set attempt 0; "
+            f"while not tmux capture-pane -t {pane_id} -p 2>/dev/null | grep -q '❯'; "
+            f"set attempt (math $attempt + 1); "
+            f'echo (date) "Attempt $attempt: waiting for prompt on pane {pane_id}" >> $log_file; '
+            f"if test $attempt -gt 30; echo (date) 'Timed out after 30 attempts' >> $log_file; exit 1; end; "
+            f"sleep 1; end; "
+            f"tmux send-keys -t {pane_id} -l (cat {prompt_file}); "
+            f"sleep 0.5; tmux send-keys -t {pane_id} Enter; "
+            f"echo (date) 'Prompt sent to pane {pane_id}' >> $log_file"
+        )
+        subprocess.Popen(
+            ["fish", "-c", send_script], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+        )
+        log.info("Launched post-spawn prompt sender for pane %s", pane_id)
+
+    output = {
+        "session_id": session_id,
+        "name": name,
+        "task": task,
+        "pane_id": pane_id,
+    }
+    click.echo(json.dumps(output, indent=2))
+
+
+@team.command("status")
+def team_status() -> None:
+    """Show all active team sessions."""
+    from datetime import datetime, timezone
+
+    repo = _get_session_repo()
+    sessions = repo.list(
+        {"team": {"$exists": True}, "status": {"$nin": ["completed", "dead"]}},
+        brief=True,
+    )
+
+    if not sessions:
+        click.echo("No active team sessions.")
+        return
+
+    now = datetime.now(timezone.utc)
+
+    rows = []
+    for s in sessions:
+        last_seen = s.get("last_seen")
+        if last_seen:
+            age_s = (now - datetime.fromisoformat(last_seen)).total_seconds()
+            if age_s < 60:
+                age_str = f"{int(age_s)}s ago"
+            elif age_s < 3600:
+                age_str = f"{int(age_s // 60)}m ago"
+            else:
+                age_str = f"{int(age_s // 3600)}h ago"
+            stale = age_s > 300
+        else:
+            age_str = "never"
+            stale = True
+
+        rows.append({
+            "name": s.get("name", "?"),
+            "status": s.get("status", "?"),
+            "task": s.get("task", ""),
+            "last_seen": age_str,
+            "stale": stale,
+        })
+
+    # Table output
+    name_w = max(len(r["name"]) for r in rows)
+    status_w = max(len(r["status"]) for r in rows)
+    task_w = min(max(len(r["task"]) for r in rows), 50)
+
+    header = f"  {'NAME':<{name_w}}  {'STATUS':<{status_w}}  {'TASK':<{task_w}}  LAST SEEN"
+    click.echo(header)
+    for r in rows:
+        task_display = r["task"][:task_w]
+        stale_marker = " [stale]" if r["stale"] else ""
+        click.echo(
+            f"  {r['name']:<{name_w}}  {r['status']:<{status_w}}  "
+            f"{task_display:<{task_w}}  {r['last_seen']}{stale_marker}"
+        )
+
+
+@team.command("message")
+@click.argument("session_name")
+@click.argument("content")
+@click.option("--thread-id", default=None, help="Thread ID for conversation linking")
+def team_message(session_name: str, content: str, thread_id: str | None) -> None:
+    """Send a message to a team session as the human."""
+    import json
+    import uuid
+
+    from cortex.mongo import get_db
+
+    db = get_db()
+    messages_col = db["messages"]
+    session_col = db["session_registry"]
+
+    if session_name != "human":
+        target = session_col.find_one({
+            "name": session_name,
+            "status": {"$nin": ["completed", "dead"]},
+        })
+        if not target:
+            click.echo(json.dumps({"error": f"Session '{session_name}' not found"}))
+            raise SystemExit(1)
+
+    from datetime import datetime, timezone
+
+    msg_id = "msg_" + uuid.uuid4().hex[:16]
+    now_iso = datetime.now(timezone.utc).isoformat()
+
+    doc = {
+        "_id": msg_id,
+        "from": "human",
+        "to": session_name,
+        "content": content,
+        "meta": {
+            "type": "request",
+            "sender_type": "human",
+            "priority": "high",
+            "thread_id": thread_id or ("t_" + uuid.uuid4().hex[:12]),
+        },
+        "status": "pending",
+        "created_at": now_iso,
+        "delivered_at": None,
+    }
+    messages_col.insert_one(doc)
+    click.echo(json.dumps({"success": True, "msg_id": msg_id, "to": session_name}))
+
+
+@team.command("messages")
+@click.argument("session_name", required=False, default=None)
+@click.option("--to", "to_filter", default=None, help="Filter by recipient (e.g. 'human')")
+@click.option("--limit", "limit_count", type=int, default=20, help="Max messages")
+def team_messages(session_name: str | None, to_filter: str | None, limit_count: int) -> None:
+    """View recent inter-session messages."""
+    from cortex.mongo import get_db
+
+    db = get_db()
+    messages_col = db["messages"]
+
+    query: dict = {}
+
+    if session_name:
+        query["$or"] = [{"from": session_name}, {"to": session_name}]
+    if to_filter:
+        query["to"] = to_filter
+
+    docs = list(
+        messages_col.find(query)
+        .sort("created_at", -1)
+        .limit(limit_count)
+    )
+
+    if not docs:
+        click.echo("No messages found.")
+        return
+
+    for d in reversed(docs):
+        ts = d.get("created_at", "?")[:19]
+        sender = d.get("from", "?")
+        recipient = d.get("to", "?")
+        status = d.get("status", "?")
+        content_preview = d.get("content", "")[:120]
+        msg_type = (d.get("meta") or {}).get("type", "?")
+        click.echo(f"  [{ts}] {sender} → {recipient} ({msg_type}, {status}): {content_preview}")
+
+
+@team.command("kill")
+@click.argument("session_name")
+def team_kill(session_name: str) -> None:
+    """Kill a team session — marks dead, expires messages, kills pane."""
+    import json
+    import subprocess
+    from datetime import datetime, timezone
+
+    from cortex.mongo import get_db
+
+    repo = _get_session_repo()
+    doc = _resolve_session(repo, session_name)
+
+    repo.update(doc["_id"], {"status": "dead"}, trigger="team-kill")
+
+    db = get_db()
+    now_iso = datetime.now(timezone.utc).isoformat()
+    db["messages"].update_many(
+        {"to": doc.get("name", session_name), "status": "pending"},
+        {"$set": {"status": "expired", "delivered_at": now_iso}},
+    )
+
+    pane_id = doc.get("pane_id")
+    if pane_id and _pane_exists(pane_id):
+        subprocess.run(["tmux", "kill-pane", "-t", str(pane_id)], capture_output=True)
+
+    click.echo(json.dumps({
+        "killed": doc.get("name", session_name),
+        "session_id": doc["_id"],
+        "pane_killed": bool(pane_id),
+    }))
+
+
+@team.command("attach")
+@click.argument("session_name")
+def team_attach(session_name: str) -> None:
+    """Jump to a team session's tmux pane."""
+    import json
+    import subprocess
+
+    repo = _get_session_repo()
+    doc = _resolve_session(repo, session_name)
+    pane_id = doc.get("pane_id")
+
+    if not pane_id:
+        click.echo(json.dumps({"error": "Session has no pane_id"}))
+        raise SystemExit(1)
+
+    if not _pane_exists(pane_id):
+        click.echo(json.dumps({"error": f"Pane {pane_id} does not exist"}))
+        raise SystemExit(1)
+
+    subprocess.run(["tmux", "select-pane", "-t", str(pane_id)])
+    subprocess.run(["tmux", "select-window", "-t", str(pane_id)])
+
+
 @cli.group("test")
 def test_group() -> None:
     """Run E2E test suites."""

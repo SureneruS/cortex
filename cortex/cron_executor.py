@@ -168,6 +168,92 @@ EXECUTORS = {
 }
 
 
+HUMAN_MSG_POLL_INTERVAL = 10
+
+
+_slack_poster = None
+_slack_channel = None
+
+
+def _get_slack():
+    import os
+
+    global _slack_poster, _slack_channel
+    if _slack_poster and _slack_channel:
+        return _slack_poster, _slack_channel
+
+    token = os.environ.get("SLACK_BOT_TOKEN")
+    user_id = os.environ.get("SLACK_TARGET_USER_ID")
+    if not token or not user_id:
+        return None, None
+
+    from nova.slack import SlackPoster
+
+    _slack_poster = SlackPoster(bot_token=token, target_user_id=user_id)
+    _slack_channel = _slack_poster.get_dm_channel()
+    return _slack_poster, _slack_channel
+
+
+def deliver_human_messages(db) -> None:
+    """Poll for to='human' pending messages and deliver via Arc Slack."""
+    from datetime import datetime, timezone
+
+    messages_col = db["messages"]
+    pending = list(
+        messages_col.find({"to": "human", "status": "pending"})
+        .sort("created_at", 1)
+        .limit(10)
+    )
+    if not pending:
+        return
+
+    for msg in pending:
+        claimed = messages_col.find_one_and_update(
+            {"_id": msg["_id"], "status": "pending"},
+            {"$set": {"status": "delivered", "delivered_at": datetime.now(timezone.utc).isoformat()}},
+        )
+        if not claimed:
+            continue
+
+        sender = msg.get("from", "unknown")
+        content = msg.get("content", "")
+        meta = msg.get("meta", {})
+        msg_type = meta.get("type", "notification")
+
+        slack_text = f"*[{sender}]* ({msg_type})\n{content}"
+
+        poster, channel = _get_slack()
+        if poster and channel:
+            try:
+                poster.post_notification(
+                    channel=channel, text=slack_text, username="Arc"
+                )
+                log.info("Delivered human message %s via Slack", msg["_id"])
+            except Exception as e:
+                log.error("Slack delivery failed for %s: %s", msg["_id"], e)
+                _write_human_message_fallback(msg)
+        else:
+            log.warning("Slack not configured, writing fallback for %s", msg["_id"])
+            _write_human_message_fallback(msg)
+
+
+def _write_human_message_fallback(msg: dict) -> None:
+    """Write undelivered human message to file for manual pickup."""
+    from pathlib import Path
+
+    fallback_dir = Path.home() / ".cortex" / "human-messages"
+    fallback_dir.mkdir(parents=True, exist_ok=True)
+    fallback_file = fallback_dir / f"{msg['_id']}.txt"
+    fallback_file.write_text(
+        f"From: {msg.get('from', '?')}\n"
+        f"Time: {msg.get('created_at', '?')}\n"
+        f"Type: {(msg.get('meta') or {}).get('type', '?')}\n"
+        f"---\n"
+        f"{msg.get('content', '')}\n"
+    )
+    log.info("Wrote fallback human message to %s", fallback_file)
+
+
 def run() -> None:
     from cortex.cron import CronManager
     from cortex.mongo import get_db
@@ -191,28 +277,40 @@ def run() -> None:
     )
     log.info("Registered in session registry: %s", daemon_id)
 
-    while True:
-        try:
-            due = cron.get_due_jobs()
-            if due:
-                log.info("Found %d due job(s)", len(due))
-            for job in due:
-                action = job["action"]
-                executor = EXECUTORS.get(action)
-                if not executor:
-                    log.error("Unknown action type: %s", action)
-                    cron.mark_run(job["name"])
-                    continue
-                try:
-                    log.info("Executing job '%s' (action: %s)", job["name"], action)
-                    executor(job)
-                except Exception as e:
-                    log.error("Job '%s' failed: %s", job["name"], e)
-                cron.mark_run(job["name"])
-        except Exception as e:
-            log.error("Daemon loop error: %s", e)
+    cron_counter = 0
 
-        time.sleep(POLL_INTERVAL)
+    while True:
+        # Human message delivery runs every loop (10s)
+        try:
+            deliver_human_messages(db)
+        except Exception as e:
+            log.error("Human message delivery error: %s", e)
+
+        # Cron jobs run every POLL_INTERVAL (60s)
+        cron_counter += HUMAN_MSG_POLL_INTERVAL
+        if cron_counter >= POLL_INTERVAL:
+            cron_counter = 0
+            try:
+                due = cron.get_due_jobs()
+                if due:
+                    log.info("Found %d due job(s)", len(due))
+                for job in due:
+                    action = job["action"]
+                    executor = EXECUTORS.get(action)
+                    if not executor:
+                        log.error("Unknown action type: %s", action)
+                        cron.mark_run(job["name"])
+                        continue
+                    try:
+                        log.info("Executing job '%s' (action: %s)", job["name"], action)
+                        executor(job)
+                    except Exception as e:
+                        log.error("Job '%s' failed: %s", job["name"], e)
+                    cron.mark_run(job["name"])
+            except Exception as e:
+                log.error("Daemon loop error: %s", e)
+
+        time.sleep(HUMAN_MSG_POLL_INTERVAL)
 
 
 if __name__ == "__main__":
