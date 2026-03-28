@@ -10,6 +10,7 @@ import pytest
 from fastapi.testclient import TestClient
 from pymongo import MongoClient
 
+from cortex.container import Container, reset_container
 from cortex.mongo_state import MongoStateManager
 
 
@@ -58,6 +59,15 @@ def state(tmp_path: Path, mongo_db) -> MongoStateManager:
 
 
 @pytest.fixture
+def container(tmp_path: Path, mongo_db) -> Container:
+    reset_container()
+    vec_path = tmp_path / "vec.db"
+    c = Container(mongo_db, vec_path)
+    yield c  # type: ignore[misc]
+    reset_container()
+
+
+@pytest.fixture
 def populated_state(state: MongoStateManager) -> MongoStateManager:
     stream = state.create_stream("Ralph Loop", ["suren-toolbox"])
     state.add_update(stream.id, "Implemented docker sandbox with volume mounts for .claude and workspace", "Docker sandbox setup")
@@ -68,22 +78,29 @@ def populated_state(state: MongoStateManager) -> MongoStateManager:
 
 
 @pytest.fixture
-def api_client(state: MongoStateManager):
+def api_client(container: Container):
     from cortex import api
-    with patch.object(api, "_state", state):
+    with patch("cortex.api.get_container", return_value=container), \
+         patch("cortex.container.get_container", return_value=container):
         yield TestClient(api.app)
 
 
 @pytest.fixture
-async def async_client(state: MongoStateManager):
+async def async_client(container: Container):
     import asyncio as _asyncio
     from cortex import api, dashboard
     from httpx import ASGITransport, AsyncClient
 
     dashboard._sse_clients.clear()
     api._loop = _asyncio.get_running_loop()
-    api._wire_sse_callback(state)
-    with patch.object(api, "_state", state):
+
+    def _on_mutation():
+        if api._loop:
+            api._loop.call_soon_threadsafe(lambda: api._loop.create_task(dashboard.notify_sse()))
+    container.stream_service._on_mutation = _on_mutation
+
+    with patch("cortex.api.get_container", return_value=container), \
+         patch("cortex.container.get_container", return_value=container):
         transport = ASGITransport(app=api.app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             yield client

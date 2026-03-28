@@ -19,9 +19,9 @@ _watcher_task: asyncio.Task | None = None
 _sse_clients: list[asyncio.Queue] = []
 
 
-def _get_state():
-    from cortex.api import _get_state as api_get_state
-    return api_get_state()
+def _get_container():
+    from cortex.container import get_container
+    return get_container()
 
 
 def _load_schema() -> dict | None:
@@ -48,11 +48,11 @@ async def post_blueprint(request: Request):
                     "schema": schema,
                 },
             )
-    state = _get_state()
-    result = state.save_blueprint(body)
+    c = _get_container()
+    result = c.dashboards.save_blueprint(body)
     resolved = _resolve_blueprint(body)
-    state.update_resolved_data(resolved)
-    _restart_watcher(state, body)
+    c.dashboards.update_resolved_data(resolved)
+    _restart_watcher(c.dashboards, body)
     await _notify_sse()
     return result
 
@@ -67,8 +67,8 @@ async def get_schema():
 
 @router.get("/blueprint")
 async def get_blueprint():
-    state = _get_state()
-    result = state.get_blueprint()
+    c = _get_container()
+    result = c.dashboards.get_blueprint()
     if not result:
         return JSONResponse(status_code=404, content={"detail": "No blueprint"})
     return result
@@ -76,8 +76,8 @@ async def get_blueprint():
 
 @router.get("/resolved")
 async def get_resolved():
-    state = _get_state()
-    bp = state.get_blueprint()
+    c = _get_container()
+    bp = c.dashboards.get_blueprint()
     if not bp:
         return JSONResponse(status_code=404, content={"detail": "No blueprint"})
     if bp["resolved_data"]:
@@ -87,14 +87,14 @@ async def get_resolved():
 
 @router.get("/snapshots")
 async def get_snapshots():
-    state = _get_state()
-    return state.get_dashboard_snapshots()
+    c = _get_container()
+    return c.dashboards.get_snapshots()
 
 
 @router.get("/checkpoints")
 async def get_checkpoint(week_of: str | None = None):
-    state = _get_state()
-    cp = state.get_checkpoint(week_of)
+    c = _get_container()
+    cp = c.stream_service.get_checkpoint(week_of)
     if not cp:
         return JSONResponse(status_code=404, content={"detail": "No checkpoint"})
     return {
@@ -163,18 +163,18 @@ def _resolve_blueprint(blueprint: dict) -> dict:
     return resolved
 
 
-def _restart_watcher(state, blueprint: dict):
+def _restart_watcher(dashboards, blueprint: dict):
     global _watcher_task
     if _watcher_task and not _watcher_task.done():
         _watcher_task.cancel()
     try:
         loop = asyncio.get_running_loop()
-        _watcher_task = loop.create_task(_run_watchers(state, blueprint))
+        _watcher_task = loop.create_task(_run_watchers(dashboards, blueprint))
     except RuntimeError:
         pass
 
 
-async def _run_watchers(state, blueprint: dict):
+async def _run_watchers(dashboards, blueprint: dict):
     sources = []
     for section in blueprint.get("sections", []):
         if "source" in section:
@@ -187,7 +187,7 @@ async def _run_watchers(state, blueprint: dict):
         return
 
     while True:
-        bp_record = state.get_blueprint()
+        bp_record = dashboards.get_blueprint()
         if not bp_record:
             return
         resolved = bp_record.get("resolved_data") or _resolve_blueprint(bp_record["blueprint"])
@@ -226,7 +226,7 @@ async def _run_watchers(state, blueprint: dict):
 
         if changed:
             resolved["resolved_at"] = datetime.now(timezone.utc).isoformat()
-            state.update_resolved_data(resolved)
+            dashboards.update_resolved_data(resolved)
             await _notify_sse()
 
         min_interval = min((s.get("interval", 60) for s in sources), default=60)

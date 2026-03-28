@@ -4,14 +4,14 @@ from __future__ import annotations
 import asyncio
 
 from cortex import dashboard
-from cortex.mongo_state import MongoStateManager
+from cortex.container import Container
 
 TICK = 0.01
 
 
 class TestSSEFiresOnMutation:
-    async def test_update_post(self, async_client, state: MongoStateManager, sse_queue: asyncio.Queue):
-        stream = state.create_stream("Test", ["repo"])
+    async def test_update_post(self, async_client, container: Container, sse_queue: asyncio.Queue):
+        stream = container.stream_service.create_stream("Test", ["repo"])
         resp = await async_client.post(
             f"/api/streams/{stream.id}/updates",
             json={"content": "hello", "summary": "test"},
@@ -21,8 +21,8 @@ class TestSSEFiresOnMutation:
         assert sse_queue.qsize() >= 1
         assert sse_queue.get_nowait() == "updated"
 
-    async def test_decision_post(self, async_client, state: MongoStateManager, sse_queue: asyncio.Queue):
-        stream = state.create_stream("Test", ["repo"])
+    async def test_decision_post(self, async_client, container: Container, sse_queue: asyncio.Queue):
+        stream = container.stream_service.create_stream("Test", ["repo"])
         resp = await async_client.post(
             f"/api/streams/{stream.id}/decisions",
             json={"what": "chose X", "why": "because Y"},
@@ -31,8 +31,8 @@ class TestSSEFiresOnMutation:
         assert resp.status_code == 200
         assert sse_queue.qsize() >= 1
 
-    async def test_session_link(self, async_client, state: MongoStateManager, sse_queue: asyncio.Queue):
-        stream = state.create_stream("Test", ["repo"])
+    async def test_session_link(self, async_client, container: Container, sse_queue: asyncio.Queue):
+        stream = container.stream_service.create_stream("Test", ["repo"])
         resp = await async_client.post(
             f"/api/streams/{stream.id}/sessions",
             json={"session_id": "sess-123"},
@@ -50,14 +50,14 @@ class TestSSEFiresOnMutation:
 
 
 class TestSSEMultipleClients:
-    async def test_all_clients_receive(self, async_client, state: MongoStateManager):
+    async def test_all_clients_receive(self, async_client, container: Container):
         queues = []
         for _ in range(3):
             q: asyncio.Queue = asyncio.Queue()
             dashboard._sse_clients.append(q)
             queues.append(q)
 
-        stream = state.create_stream("Test", ["repo"])
+        stream = container.stream_service.create_stream("Test", ["repo"])
         await async_client.post(
             f"/api/streams/{stream.id}/updates",
             json={"content": "hello", "summary": "test"},
@@ -73,9 +73,10 @@ class TestSSEMultipleClients:
 
 
 class TestNoSSEOnReadOrSyncMutations:
-    async def test_patch_update_no_sse(self, async_client, state: MongoStateManager, sse_queue: asyncio.Queue):
-        stream = state.create_stream("Test", ["repo"])
-        update = state.add_update(stream.id, "content", "summary")
+    async def test_patch_update_no_sse(self, async_client, container: Container, sse_queue: asyncio.Queue):
+        svc = container.stream_service
+        stream = svc.create_stream("Test", ["repo"])
+        update = svc.add_update(stream.id, "content", "summary")
         await asyncio.sleep(TICK)
         while not sse_queue.empty():
             sse_queue.get_nowait()
@@ -88,9 +89,10 @@ class TestNoSSEOnReadOrSyncMutations:
         assert resp.status_code == 200
         assert sse_queue.empty()
 
-    async def test_delete_decision_no_sse(self, async_client, state: MongoStateManager, sse_queue: asyncio.Queue):
-        stream = state.create_stream("Test", ["repo"])
-        decision = state.add_decision(stream.id, "what", "why")
+    async def test_delete_decision_no_sse(self, async_client, container: Container, sse_queue: asyncio.Queue):
+        svc = container.stream_service
+        stream = svc.create_stream("Test", ["repo"])
+        decision = svc.add_decision(stream.id, "what", "why")
         await asyncio.sleep(TICK)
         while not sse_queue.empty():
             sse_queue.get_nowait()
@@ -100,8 +102,8 @@ class TestNoSSEOnReadOrSyncMutations:
         assert resp.status_code == 204
         assert sse_queue.empty()
 
-    async def test_get_endpoints_no_sse(self, async_client, state: MongoStateManager, sse_queue: asyncio.Queue):
-        state.create_stream("Test", ["repo"])
+    async def test_get_endpoints_no_sse(self, async_client, container: Container, sse_queue: asyncio.Queue):
+        container.stream_service.create_stream("Test", ["repo"])
         await asyncio.sleep(TICK)
         while not sse_queue.empty():
             sse_queue.get_nowait()

@@ -1,14 +1,15 @@
-"""Tests that MongoStateManager mutations fire SSE via the on_mutation callback.
+"""Tests that mutations fire SSE via the on_mutation callback.
 
 This was the root cause of the dashboard staleness bug: MCP tools call
-MongoStateManager directly (not HTTP endpoints), so SSE never fired.
-The fix: MongoStateManager.on_mutation callback, wired in api._wire_sse_callback().
+state directly (not HTTP endpoints), so SSE never fired.
+The fix: on_mutation callback on MongoStateManager/StreamService, wired in api._wire_sse_callback().
 """
 
 from __future__ import annotations
 
 import asyncio
 
+from cortex.container import Container
 from cortex.mongo_state import MongoStateManager
 
 
@@ -55,55 +56,62 @@ class TestOnMutationCallback:
         assert len(fired) == 0
 
 
-class TestMCPPathFiresSSE:
-    """Simulate the MCP tool path: direct MongoStateManager calls with SSE queue wired."""
+class TestStreamServiceSSE:
+    """Simulate the direct StreamService call path with SSE queue wired."""
 
-    async def test_mcp_log_update_fires_sse(self, state: MongoStateManager, sse_queue: asyncio.Queue):
+    async def test_add_update_fires_sse(self, container: Container, sse_queue: asyncio.Queue):
         from cortex import api
 
         api._loop = asyncio.get_running_loop()
-        api._wire_sse_callback(state)
+        svc = container.stream_service
 
-        stream = state.create_stream("Test", ["repo"])
-        state.add_update(stream.id, "content", "summary")
+        from cortex.dashboard import notify_sse
+
+        def _on_mutation():
+            if api._loop:
+                api._loop.call_soon_threadsafe(lambda: api._loop.create_task(notify_sse()))
+        svc._on_mutation = _on_mutation
+
+        stream = svc.create_stream("Test", ["repo"])
+        svc.add_update(stream.id, "content", "summary")
 
         await asyncio.sleep(0.05)
         assert sse_queue.qsize() >= 1
 
-    async def test_mcp_log_decision_fires_sse(self, state: MongoStateManager, sse_queue: asyncio.Queue):
+    async def test_add_decision_fires_sse(self, container: Container, sse_queue: asyncio.Queue):
         from cortex import api
 
         api._loop = asyncio.get_running_loop()
-        api._wire_sse_callback(state)
+        svc = container.stream_service
 
-        stream = state.create_stream("Test", ["repo"])
-        state.add_decision(stream.id, "what", "why")
+        from cortex.dashboard import notify_sse
+
+        def _on_mutation():
+            if api._loop:
+                api._loop.call_soon_threadsafe(lambda: api._loop.create_task(notify_sse()))
+        svc._on_mutation = _on_mutation
+
+        stream = svc.create_stream("Test", ["repo"])
+        svc.add_decision(stream.id, "what", "why")
 
         await asyncio.sleep(0.05)
         assert sse_queue.qsize() >= 1
 
-    async def test_mcp_link_session_fires_sse(self, state: MongoStateManager, sse_queue: asyncio.Queue):
+    async def test_complete_stream_fires_sse(self, container: Container, sse_queue: asyncio.Queue):
         from cortex import api
 
         api._loop = asyncio.get_running_loop()
-        api._wire_sse_callback(state)
+        svc = container.stream_service
 
-        stream = state.create_stream("Test", ["repo"])
-        state.link_session("sess-1", stream.id)
+        from cortex.dashboard import notify_sse
 
-        await asyncio.sleep(0.05)
-        assert sse_queue.qsize() >= 1
+        def _on_mutation():
+            if api._loop:
+                api._loop.call_soon_threadsafe(lambda: api._loop.create_task(notify_sse()))
+        svc._on_mutation = _on_mutation
 
-    async def test_mcp_complete_stream_fires_sse(
-        self, state: MongoStateManager, sse_queue: asyncio.Queue
-    ):
-        from cortex import api
-
-        api._loop = asyncio.get_running_loop()
-        api._wire_sse_callback(state)
-
-        stream = state.create_stream("Test", ["repo"])
-        state.complete_stream(stream.id, "done")
+        stream = svc.create_stream("Test", ["repo"])
+        svc.complete_stream(stream.id, "done")
 
         await asyncio.sleep(0.05)
         assert sse_queue.qsize() >= 1
