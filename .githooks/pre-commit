@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# Auto-bump cortex plugin patch version when plugin/ content changes.
+set -euo pipefail
+
+plugin_json="plugin/.claude-plugin/plugin.json"
+[ -f "$plugin_json" ] || exit 0
+
+# Check if any staged files are in plugin/ (excluding plugin.json itself)
+changed=$(git diff --cached --name-only -- "plugin/" | grep -v '.claude-plugin/plugin.json' || true)
+[ -z "$changed" ] && exit 0
+
+# Bump patch version
+current=$(grep '"version"' "$plugin_json" | sed 's/.*"\([0-9]*\.[0-9]*\.[0-9]*\)".*/\1/')
+major=$(echo "$current" | cut -d. -f1)
+minor=$(echo "$current" | cut -d. -f2)
+patch=$(echo "$current" | cut -d. -f3)
+new_version="$major.$minor.$((patch + 1))"
+
+sed -i '' "s/\"version\": \"$current\"/\"version\": \"$new_version\"/" "$plugin_json"
+git add "$plugin_json"
+echo "Auto-bumped cortex plugin: $current → $new_version"

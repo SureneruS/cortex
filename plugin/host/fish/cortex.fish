@@ -3,7 +3,7 @@
 complete -c cortex -f
 
 # ── Top-level commands ───────────────────────────────────────
-set -l __cortex_cmds brief checkpoint cron daemon dashboard init link plugin pr reindex session status stream tasks team test ui
+set -l __cortex_cmds brief checkpoint cron daemon dashboard init link pr reindex session status stream tasks team test ui
 
 complete -c cortex -n "not __fish_seen_subcommand_from $__cortex_cmds" -a brief -d "Session brief for hook injection"
 complete -c cortex -n "not __fish_seen_subcommand_from $__cortex_cmds" -a checkpoint -d "Weekly checkpoints"
@@ -12,7 +12,6 @@ complete -c cortex -n "not __fish_seen_subcommand_from $__cortex_cmds" -a daemon
 complete -c cortex -n "not __fish_seen_subcommand_from $__cortex_cmds" -a dashboard -d "Interactive TUI dashboard"
 complete -c cortex -n "not __fish_seen_subcommand_from $__cortex_cmds" -a init -d "Initialize Cortex"
 complete -c cortex -n "not __fish_seen_subcommand_from $__cortex_cmds" -a link -d "Link session to stream"
-complete -c cortex -n "not __fish_seen_subcommand_from $__cortex_cmds" -a plugin -d "Plugin management"
 complete -c cortex -n "not __fish_seen_subcommand_from $__cortex_cmds" -a pr -d "GitHub PR operations"
 complete -c cortex -n "not __fish_seen_subcommand_from $__cortex_cmds" -a reindex -d "Rebuild vector index"
 complete -c cortex -n "not __fish_seen_subcommand_from $__cortex_cmds" -a session -d "Session orchestration"
@@ -235,9 +234,6 @@ complete -c cortex -n "__fish_seen_subcommand_from team; and __fish_seen_subcomm
 
 complete -c cortex -n "__fish_seen_subcommand_from team; and __fish_seen_subcommand_from messages" -l to -d "Filter recipient"
 complete -c cortex -n "__fish_seen_subcommand_from team; and __fish_seen_subcommand_from messages" -l limit -d "Max messages"
-
-# ── plugin ───────────────────────────────────────────────────
-complete -c cortex -n "__fish_seen_subcommand_from plugin; and not __fish_seen_subcommand_from sync" -a sync -d "Sync source to CC cache"
 
 # ── test ─────────────────────────────────────────────────────
 set -l __test_cmds list run smoke

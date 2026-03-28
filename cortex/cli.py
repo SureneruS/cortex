@@ -175,44 +175,6 @@ def reindex() -> None:
     state.close()
 
 
-@cli.group()
-def plugin() -> None:
-    """Cortex plugin management."""
-
-
-@plugin.command("sync")
-def plugin_sync() -> None:
-    """Sync cortex plugin source to Claude Code's plugin cache."""
-    import json
-    import shutil
-    from pathlib import Path
-
-    source = Path(__file__).resolve().parent.parent / "plugin"
-    manifest = source / ".claude-plugin" / "plugin.json"
-
-    if not manifest.exists():
-        click.echo(f"Plugin manifest not found: {manifest}", err=True)
-        raise SystemExit(1)
-
-    version = json.loads(manifest.read_text())["version"]
-    cache_root = Path.home() / ".claude" / "plugins" / "cache" / "cortex" / "cortex"
-
-    # Remove old cached versions
-    if cache_root.exists():
-        for old in cache_root.iterdir():
-            if old.is_dir() and old.name != version:
-                shutil.rmtree(old)
-                click.echo(f"  Removed old cache: {old.name}")
-
-    dest = cache_root / version
-    if dest.exists():
-        shutil.rmtree(dest)
-
-    shutil.copytree(source, dest)
-    click.echo(f"  Synced v{version}: {source} → {dest}")
-    click.echo("  Restart session to pick up changes.")
-
-
 def _get_state() -> MongoStateManager:
     config = load_config()
     sm = MongoStateManager(get_db(), config.resolved_vec_db_path)
