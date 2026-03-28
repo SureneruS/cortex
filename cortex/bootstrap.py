@@ -37,8 +37,9 @@ def _get_active_branches(repo_path: str) -> list[str]:
 
 
 def scan_repos(config: Config, state: MongoStateManager) -> dict:
-    stats = {"streams_created": 0, "prs_found": 0, "branches_found": 0, "repos_scanned": 0}
+    stats = {"streams_created": 0, "streams_skipped": 0, "prs_found": 0, "branches_found": 0, "repos_scanned": 0}
 
+    existing_titles = {s.title for s in state.list_streams(status="all")}
     seen_branches: set[str] = set()
 
     for repo_name, repo_path_str in config.repos.items():
@@ -53,9 +54,14 @@ def scan_repos(config: Config, state: MongoStateManager) -> dict:
             number = pr.get("number", "")
             branch = pr.get("headRefName", "")
             seen_branches.add(branch)
-            state.create_stream(f"PR #{number}: {title}", [repo_name])
-            stats["streams_created"] += 1
             stats["prs_found"] += 1
+            stream_title = f"PR #{number}: {title}"
+            if stream_title in existing_titles:
+                stats["streams_skipped"] += 1
+                continue
+            state.create_stream(stream_title, [repo_name])
+            existing_titles.add(stream_title)
+            stats["streams_created"] += 1
 
         branches = _get_active_branches(str(repo_path))
         for branch in branches:

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import click
 
-from cortex.config import CORTEX_DIR, load_config, save_config, Config
+from cortex.config import CONFIG_PATH, CORTEX_DIR, load_config, save_config, Config
 from cortex.mongo import get_db
 from cortex.mongo_state import MongoStateManager
 
@@ -21,9 +21,13 @@ def init() -> None:
     """Initialize Cortex: create config, DB, and scan repos for context."""
     click.echo("Initializing Cortex...")
 
-    config = Config()
-    save_config(config)
-    click.echo(f"  Config saved to {CORTEX_DIR / 'config.json'}")
+    if CONFIG_PATH.exists():
+        config = load_config()
+        click.echo(f"  Config already exists at {CONFIG_PATH}")
+    else:
+        config = Config()
+        save_config(config)
+        click.echo(f"  Config saved to {CONFIG_PATH}")
 
     state = MongoStateManager(get_db(), config.resolved_vec_db_path)
     state.init_db()
@@ -39,6 +43,8 @@ def init() -> None:
     click.echo(f"  Open PRs found: {stats['prs_found']}")
     click.echo(f"  Active branches: {stats['branches_found']}")
     click.echo(f"  Streams created: {stats['streams_created']}")
+    if stats["streams_skipped"]:
+        click.echo(f"  Streams skipped (already exist): {stats['streams_skipped']}")
 
     state.close()
 
