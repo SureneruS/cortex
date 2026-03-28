@@ -161,8 +161,8 @@ class TestWatcherResolve:
 
 
 class TestCheckpointQuery:
-    def test_checkpoint_query(self, state, api_client: TestClient):
-        state.save_checkpoint("2026-03-09", "Week 11 summary", stream_ids=["stream-1"])
+    def test_checkpoint_query(self, container, api_client: TestClient):
+        container.stream_service.save_checkpoint("2026-03-09", "Week 11 summary", stream_ids=["stream-1"])
 
         resp = api_client.get("/api/dashboard/checkpoints", params={"week_of": "2026-03-09"})
         assert resp.status_code == 200

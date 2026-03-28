@@ -123,9 +123,16 @@ class StreamService:
 
     def link_session(self, session_id: str, stream_id: str, repo: str = "", branch: str = "") -> None:
         self._streams.link_session(session_id, stream_id, repo=repo, branch=branch)
+        self._notify()
 
     def unlink_session(self, session_id: str, stream_id: str) -> None:
         self._streams.unlink_session(session_id, stream_id)
+
+    def move_session(self, session_id: str, from_stream_id: str, to_stream_id: str) -> None:
+        self._streams.move_session(session_id, from_stream_id, to_stream_id)
+
+    def list_sessions(self, limit: int = 50, active_only: bool = False) -> list[dict]:
+        return self._streams.list_sessions(limit=limit, active_only=active_only)
 
     def get_streams_for_session(self, session_id: str) -> list[str]:
         return self._streams.get_streams_for_session(session_id)

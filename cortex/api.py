@@ -8,28 +8,13 @@ from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from cortex.config import load_config
+from cortex.container import get_container
 from cortex.dashboard import router as dashboard_router
-from cortex.mongo import get_db
-from cortex.mongo_state import MongoStateManager
 
 app = FastAPI(title="Cortex API")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
-_state: MongoStateManager | None = None
 _loop = None
-
-
-def _wire_sse_callback(state: MongoStateManager) -> None:
-    """Wire MongoStateManager.on_mutation to push SSE events to dashboard clients."""
-    from cortex.dashboard import notify_sse
-
-    def _on_mutation():
-        if _loop is None:
-            return
-        _loop.call_soon_threadsafe(lambda: _loop.create_task(notify_sse()))
-
-    state.on_mutation = _on_mutation
 
 
 @app.on_event("startup")
@@ -38,18 +23,19 @@ async def _capture_loop():
 
     global _loop
     _loop = asyncio.get_running_loop()
-    # Wire callback now that we have the loop
-    _get_state()
+    _wire_sse_callback()
 
 
-def _get_state() -> MongoStateManager:
-    global _state
-    if _state is None:
-        config = load_config()
-        _state = MongoStateManager(get_db(), config.resolved_vec_db_path)
-        _state.init_db()
-        _wire_sse_callback(_state)
-    return _state
+def _wire_sse_callback() -> None:
+    """Wire StreamService.on_mutation to push SSE events to dashboard clients."""
+    from cortex.dashboard import notify_sse
+
+    def _on_mutation():
+        if _loop is None:
+            return
+        _loop.call_soon_threadsafe(lambda: _loop.create_task(notify_sse()))
+
+    get_container().stream_service._on_mutation = _on_mutation
 
 
 def _serialize_stream(s):
@@ -85,25 +71,25 @@ class CompleteStreamRequest(BaseModel):
 
 @app.get("/api/streams")
 def list_streams(status: str = "active"):
-    state = _get_state()
+    svc = get_container().stream_service
     if status == "all":
-        streams = state.list_streams(status="active") + state.list_streams(status="completed")
+        streams = svc.list_streams(status="active") + svc.list_streams(status="completed")
     else:
-        streams = state.list_streams(status=status)
+        streams = svc.list_streams(status=status)
     return [_serialize_stream(s) for s in streams]
 
 
 @app.post("/api/streams")
 def create_stream(req: CreateStreamRequest):
-    state = _get_state()
-    s = state.create_stream(req.title, req.repos, metadata=req.metadata)
+    svc = get_container().stream_service
+    s = svc.create_stream(req.title, req.repos, metadata=req.metadata)
     return _serialize_stream(s)
 
 
 @app.get("/api/streams/{stream_id}")
 def get_stream(stream_id: str):
-    state = _get_state()
-    ctx = state.get_stream_context(stream_id)
+    svc = get_container().stream_service
+    ctx = svc.get_stream_context(stream_id)
     if not ctx:
         raise HTTPException(404, "Stream not found")
     return ctx
@@ -111,9 +97,9 @@ def get_stream(stream_id: str):
 
 @app.patch("/api/streams/{stream_id}")
 def patch_stream(stream_id: str, req: PatchStreamRequest):
-    state = _get_state()
+    svc = get_container().stream_service
     try:
-        updated = state.update_stream(
+        updated = svc.update_stream(
             stream_id,
             title=req.title,
             status=req.status,
@@ -130,19 +116,19 @@ def patch_stream(stream_id: str, req: PatchStreamRequest):
 
 @app.delete("/api/streams/{stream_id}")
 def delete_stream(stream_id: str):
-    state = _get_state()
-    state.delete_stream(stream_id)
+    svc = get_container().stream_service
+    svc.delete_stream(stream_id)
     return Response(status_code=204)
 
 
 @app.post("/api/streams/{stream_id}/complete")
 def complete_stream(stream_id: str, req: CompleteStreamRequest):
-    state = _get_state()
-    stream = state.get_stream(stream_id)
+    svc = get_container().stream_service
+    stream = svc.get_stream(stream_id)
     if not stream:
         raise HTTPException(404, "Stream not found")
-    state.complete_stream(stream_id, req.summary)
-    updated = state.get_stream(stream_id)
+    svc.complete_stream(stream_id, req.summary)
+    updated = svc.get_stream(stream_id)
     return _serialize_stream(updated)
 
 
@@ -186,9 +172,9 @@ class MoveSessionRequest(BaseModel):
 
 @app.post("/api/streams/{stream_id}/updates")
 def create_update(stream_id: str, req: CreateUpdateRequest):
-    state = _get_state()
+    svc = get_container().stream_service
     try:
-        u = state.add_update(stream_id, req.content, req.summary, metadata=req.metadata)
+        u = svc.add_update(stream_id, req.content, req.summary, metadata=req.metadata)
     except ValueError as e:
         raise HTTPException(409, str(e))
     return {
@@ -203,8 +189,8 @@ def create_update(stream_id: str, req: CreateUpdateRequest):
 
 @app.patch("/api/updates/{update_id}")
 def patch_update(update_id: str, req: PatchUpdateRequest):
-    state = _get_state()
-    u = state.edit_update(
+    svc = get_container().stream_service
+    u = svc.edit_update(
         update_id, content=req.content, summary=req.summary, metadata=req.metadata
     )
     if not u:
@@ -221,8 +207,8 @@ def patch_update(update_id: str, req: PatchUpdateRequest):
 
 @app.delete("/api/updates/{update_id}")
 def delete_update(update_id: str):
-    state = _get_state()
-    state.delete_update(update_id)
+    svc = get_container().stream_service
+    svc.delete_update(update_id)
     return Response(status_code=204)
 
 
@@ -231,9 +217,9 @@ def delete_update(update_id: str):
 
 @app.post("/api/streams/{stream_id}/decisions")
 def create_decision(stream_id: str, req: CreateDecisionRequest):
-    state = _get_state()
+    svc = get_container().stream_service
     try:
-        d = state.add_decision(stream_id, req.what, req.why, metadata=req.metadata)
+        d = svc.add_decision(stream_id, req.what, req.why, metadata=req.metadata)
     except ValueError as e:
         raise HTTPException(409, str(e))
     return {
@@ -248,8 +234,8 @@ def create_decision(stream_id: str, req: CreateDecisionRequest):
 
 @app.patch("/api/decisions/{decision_id}")
 def patch_decision(decision_id: str, req: PatchDecisionRequest):
-    state = _get_state()
-    d = state.edit_decision(decision_id, what=req.what, why=req.why, metadata=req.metadata)
+    svc = get_container().stream_service
+    d = svc.edit_decision(decision_id, what=req.what, why=req.why, metadata=req.metadata)
     if not d:
         raise HTTPException(404, "Decision not found")
     return {
@@ -264,8 +250,8 @@ def patch_decision(decision_id: str, req: PatchDecisionRequest):
 
 @app.delete("/api/decisions/{decision_id}")
 def delete_decision(decision_id: str):
-    state = _get_state()
-    state.delete_decision(decision_id)
+    svc = get_container().stream_service
+    svc.delete_decision(decision_id)
     return Response(status_code=204)
 
 
@@ -274,9 +260,9 @@ def delete_decision(decision_id: str):
 
 @app.post("/api/streams/{stream_id}/sessions")
 def link_session(stream_id: str, req: LinkSessionRequest):
-    state = _get_state()
+    svc = get_container().stream_service
     try:
-        state.link_session(req.session_id, stream_id, repo=req.repo, branch=req.branch)
+        svc.link_session(req.session_id, stream_id, repo=req.repo, branch=req.branch)
     except ValueError as e:
         raise HTTPException(409, str(e))
     return {"status": "linked"}
@@ -284,15 +270,15 @@ def link_session(stream_id: str, req: LinkSessionRequest):
 
 @app.delete("/api/sessions/{session_id}")
 def unlink_session(session_id: str, stream_id: str):
-    state = _get_state()
-    state.unlink_session(session_id, stream_id)
+    svc = get_container().stream_service
+    svc.unlink_session(session_id, stream_id)
     return Response(status_code=204)
 
 
 @app.patch("/api/sessions/{session_id}")
 def move_session(session_id: str, req: MoveSessionRequest):
-    state = _get_state()
-    state.move_session(session_id, req.from_stream_id, req.to_stream_id)
+    svc = get_container().stream_service
+    svc.move_session(session_id, req.from_stream_id, req.to_stream_id)
     return {"status": "moved"}
 
 
@@ -301,20 +287,20 @@ def move_session(session_id: str, req: MoveSessionRequest):
 
 @app.get("/api/activity")
 def activity(limit: int = 50, active_only: bool = False):
-    state = _get_state()
-    return state.get_recent_activity(limit=limit, active_only=active_only)
+    svc = get_container().stream_service
+    return svc.get_recent_activity(limit=limit, active_only=active_only)
 
 
 @app.get("/api/sessions")
 def list_sessions(limit: int = 50, active_only: bool = False):
-    state = _get_state()
-    return state.list_sessions(limit=limit, active_only=active_only)
+    svc = get_container().stream_service
+    return svc.list_sessions(limit=limit, active_only=active_only)
 
 
 @app.get("/api/search")
 def search(q: str):
-    state = _get_state()
-    results = state.search(q)
+    svc = get_container().search_service
+    results = svc.search(q)
     items = []
     for r in results:
         if hasattr(r, "summary"):  # Update
