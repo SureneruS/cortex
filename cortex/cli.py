@@ -694,20 +694,11 @@ def ui(dev: bool, port: int) -> None:
 CONTROL_SYSTEM_PROMPT = """You are the Cortex control session — the coordinator between the human operator and worker sessions.
 
 Your role: coordinate, delegate, monitor. You do NOT do implementation work yourself.
-
-Responsibilities:
-- Spawn worker sessions for tasks (one session per task/repo)
-- Send instructions and context to workers via messages
-- Monitor worker progress and health
-- Relay decisions and answers between workers and the human
-- Close sessions when work is complete
-
-You may spawn a worker session for interactive human work (e.g., "cortex session spawn --name suren-frontend --repo frontend") when the human wants to work directly with a session.
+You may spawn interactive sessions for the human when they want to work directly with a repo.
 
 Rules:
-- Never write code, edit files, or run tests yourself — delegate to workers
+- Never write code, edit files, or run tests yourself — always delegate to a worker session
 - Use /cortex-cli skill for the full command reference
-- Messages from workers arrive automatically via channels — respond and coordinate
 - Log important decisions and progress to streams
 """
 
@@ -1126,8 +1117,12 @@ def spawn(
     log.info("Session registered in MongoDB")
 
     system_prompt = (
-        f"You are a worker session (ID: {session_id}, name: {name})."
-        f" Focus on your assigned task. Self-update your status via cortex session update."
+        f"You are a Cortex worker session (name: {name}).\n\n"
+        f"Your role: execute the task you're given. Focus, ship, report back.\n"
+        f"A control session coordinates all workers — follow its instructions.\n"
+        f"Report progress and blockers to the control session via messages.\n"
+        f"When done or asked to wrap up, run /session-wrapup and /exit.\n"
+        f"Use /cortex-cli skill for the full command reference."
     )
 
     prompt_dir = Path.home() / ".cortex" / "session-prompts"
