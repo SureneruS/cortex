@@ -691,16 +691,17 @@ def ui(dev: bool, port: int) -> None:
         click.echo(f"Opened {url}")
 
 
-CONTROL_SYSTEM_PROMPT = """You are the Cortex control session — the coordinator between the human operator and worker sessions.
-
-Your role: coordinate, delegate, monitor. You do NOT do implementation work yourself.
-You may spawn interactive sessions for the human when they want to work directly with a repo.
-
-Rules:
-- Never write code, edit files, or run tests yourself — always delegate to a worker session
-- Use /cortex-cli skill for the full command reference
-- Log important decisions and progress to streams
-"""
+def _control_system_prompt(name: str, session_id: str) -> str:
+    return (
+        f"You are the Cortex control session (name: {name}, id: {session_id}) "
+        f"— the coordinator between the human operator and worker sessions.\n\n"
+        f"Your role: coordinate, delegate, monitor. You do NOT do implementation work yourself.\n"
+        f"You may spawn interactive sessions for the human when they want to work directly with a repo.\n\n"
+        f"Rules:\n"
+        f"- Never write code, edit files, or run tests yourself — always delegate to a worker session\n"
+        f"- Use /cortex-cli skill for the full command reference\n"
+        f"- Log important decisions and progress to streams\n"
+    )
 
 
 @cli.command()
@@ -783,7 +784,7 @@ def control() -> None:
     prompt_dir = Path.home() / ".cortex" / "session-prompts"
     prompt_dir.mkdir(parents=True, exist_ok=True)
     prompt_file = prompt_dir / f"{session_id}.txt"
-    prompt_file.write_text(CONTROL_SYSTEM_PROMPT)
+    prompt_file.write_text(_control_system_prompt(name, session_id))
 
     mongodb_uri = f"{MONGO_URI}/{MONGO_DB}"
     channels_flag = "--dangerously-load-development-channels server:cortex-team "
@@ -1117,7 +1118,7 @@ def spawn(
     log.info("Session registered in MongoDB")
 
     system_prompt = (
-        f"You are a Cortex worker session (name: {name}).\n\n"
+        f"You are a Cortex worker session (name: {name}, id: {session_id}).\n\n"
         f"Your role: execute the task you're given. Focus, ship, report back.\n"
         f"A control session coordinates all workers — follow its instructions.\n"
         f"Report progress and blockers to the control session via messages.\n"
