@@ -691,6 +691,157 @@ def ui(dev: bool, port: int) -> None:
         click.echo(f"Opened {url}")
 
 
+CONTROL_SYSTEM_PROMPT = """You are the Cortex control session — the primary interface between the human operator and all worker sessions.
+
+Your capabilities:
+- Spawn worker sessions: `cortex session spawn --name <name> --goal "..." --prompt "..." --repo <repo>`
+- Send messages to sessions: `cortex session message <name> "..."`
+- View messages: `cortex session messages [name]`
+- List sessions: `cortex session list --brief`
+- Close sessions: `cortex session close <name>` (graceful) or `cortex session close --force <name>`
+- Pause/resume: `cortex session pause <name>`, `cortex session resume <name>`
+- Attach to a session: `cortex session attach <name>`
+- Health check: `cortex session health`
+- Spatial layout: `cortex session gather/scatter/move`
+
+Stream operations:
+- List streams: `cortex stream list`
+- Log updates: `cortex stream log <id> --content "..." --summary "..."`
+- Log decisions: `cortex stream decide <id> --what "..." --why "..."`
+
+You receive messages from worker sessions via channels. Coordinate work, answer questions, relay decisions.
+"""
+
+
+@cli.command()
+def control() -> None:
+    """Open the control session — spawns or reattaches to the single control pane."""
+    import json
+    import os
+    import subprocess
+    import time
+    from datetime import datetime
+    from pathlib import Path
+
+    from cortex.mongo import MONGO_URI, MONGO_DB, get_db
+    from cortex.session_registry import _new_id
+
+    log = _cli_log()
+    repo = _get_session_repo()
+
+    # Find existing control session
+    existing = repo._col.find_one({"role": "control", "status": {"$nin": ["completed", "dead"]}})
+
+    if existing:
+        status = existing["status"]
+        pane_id = existing.get("pane_id")
+        session_name = existing.get("name", "control")
+
+        if status == "active" and pane_id and _pane_exists(pane_id):
+            log.info("Control session already active: %s (pane %s)", existing["_id"], pane_id)
+            subprocess.run(["tmux", "select-pane", "-t", str(pane_id)])
+            subprocess.run(["tmux", "select-window", "-t", str(pane_id)])
+            click.echo(json.dumps({"action": "attached", "session_id": existing["_id"], "name": session_name}))
+            return
+
+        if status == "paused":
+            log.info("Resuming paused control session: %s", existing["_id"])
+            result = subprocess.run(
+                ["cortex", "session", "resume", existing["_id"]],
+                capture_output=True, text=True, timeout=30,
+            )
+            if result.returncode == 0:
+                click.echo(result.stdout)
+                return
+            log.warning("Resume failed, starting fresh: %s", result.stderr)
+
+        if status == "hidden":
+            log.info("Showing hidden control session: %s", existing["_id"])
+            result = subprocess.run(
+                ["cortex", "session", "show", existing["_id"]],
+                capture_output=True, text=True, timeout=15,
+            )
+            if result.returncode == 0:
+                pane_id = existing.get("pane_id")
+                if pane_id and _pane_exists(pane_id):
+                    subprocess.run(["tmux", "select-pane", "-t", str(pane_id)])
+                    subprocess.run(["tmux", "select-window", "-t", str(pane_id)])
+                click.echo(result.stdout)
+                return
+
+        # Stale active session with dead pane — mark dead and start fresh
+        if status == "active":
+            repo.update(existing["_id"], {"status": "dead"}, trigger="control-stale")
+            log.info("Marked stale control session %s as dead", existing["_id"])
+
+    # Spawn a new control session
+    now = datetime.now()
+    name = f"control-{now.strftime('%d-%b').lower()}"
+    session_id = _new_id()
+
+    repo.register(session_id, {
+        "name": name,
+        "role": "control",
+        "goal": "Control session — coordinate workers, manage streams",
+        "spawned_by": "human",
+        "workspace": "default",
+        "runtime": "unknown",
+        "color": "red",
+    })
+
+    # Write system prompt
+    prompt_dir = Path.home() / ".cortex" / "session-prompts"
+    prompt_dir.mkdir(parents=True, exist_ok=True)
+    prompt_file = prompt_dir / f"{session_id}.txt"
+    prompt_file.write_text(CONTROL_SYSTEM_PROMPT)
+
+    mongodb_uri = f"{MONGO_URI}/{MONGO_DB}"
+    channels_flag = "--dangerously-load-development-channels server:cortex-team "
+
+    fish_cmd = (
+        f"set -x CORTEX_SESSION_ROLE control; "
+        f"set -x CORTEX_SESSION_ID {session_id}; "
+        f"set -x CORTEX_SESSION_NAME {name}; "
+        f"set -x CORTEX_MONGODB_URI {mongodb_uri}; "
+        f"claude {channels_flag}"
+        f"--name {name} --append-system-prompt-file {prompt_file}; exit"
+    )
+
+    cwd = os.getcwd()
+    tmux_cmd = ["tmux", "new-window", "-P", "-F", "#{pane_id}", "-c", cwd, "fish", "-c", fish_cmd]
+
+    result = subprocess.run(tmux_cmd, capture_output=True, text=True)
+    pane_id = result.stdout.strip() if result.returncode == 0 else None
+
+    if pane_id:
+        repo.update(session_id, {"pane_id": pane_id})
+
+        # Auto-accept channels confirmation
+        time.sleep(1)
+        subprocess.run(["tmux", "send-keys", "-t", pane_id, "Enter"], capture_output=True)
+
+        # Send /color red
+        log_file = Path.home() / ".cortex" / "logs" / "post-spawn-sender.log"
+        send_script = (
+            f"set log_file {log_file}; "
+            f"set attempt 0; "
+            f"while not tmux capture-pane -t {pane_id} -p 2>/dev/null | grep -q '❯'; "
+            f"set attempt (math $attempt + 1); "
+            f"if test $attempt -gt 30; exit 1; end; "
+            f"sleep 1; end; "
+            f"tmux send-keys -t {pane_id} -l '/color red'; "
+            f"sleep 0.3; tmux send-keys -t {pane_id} Enter"
+        )
+        subprocess.Popen(["fish", "-c", send_script], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        log.info("Control session spawned: %s (pane %s)", name, pane_id)
+    else:
+        repo.update(session_id, {"status": "dead"}, trigger="spawn-fail")
+        click.echo(json.dumps({"error": "Failed to launch control pane"}))
+        raise SystemExit(1)
+
+    click.echo(json.dumps({"action": "spawned", "session_id": session_id, "name": name, "pane_id": pane_id}))
+
+
 @cli.group()
 def cron() -> None:
     """Manage persistent cron jobs."""

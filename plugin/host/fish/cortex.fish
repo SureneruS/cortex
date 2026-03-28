@@ -29,10 +29,11 @@ function __cortex_github_repos
 end
 
 # ── Top-level commands ────────────────────────────────────────
-set -l __cortex_cmds brief checkpoint cron daemon dashboard init link pr reindex session status stream tasks team test ui
+set -l __cortex_cmds brief checkpoint control cron daemon dashboard init link pr reindex session status stream tasks team test ui
 
 complete -c cortex -n "not __fish_seen_subcommand_from $__cortex_cmds" -a brief -d "Print compact session brief (for hook injection)"
 complete -c cortex -n "not __fish_seen_subcommand_from $__cortex_cmds" -a checkpoint -d "Manage weekly checkpoints"
+complete -c cortex -n "not __fish_seen_subcommand_from $__cortex_cmds" -a control -d "Open the control session"
 complete -c cortex -n "not __fish_seen_subcommand_from $__cortex_cmds" -a cron -d "Manage persistent cron jobs"
 complete -c cortex -n "not __fish_seen_subcommand_from $__cortex_cmds" -a daemon -d "Manage the Cortex background daemon"
 complete -c cortex -n "not __fish_seen_subcommand_from $__cortex_cmds" -a dashboard -d "Open the interactive TUI dashboard"
