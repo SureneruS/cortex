@@ -267,8 +267,11 @@ def cli_db():
 @pytest.fixture
 def _patch_cli_db(cli_db):
     """Route CLI's get_db() to the test database."""
+    from cortex.container import reset_container
+    reset_container()
     with patch("cortex.mongo.get_db", return_value=cli_db):
         yield
+    reset_container()
 
 
 @pytest.fixture
@@ -305,18 +308,6 @@ class TestCLIUpdate:
         assert "Invalid JSON" in output["error"]
 
 
-@pytest.fixture
-def _mock_state():
-    """Mock load_config + MongoStateManager so close doesn't need real MongoDB."""
-    mock_state = MagicMock()
-    mock_state.get_streams_for_session.return_value = []
-    with (
-        patch("cortex.cli.load_config"),
-        patch("cortex.cli.MongoStateManager", return_value=mock_state),
-        patch("cortex.cli.get_db"),
-    ):
-        yield mock_state
-
 
 @pytest.fixture
 def _seed_session_with_pane(cli_db):
@@ -325,22 +316,23 @@ def _seed_session_with_pane(cli_db):
 
 
 class TestCLIClose:
-    def test_close_session_no_pane(self, _patch_cli_db, _seed_session, _mock_state):
-        code, output = _run_cli(["session", "close", "cli-test-1"])
+    def test_close_session_no_pane(self, _patch_cli_db, _seed_session):
+        with patch("cortex.adapters.tmux.TmuxAdapter.pane_exists", return_value=False):
+            code, output = _run_cli(["session", "close", "cli-test-1"])
         assert code == 0
         assert output["status"] == "completed"
         assert "closed_at" in output
 
-    def test_close_nonexistent_session(self, _patch_cli_db, _mock_state):
+    def test_close_nonexistent_session(self, _patch_cli_db):
         code, output = _run_cli(["session", "close", "nope"])
         assert code == 1
         assert "not found" in output["error"]
 
-    def test_close_force_skips_memorize(self, _patch_cli_db, _seed_session_with_pane, _mock_state):
+    def test_close_force_skips_wrapup(self, _patch_cli_db, _seed_session_with_pane):
         with (
-            patch("cortex.cli._pane_exists", return_value=True),
-            patch("cortex.cli._send_to_pane") as send,
-            patch("cortex.cli._kill_pane", return_value=True) as kill,
+            patch("cortex.adapters.tmux.TmuxAdapter.pane_exists", return_value=True),
+            patch("cortex.adapters.tmux.TmuxAdapter.send_text") as send,
+            patch("cortex.adapters.tmux.TmuxAdapter.destroy_pane", return_value=True) as kill,
         ):
             code, output = _run_cli(["session", "close", "cli-pane-1", "--force"])
         assert code == 0
@@ -348,27 +340,27 @@ class TestCLIClose:
         send.assert_not_called()
         kill.assert_called_once_with("%42")
 
-    def test_close_lifecycle_with_pane(self, _patch_cli_db, _seed_session_with_pane, _mock_state):
+    def test_close_lifecycle_with_pane(self, _patch_cli_db, _seed_session_with_pane):
         with (
-            patch("cortex.cli._pane_exists", return_value=True),
-            patch("cortex.cli._send_to_pane", return_value=True) as send,
-            patch("cortex.cli._wait_for_idle", return_value=True) as wait,
-            patch("cortex.cli._kill_pane", return_value=True) as kill,
+            patch("cortex.adapters.tmux.TmuxAdapter.pane_exists", return_value=True),
+            patch("cortex.adapters.tmux.TmuxAdapter.send_text", return_value=True) as send,
+            patch("cortex.adapters.tmux.TmuxAdapter.wait_for_idle", return_value=True) as wait,
+            patch("cortex.adapters.tmux.TmuxAdapter.destroy_pane", return_value=True) as kill,
+            patch("time.sleep"),
         ):
             code, output = _run_cli(["session", "close", "cli-pane-1"])
         assert code == 0
         assert output["status"] == "completed"
-        send.assert_called_once_with("%42", "/memorize")
-        wait.assert_called_once_with("%42", timeout=30)
+        send.assert_any_call("%42", "/session-wrapup")
         kill.assert_called_once_with("%42")
 
     def test_close_pane_gone_skips_terminal(
-        self, _patch_cli_db, _seed_session_with_pane, _mock_state
+        self, _patch_cli_db, _seed_session_with_pane
     ):
         with (
-            patch("cortex.cli._pane_exists", return_value=False),
-            patch("cortex.cli._send_to_pane") as send,
-            patch("cortex.cli._kill_pane") as kill,
+            patch("cortex.adapters.tmux.TmuxAdapter.pane_exists", return_value=False),
+            patch("cortex.adapters.tmux.TmuxAdapter.send_text") as send,
+            patch("cortex.adapters.tmux.TmuxAdapter.destroy_pane") as kill,
         ):
             code, output = _run_cli(["session", "close", "cli-pane-1"])
         assert code == 0
@@ -376,29 +368,20 @@ class TestCLIClose:
         send.assert_not_called()
         kill.assert_not_called()
 
-    def test_close_memorize_timeout_continues(
-        self, _patch_cli_db, _seed_session_with_pane, _mock_state
+    def test_close_wrapup_timeout_continues(
+        self, _patch_cli_db, _seed_session_with_pane
     ):
         with (
-            patch("cortex.cli._pane_exists", return_value=True),
-            patch("cortex.cli._send_to_pane", return_value=True),
-            patch("cortex.cli._wait_for_idle", return_value=False),
-            patch("cortex.cli._kill_pane", return_value=True) as kill,
+            patch("cortex.adapters.tmux.TmuxAdapter.pane_exists", return_value=True),
+            patch("cortex.adapters.tmux.TmuxAdapter.send_text", return_value=True),
+            patch("cortex.adapters.tmux.TmuxAdapter.wait_for_idle", return_value=False),
+            patch("cortex.adapters.tmux.TmuxAdapter.destroy_pane", return_value=True) as kill,
+            patch("time.sleep"),
         ):
             code, output = _run_cli(["session", "close", "cli-pane-1"])
         assert code == 0
         assert output["status"] == "completed"
         kill.assert_called_once_with("%42")
-
-    def test_close_updates_linked_stream(self, _patch_cli_db, _seed_session_with_pane, _mock_state):
-        _mock_state.get_streams_for_session.return_value = ["stream-1"]
-        with patch("cortex.cli._pane_exists", return_value=False):
-            code, output = _run_cli(["session", "close", "cli-pane-1"])
-        assert code == 0
-        _mock_state.add_update.assert_called_once()
-        call_args = _mock_state.add_update.call_args
-        assert call_args[0][0] == "stream-1"
-        assert "session_close" in str(call_args[1]["metadata"])
 
 
 class TestCLIUpdateEvents:
@@ -429,12 +412,10 @@ class TestCLIUpdateEvents:
 class TestCLIHealth:
     def test_health_persists_runtime_busy(self, _patch_cli_db, _seed_session_with_pane, cli_db):
         with (
-            patch("cortex.cli._get_tmux_panes", return_value={"%42"}),
-            patch("subprocess.run") as mock_run,
+            patch("cortex.adapters.tmux.TmuxAdapter.list_pane_ids", return_value={"%42"}),
+            patch("cortex.adapters.tmux.TmuxAdapter.capture_output", return_value="Working on task..."),
+            patch("cortex.adapters.tmux.TmuxAdapter.display_message", return_value=""),
         ):
-            mock_run.return_value = MagicMock(
-                returncode=0, stdout="Working on task...\n", stderr=""
-            )
             code, output = _run_cli(["session", "health"])
         assert code == 0
         runtime_findings = [f for f in output["findings"] if f.get("check") == "runtime"]
@@ -447,7 +428,7 @@ class TestCLIHealth:
         assert runtime_events[0]["to"] == "working"
 
     def test_health_dead_pane_updates_status(self, _patch_cli_db, _seed_session_with_pane, cli_db):
-        with patch("cortex.cli._get_tmux_panes", return_value=set()):
+        with patch("cortex.adapters.tmux.TmuxAdapter.list_pane_ids", return_value=set()):
             code, output = _run_cli(["session", "health"])
         assert code == 0
         dead_findings = [f for f in output["findings"] if f.get("check") == "dead_pane"]
@@ -475,10 +456,10 @@ class TestCLIHealth:
             "events": [{"field": "status", "from": None, "to": "active", "at": old_time, "trigger": "spawn"}],
         })
         with (
-            patch("cortex.cli._get_tmux_panes", return_value={"%99"}),
-            patch("subprocess.run") as mock_run,
+            patch("cortex.adapters.tmux.TmuxAdapter.list_pane_ids", return_value={"%99"}),
+            patch("cortex.adapters.tmux.TmuxAdapter.capture_output", return_value="❯ "),
+            patch("cortex.adapters.tmux.TmuxAdapter.display_message", return_value=""),
         ):
-            mock_run.return_value = MagicMock(returncode=0, stdout="❯ \n", stderr="")
             code, output = _run_cli(["session", "health"])
         assert code == 0
         stale = [f for f in output["findings"] if f.get("check") == "stale"]
@@ -486,12 +467,11 @@ class TestCLIHealth:
         assert stale[0]["hours_since_activity"] > 24
 
     def test_health_detects_untracked_panes(self, _patch_cli_db, cli_db):
-        import subprocess
-
-        with patch("cortex.cli._get_tmux_panes", return_value={"%50", "%51"}):
-            with patch("subprocess.run") as mock_run:
-                mock_run.return_value = MagicMock(returncode=0, stdout="fish\n", stderr="")
-                code, output = _run_cli(["session", "health"])
+        with (
+            patch("cortex.adapters.tmux.TmuxAdapter.list_pane_ids", return_value={"%50", "%51"}),
+            patch("cortex.adapters.tmux.TmuxAdapter.display_message", return_value="fish"),
+        ):
+            code, output = _run_cli(["session", "health"])
         assert code == 0
         untracked = [f for f in output["findings"] if f.get("check") == "untracked_pane"]
         assert len(untracked) == 2

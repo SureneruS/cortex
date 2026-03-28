@@ -124,11 +124,11 @@ class TestWatcherResolve:
         assert resp.status_code == 200
         rows = resp.json()["sections"][0]["_resolved"]
         assert len(rows) == 2
-        assert rows[0][0] == "#101"
-        assert rows[0][1] == "ATS-100"
-        assert rows[0][2] == "Ready"
-        assert rows[0][3] == {"text": "Approved", "color": "green"}
-        assert rows[1][2] == "Draft"
+        assert rows[0][0] == {"text": "#101", "url": "https://github.com/cercli/recruitment-backend/pull/101"}
+        assert rows[0][1] == {"text": "ATS-100", "url": "https://linear.app/cercli/issue/ATS-100"}
+        assert rows[0][2] == {"text": "Ready", "color": "green"}
+        assert rows[0][4] == {"text": "Approved", "color": "green"}
+        assert rows[1][2] == {"text": "Draft", "color": "muted"}
 
     @pytest.mark.anyio
     async def test_watcher_cancelled_on_new_blueprint(self, async_client: AsyncClient):

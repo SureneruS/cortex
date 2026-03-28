@@ -9,8 +9,12 @@ from pathlib import Path
 
 from pymongo.database import Database
 
+import structlog
+
 from cortex.models import Checkpoint, Decision, Stream, Update
 from cortex.observability import trace
+
+log = structlog.get_logger("cortex.mongo_state")
 
 
 def _now() -> str:
@@ -119,6 +123,7 @@ class MongoStateManager:
                 ");"
             )
         except Exception:
+            log.warning("sqlite_vec not available — vector search disabled", exc_info=True)
             self._has_vec = False
 
     def _ensure_indexes(self) -> None:
@@ -130,28 +135,16 @@ class MongoStateManager:
         self._sessions.create_index("stream_id")
         self._snapshots.create_index([("created_at", -1)])
 
-        # $text indexes — one per collection
-        try:
-            self._updates.create_index(
-                [("content", "text"), ("summary", "text")],
-                name="updates_text",
-            )
-        except Exception:
-            pass  # already exists
-        try:
-            self._decisions.create_index(
-                [("what", "text"), ("why", "text")],
-                name="decisions_text",
-            )
-        except Exception:
-            pass  # already exists
-        try:
-            self._checkpoints.create_index(
-                [("content", "text")],
-                name="checkpoints_text",
-            )
-        except Exception:
-            pass  # already exists
+        # $text indexes — one per collection (may already exist)
+        for col, fields, name in [
+            (self._updates, [("content", "text"), ("summary", "text")], "updates_text"),
+            (self._decisions, [("what", "text"), ("why", "text")], "decisions_text"),
+            (self._checkpoints, [("content", "text")], "checkpoints_text"),
+        ]:
+            try:
+                col.create_index(fields, name=name)
+            except Exception:
+                log.debug("Text index already exists", index=name)
 
     def _notify(self) -> None:
         if self.on_mutation is not None:
@@ -520,7 +513,7 @@ class MongoStateManager:
                 for doc in cursor:
                     results.append(converter(doc))
             except Exception:
-                pass
+                log.warning("Text search failed on collection", collection=col.name, exc_info=True)
         return results[:20]
 
     def _regex_search(self, query: str) -> list[Update | Decision | Checkpoint]:
@@ -805,3 +798,9 @@ class MongoStateManager:
         if self._conn is not None:
             self._conn.close()
             self._conn = None
+
+    def __enter__(self) -> MongoStateManager:
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self.close()

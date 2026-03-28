@@ -80,7 +80,7 @@ class TestHumanToSession:
     def test_cli_message_human_keyword_succeeds(self, patch_db):
         """Sending to 'human' via CLI bypasses session registry — no error."""
         runner = CliRunner()
-        result = runner.invoke(cli, ["team", "message", "human", "please review the PR"])
+        result = runner.invoke(cli, ["session", "message", "human", "please review the PR"])
 
         assert result.exit_code == 0
 
@@ -93,7 +93,7 @@ class TestHumanToSession:
         )
 
         runner = CliRunner()
-        runner.invoke(cli, ["team", "message", "feedback-endpoint", "stop, wrong direction"])
+        runner.invoke(cli, ["session", "message", "feedback-endpoint", "stop, wrong direction"])
 
         doc = patch_db["messages"].find_one({"to": "feedback-endpoint"})
         assert doc["from"] == "human"
@@ -106,7 +106,7 @@ class TestHumanToSession:
         )
 
         runner = CliRunner()
-        runner.invoke(cli, ["team", "message", "target-session", "check this out"])
+        runner.invoke(cli, ["session", "message", "target-session", "check this out"])
 
         doc = patch_db["messages"].find_one({"to": "target-session"})
         assert doc["meta"]["sender_type"] == "human"
@@ -114,7 +114,7 @@ class TestHumanToSession:
     def test_cli_human_to_human_writes_pending_message(self, patch_db):
         """cortex team message human '...' writes with to='human'."""
         runner = CliRunner()
-        runner.invoke(cli, ["team", "message", "human", "check on the build"])
+        runner.invoke(cli, ["session", "message", "human", "check on the build"])
 
         doc = patch_db["messages"].find_one({"to": "human"})
         assert doc is not None
@@ -130,7 +130,7 @@ class TestHumanToSession:
         )
 
         runner = CliRunner()
-        runner.invoke(cli, ["team", "message", "target-session", "urgent review needed"])
+        runner.invoke(cli, ["session", "message", "target-session", "urgent review needed"])
 
         doc = patch_db["messages"].find_one({"to": "target-session"})
         assert doc["meta"]["priority"] == "high"
@@ -143,7 +143,7 @@ class TestHumanToSession:
         )
 
         runner = CliRunner()
-        result = runner.invoke(cli, ["team", "message", "target-session", "hello"])
+        result = runner.invoke(cli, ["session", "message", "target-session", "hello"])
 
         output = json.loads(result.output)
         assert output["success"] is True
@@ -162,7 +162,7 @@ class TestHumanIsNotInRegistry:
         self, patch_db, session_repo: MongoSessionRepo
     ):
         runner = CliRunner()
-        runner.invoke(cli, ["team", "message", "human", "hello"])
+        runner.invoke(cli, ["session", "message", "human", "hello"])
 
         # No "human" session should have been created
         doc = session_repo.resolve("human")

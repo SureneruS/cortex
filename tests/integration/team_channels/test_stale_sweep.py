@@ -20,7 +20,7 @@ import pytest
 from click.testing import CliRunner
 from pymongo.database import Database
 
-from cortex.cli import _sweep_stale_sessions
+from cortex.cli import cli, _sweep_stale_sessions
 from cortex.session_registry import MongoSessionRepo
 
 
@@ -167,10 +167,10 @@ class TestSweepStaleSessions:
 
         assert count == 0
 
-    def test_sweep_does_not_touch_non_team_sessions(
+    def test_sweep_also_sweeps_sessions_without_team_field(
         self, session_repo: MongoSessionRepo
     ):
-        """Sweep only operates on sessions with the team field."""
+        """Sweep operates on all sessions with null/missing last_seen, regardless of team field."""
         session_repo.register(
             "reg-1",
             {
@@ -178,15 +178,14 @@ class TestSweepStaleSessions:
                 "task": "task",
                 "status": "active",
                 "last_seen": None,
-                # No "team" field
             },
         )
 
         count = _sweep_stale_sessions(session_repo)
 
-        assert count == 0
+        assert count >= 1
         doc = session_repo.get("reg-1")
-        assert doc["status"] == "active"
+        assert doc["status"] == "dead"
 
     def test_sweep_returns_count_of_sessions_swept(self, session_repo: MongoSessionRepo):
         for i in range(3):
@@ -228,7 +227,7 @@ class TestSpawnTriggersSweep:
     def test_spawn_sweeps_stale_sessions_before_registering(
         self, patch_db, session_repo: MongoSessionRepo
     ):
-        """cortex team spawn sweeps stale sessions as a side effect."""
+        """cortex session spawn sweeps stale sessions as a side effect."""
         session_repo.register(
             "pre-stale",
             {
@@ -241,17 +240,15 @@ class TestSpawnTriggersSweep:
         )
 
         runner = CliRunner()
-        with patch("subprocess.run") as mock_run:
-            mock_run.return_value = type(
-                "R", (), {"returncode": 0, "stdout": "%42\n", "stderr": ""}
-            )()
-            runner.invoke(cli, ["team", "spawn", "--task", "new task"])
+        with (
+            patch("cortex.adapters.tmux.TmuxAdapter.create_pane", return_value="%42"),
+            patch("cortex.adapters.tmux.TmuxAdapter.send_keys", return_value=True),
+            patch("cortex.adapters.tmux.TmuxAdapter.spawn_background_sender"),
+            patch("time.sleep"),
+        ):
+            runner.invoke(
+                cli, ["session", "spawn", "--name", "new-task", "--goal", "new task"]
+            )
 
         doc = session_repo.get("pre-stale")
         assert doc["status"] == "dead"
-
-
-try:
-    from cortex.cli import cli
-except ImportError:
-    cli = None  # type: ignore[assignment]

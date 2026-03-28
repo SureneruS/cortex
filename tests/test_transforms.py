@@ -56,9 +56,11 @@ def test_pr_table_rows():
     ]
     result = apply_transform("pr_table_rows", prs)
     assert len(result) == 2
-    assert result[0][0] == "#531"
-    assert result[0][2] == "Draft"
-    assert result[1][3] == {"text": "Approved", "color": "green"}
+    # PR 548 is standalone (not draft), PR 531 is draft+ticket → grouped after standalone
+    assert result[0][0] == {"text": "#548", "url": "https://github.com/cercli/recruitment-backend/pull/548"}
+    assert result[1][0] == {"text": "#531", "url": "https://github.com/cercli/recruitment-backend/pull/531"}
+    assert result[1][2] == {"text": "Draft", "color": "muted"}
+    assert result[0][4] == {"text": "Approved", "color": "green"}
 
 
 def test_passthrough():

@@ -115,7 +115,7 @@ class TestCLIMessageDelivery:
         session_repo.register("s1", {"name": "feedback-endpoint", "team": "default", "task": "t"})
 
         runner = CliRunner()
-        result = runner.invoke(cli, ["team", "message", "feedback-endpoint", "Schema is ready"])
+        result = runner.invoke(cli, ["session", "message", "feedback-endpoint", "Schema is ready"])
 
         assert result.exit_code == 0
         doc = patch_db["messages"].find_one({"to": "feedback-endpoint"})
@@ -127,7 +127,7 @@ class TestCLIMessageDelivery:
         session_repo.register("s1", {"name": "target-session", "team": "default", "task": "t"})
 
         runner = CliRunner()
-        runner.invoke(cli, ["team", "message", "target-session", "hello"])
+        runner.invoke(cli, ["session", "message", "target-session", "hello"])
 
         doc = patch_db["messages"].find_one({"to": "target-session"})
         assert doc["from"] == "human"
@@ -136,7 +136,7 @@ class TestCLIMessageDelivery:
         session_repo.register("s1", {"name": "target-session", "team": "default", "task": "t"})
 
         runner = CliRunner()
-        result = runner.invoke(cli, ["team", "message", "target-session", "test"])
+        result = runner.invoke(cli, ["session", "message", "target-session", "test"])
 
         assert result.exit_code == 0
         output = json.loads(result.output)
@@ -147,7 +147,7 @@ class TestCLIMessageDelivery:
         session_repo.register("s1", {"name": "target-session", "team": "default", "task": "t"})
 
         runner = CliRunner()
-        runner.invoke(cli, ["team", "message", "target-session", "check this"])
+        runner.invoke(cli, ["session", "message", "target-session", "check this"])
 
         doc = patch_db["messages"].find_one({"to": "target-session"})
         assert doc["meta"]["sender_type"] == "human"

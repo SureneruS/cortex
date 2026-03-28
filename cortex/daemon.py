@@ -1,41 +1,33 @@
 from __future__ import annotations
 
 import abc
-import subprocess
 
 import structlog
+
+from cortex.adapters.tmux import TmuxAdapter
 
 log = structlog.get_logger("cortex.daemon")
 
 
 class DaemonBackend(abc.ABC):
     @abc.abstractmethod
-    def start(self, name: str, command: list[str]) -> str:
-        """Start a daemon process. Returns an identifier."""
+    def start(self, name: str, command: list[str]) -> str: ...
 
     @abc.abstractmethod
-    def stop(self, name: str) -> None:
-        """Stop a daemon process."""
+    def stop(self, name: str) -> None: ...
 
     @abc.abstractmethod
-    def status(self, name: str) -> str:
-        """Get daemon status: 'running' or 'stopped'."""
+    def status(self, name: str) -> str: ...
 
 
 class TmuxBackend(DaemonBackend):
     SESSION = "cortex-daemon"
 
+    def __init__(self, tmux: TmuxAdapter | None = None) -> None:
+        self._tmux = tmux or TmuxAdapter()
+
     def _ensure_session(self) -> None:
-        result = subprocess.run(
-            ["tmux", "has-session", "-t", self.SESSION],
-            capture_output=True,
-        )
-        if result.returncode != 0:
-            subprocess.run(
-                ["tmux", "new-session", "-d", "-s", self.SESSION, "-n", "init"],
-                capture_output=True,
-                check=True,
-            )
+        self._tmux.ensure_session(self.SESSION)
 
     def start(self, name: str, command: list[str]) -> str:
         if self.status(name) == "running":
@@ -44,29 +36,18 @@ class TmuxBackend(DaemonBackend):
         from pathlib import Path
         log_file = Path.home() / ".cortex" / "logs" / "cortex-cli.log"
         shell_cmd = " ".join(command) + f" & tail -f {log_file}"
-        subprocess.run(
-            ["tmux", "new-window", "-t", self.SESSION, "-n", name, "fish", "-c", shell_cmd],
-            capture_output=True,
-            check=True,
+        self._tmux.new_window(
+            target_session=self.SESSION,
+            window_name=name,
+            shell_cmd=shell_cmd,
         )
         return f"{self.SESSION}:{name}"
 
     def stop(self, name: str) -> None:
         if self.status(name) == "stopped":
             raise RuntimeError(f"Daemon '{name}' is not running")
-        subprocess.run(
-            ["tmux", "kill-window", "-t", f"{self.SESSION}:{name}"],
-            capture_output=True,
-            check=True,
-        )
+        self._tmux.kill_window(f"{self.SESSION}:{name}")
 
     def status(self, name: str) -> str:
-        result = subprocess.run(
-            ["tmux", "list-windows", "-t", self.SESSION, "-F", "#{window_name}"],
-            capture_output=True,
-            text=True,
-        )
-        if result.returncode != 0:
-            return "stopped"
-        windows = result.stdout.strip().split("\n")
+        windows = self._tmux.list_windows(self.SESSION)
         return "running" if name in windows else "stopped"

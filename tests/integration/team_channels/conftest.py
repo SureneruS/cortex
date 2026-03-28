@@ -83,9 +83,19 @@ def session_repo(mongo_db: Database) -> MongoSessionRepo:
 
 @pytest.fixture
 def patch_db(mongo_db):
-    """Route all CLI get_db() calls to the test database."""
+    """Route all CLI get_db() calls to the test database and simulate human operator."""
+    import os
+    from cortex.container import reset_container
+    reset_container()
+    old_name = os.environ.pop("CORTEX_SESSION_NAME", None)
+    old_id = os.environ.pop("CORTEX_SESSION_ID", None)
     with patch("cortex.mongo.get_db", return_value=mongo_db):
         yield mongo_db
+    reset_container()
+    if old_name:
+        os.environ["CORTEX_SESSION_NAME"] = old_name
+    if old_id:
+        os.environ["CORTEX_SESSION_ID"] = old_id
 
 
 @pytest.fixture

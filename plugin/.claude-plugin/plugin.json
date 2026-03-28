@@ -1,6 +1,6 @@
 {
   "name": "cortex",
-  "version": "0.3.7",
+  "version": "0.3.8",
   "description": "Persistent context brain — session orchestration, PR operations, cron scheduling",
   "author": { "name": "Suren" },
   "skills": "./skills/",

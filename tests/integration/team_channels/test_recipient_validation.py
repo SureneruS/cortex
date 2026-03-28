@@ -25,7 +25,7 @@ from cortex.session_registry import MongoSessionRepo
 class TestRecipientValidation:
     def test_send_to_nonexistent_session_returns_error(self, patch_db):
         runner = CliRunner()
-        result = runner.invoke(cli, ["team", "message", "nonexistent-session", "hello"])
+        result = runner.invoke(cli, ["session", "message", "nonexistent-session", "hello"])
 
         assert result.exit_code != 0
         output = json.loads(result.output.strip())
@@ -39,7 +39,7 @@ class TestRecipientValidation:
         )
 
         runner = CliRunner()
-        result = runner.invoke(cli, ["team", "message", "done-session", "hello"])
+        result = runner.invoke(cli, ["session", "message", "done-session", "hello"])
 
         assert result.exit_code != 0
         output = json.loads(result.output.strip())
@@ -52,7 +52,7 @@ class TestRecipientValidation:
         )
 
         runner = CliRunner()
-        result = runner.invoke(cli, ["team", "message", "dead-session", "hello"])
+        result = runner.invoke(cli, ["session", "message", "dead-session", "hello"])
 
         assert result.exit_code != 0
         output = json.loads(result.output.strip())
@@ -65,14 +65,14 @@ class TestRecipientValidation:
         )
 
         runner = CliRunner()
-        result = runner.invoke(cli, ["team", "message", "active-session", "hello there"])
+        result = runner.invoke(cli, ["session", "message", "active-session", "hello there"])
 
         assert result.exit_code == 0
 
     def test_no_message_written_for_nonexistent_session(self, patch_db):
         """No silent write to dead addresses — MongoDB must stay empty on validation failure."""
         runner = CliRunner()
-        runner.invoke(cli, ["team", "message", "ghost-session", "hello"])
+        runner.invoke(cli, ["session", "message", "ghost-session", "hello"])
 
         count = patch_db["messages"].count_documents({"to": "ghost-session"})
         assert count == 0
@@ -85,7 +85,7 @@ class TestRecipientValidation:
         )
 
         runner = CliRunner()
-        result = runner.invoke(cli, ["team", "message", "idle-session", "status check"])
+        result = runner.invoke(cli, ["session", "message", "idle-session", "status check"])
 
         assert result.exit_code == 0
 
@@ -98,7 +98,7 @@ class TestRecipientValidation:
 
         runner = CliRunner()
         # Using the _id directly (not the name)
-        result = runner.invoke(cli, ["team", "message", "raw-sess-id", "hello"])
+        result = runner.invoke(cli, ["session", "message", "raw-sess-id", "hello"])
 
         # raw-sess-id is the _id, not the name — should fail validation
         assert result.exit_code != 0
@@ -106,13 +106,13 @@ class TestRecipientValidation:
     def test_human_reserved_keyword_bypasses_validation(self, patch_db):
         """Sending to 'human' must not require a registered session."""
         runner = CliRunner()
-        result = runner.invoke(cli, ["team", "message", "human", "please review this"])
+        result = runner.invoke(cli, ["session", "message", "human", "please review this"])
 
         assert result.exit_code == 0
 
     def test_human_message_written_to_mongodb(self, patch_db):
         runner = CliRunner()
-        runner.invoke(cli, ["team", "message", "human", "check on the build please"])
+        runner.invoke(cli, ["session", "message", "human", "check on the build please"])
 
         doc = patch_db["messages"].find_one({"to": "human"})
         assert doc is not None
