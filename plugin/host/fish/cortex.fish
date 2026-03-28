@@ -22,7 +22,7 @@ complete -c cortex -n "not __fish_seen_subcommand_from $__cortex_cmds" -a team -
 complete -c cortex -n "not __fish_seen_subcommand_from $__cortex_cmds" -a test -d "E2E test suites"
 complete -c cortex -n "not __fish_seen_subcommand_from $__cortex_cmds" -a ui -d "Web UI"
 
-# ── Helper: active session names ─────────────────────────────
+# ── Helpers: dynamic completions ─────────────────────────────
 function __cortex_session_names
     cortex session list --brief 2>/dev/null | python3 -c "import json,sys; [print(s['name']) for s in json.load(sys.stdin) if s.get('status') not in ('completed','dead')]" 2>/dev/null
 end
@@ -31,23 +31,35 @@ function __cortex_repo_names
     ls ~/workspace/cercli/ 2>/dev/null
 end
 
+function __cortex_stream_ids
+    cortex stream list 2>/dev/null | python3 -c "import json,sys; [print(s.get('_id','')[:12]) for s in json.load(sys.stdin)]" 2>/dev/null
+end
+
+function __cortex_cron_names
+    cortex cron list 2>/dev/null | python3 -c "import json,sys; [print(j['name']) for j in json.load(sys.stdin)]" 2>/dev/null
+end
+
+function __cortex_github_repos
+    printf "cercli/recruitment-backend\ncercli/cercli-backend\ncercli/frontend\ncercli/workflows-backend\ncercli/storage-service\n"
+end
+
 # ── tasks ────────────────────────────────────────────────────
-complete -c cortex -n "__fish_seen_subcommand_from tasks" -l session-id -d "CC session ID"
+complete -c cortex -n "__fish_seen_subcommand_from tasks" -l session-id -r -d "CC session ID"
 
 # ── ui ───────────────────────────────────────────────────────
 complete -c cortex -n "__fish_seen_subcommand_from ui" -l dev -d "Hot reload mode"
-complete -c cortex -n "__fish_seen_subcommand_from ui" -l port -d "API server port"
+complete -c cortex -n "__fish_seen_subcommand_from ui" -l port -r -d "API server port"
 
 # ── checkpoint ───────────────────────────────────────────────
 set -l __checkpoint_cmds get save
 complete -c cortex -n "__fish_seen_subcommand_from checkpoint; and not __fish_seen_subcommand_from $__checkpoint_cmds" -a get -d "Get checkpoint"
 complete -c cortex -n "__fish_seen_subcommand_from checkpoint; and not __fish_seen_subcommand_from $__checkpoint_cmds" -a save -d "Save checkpoint"
 
-complete -c cortex -n "__fish_seen_subcommand_from checkpoint; and __fish_seen_subcommand_from get" -l week -d "Week identifier"
-complete -c cortex -n "__fish_seen_subcommand_from checkpoint; and __fish_seen_subcommand_from save" -l week -d "Week (e.g. 2026-W12)"
-complete -c cortex -n "__fish_seen_subcommand_from checkpoint; and __fish_seen_subcommand_from save" -l content -d "Checkpoint content"
-complete -c cortex -n "__fish_seen_subcommand_from checkpoint; and __fish_seen_subcommand_from save" -l stream-ids -d "Comma-separated stream IDs"
-complete -c cortex -n "__fish_seen_subcommand_from checkpoint; and __fish_seen_subcommand_from save" -l metadata -d "JSON metadata"
+complete -c cortex -n "__fish_seen_subcommand_from checkpoint; and __fish_seen_subcommand_from get" -l week -r -d "Week identifier"
+complete -c cortex -n "__fish_seen_subcommand_from checkpoint; and __fish_seen_subcommand_from save" -l week -r -d "Week (e.g. 2026-W12)"
+complete -c cortex -n "__fish_seen_subcommand_from checkpoint; and __fish_seen_subcommand_from save" -l content -r -d "Checkpoint content"
+complete -c cortex -n "__fish_seen_subcommand_from checkpoint; and __fish_seen_subcommand_from save" -l stream-ids -r -d "Comma-separated stream IDs"
+complete -c cortex -n "__fish_seen_subcommand_from checkpoint; and __fish_seen_subcommand_from save" -l metadata -r -d "JSON metadata"
 
 # ── cron ─────────────────────────────────────────────────────
 set -l __cron_cmds create delete list pause resume
@@ -57,10 +69,15 @@ complete -c cortex -n "__fish_seen_subcommand_from cron; and not __fish_seen_sub
 complete -c cortex -n "__fish_seen_subcommand_from cron; and not __fish_seen_subcommand_from $__cron_cmds" -a pause -d "Pause job"
 complete -c cortex -n "__fish_seen_subcommand_from cron; and not __fish_seen_subcommand_from $__cron_cmds" -a resume -d "Resume job"
 
-complete -c cortex -n "__fish_seen_subcommand_from cron; and __fish_seen_subcommand_from create" -l name -d "Unique job name"
-complete -c cortex -n "__fish_seen_subcommand_from cron; and __fish_seen_subcommand_from create" -l cron -d "5-field cron expression"
-complete -c cortex -n "__fish_seen_subcommand_from cron; and __fish_seen_subcommand_from create" -l action -d "Action type" -a "check-watches command"
-complete -c cortex -n "__fish_seen_subcommand_from cron; and __fish_seen_subcommand_from create" -l args -d "JSON action args"
+complete -c cortex -n "__fish_seen_subcommand_from cron; and __fish_seen_subcommand_from create" -l name -x -d "Unique job name"
+complete -c cortex -n "__fish_seen_subcommand_from cron; and __fish_seen_subcommand_from create" -l cron -r -d "5-field cron expression"
+complete -c cortex -n "__fish_seen_subcommand_from cron; and __fish_seen_subcommand_from create" -l action -x -a "check-watches command" -d "Action type"
+complete -c cortex -n "__fish_seen_subcommand_from cron; and __fish_seen_subcommand_from create" -l args -r -d "JSON action args"
+
+# cron delete/pause/resume take a job name
+for cmd in delete pause resume
+    complete -c cortex -n "__fish_seen_subcommand_from cron; and __fish_seen_subcommand_from $cmd" -x -a "(__cortex_cron_names)"
+end
 
 # ── daemon ───────────────────────────────────────────────────
 set -l __daemon_cmds run start status stop
@@ -80,13 +97,15 @@ complete -c cortex -n "__fish_seen_subcommand_from pr; and not __fish_seen_subco
 complete -c cortex -n "__fish_seen_subcommand_from pr; and not __fish_seen_subcommand_from $__pr_cmds" -a threads -d "List review threads"
 complete -c cortex -n "__fish_seen_subcommand_from pr; and not __fish_seen_subcommand_from $__pr_cmds" -a watch -d "Watch PR for changes"
 
-# pr flags (--repo is common)
+# pr --repo is common across most subcommands
 for cmd in state threads checks react reply batch-resolve watch
-    complete -c cortex -n "__fish_seen_subcommand_from pr; and __fish_seen_subcommand_from $cmd" -l repo -d "owner/repo format"
+    complete -c cortex -n "__fish_seen_subcommand_from pr; and __fish_seen_subcommand_from $cmd" -l repo -x -a "(__cortex_github_repos)" -d "owner/repo format"
 end
-complete -c cortex -n "__fish_seen_subcommand_from pr; and __fish_seen_subcommand_from reply" -l body -d "Reply text"
-complete -c cortex -n "__fish_seen_subcommand_from pr; and __fish_seen_subcommand_from batch-resolve" -l items -d "JSON [{comment_id,thread_id,reaction}]"
-complete -c cortex -n "__fish_seen_subcommand_from pr; and __fish_seen_subcommand_from watch" -l message -d "Custom notification message"
+complete -c cortex -n "__fish_seen_subcommand_from pr; and __fish_seen_subcommand_from reply" -l body -r -d "Reply text"
+complete -c cortex -n "__fish_seen_subcommand_from pr; and __fish_seen_subcommand_from batch-resolve" -l items -r -d "JSON [{comment_id,thread_id,reaction}]"
+complete -c cortex -n "__fish_seen_subcommand_from pr; and __fish_seen_subcommand_from watch" -l message -r -d "Custom notification message"
+# pr react REACTION arg
+complete -c cortex -n "__fish_seen_subcommand_from pr; and __fish_seen_subcommand_from react" -a "+1 -1" -d "Reaction"
 
 # ── session ──────────────────────────────────────────────────
 set -l __session_cmds auto-close capture cleanup close gather get health hide layout list move paint pause register restart resume scatter send show spawn update
@@ -112,60 +131,60 @@ complete -c cortex -n "__fish_seen_subcommand_from session; and not __fish_seen_
 complete -c cortex -n "__fish_seen_subcommand_from session; and not __fish_seen_subcommand_from $__session_cmds" -a spawn -d "Spawn new session"
 complete -c cortex -n "__fish_seen_subcommand_from session; and not __fish_seen_subcommand_from $__session_cmds" -a update -d "Update session fields"
 
-# session spawn flags
-complete -c cortex -n "__fish_seen_subcommand_from session; and __fish_seen_subcommand_from spawn" -l name -d "Session name"
-complete -c cortex -n "__fish_seen_subcommand_from session; and __fish_seen_subcommand_from spawn" -l goal -d "Goal metadata"
-complete -c cortex -n "__fish_seen_subcommand_from session; and __fish_seen_subcommand_from spawn" -l prompt -d "Starting prompt"
-complete -c cortex -n "__fish_seen_subcommand_from session; and __fish_seen_subcommand_from spawn" -l workspace -d "Workspace" -a "default background"
-complete -c cortex -n "__fish_seen_subcommand_from session; and __fish_seen_subcommand_from spawn" -l model -d "Claude model" -a "haiku sonnet opus"
+# session spawn flags (-x = exclusive: requires value, no file completion)
+complete -c cortex -n "__fish_seen_subcommand_from session; and __fish_seen_subcommand_from spawn" -l name -r -d "Session name"
+complete -c cortex -n "__fish_seen_subcommand_from session; and __fish_seen_subcommand_from spawn" -l goal -r -d "Goal metadata"
+complete -c cortex -n "__fish_seen_subcommand_from session; and __fish_seen_subcommand_from spawn" -l prompt -r -d "Starting prompt"
+complete -c cortex -n "__fish_seen_subcommand_from session; and __fish_seen_subcommand_from spawn" -l workspace -x -a "default background" -d "Workspace"
+complete -c cortex -n "__fish_seen_subcommand_from session; and __fish_seen_subcommand_from spawn" -l model -x -a "haiku sonnet opus" -d "Claude model"
 complete -c cortex -n "__fish_seen_subcommand_from session; and __fish_seen_subcommand_from spawn" -l split -d "Split current pane"
-complete -c cortex -n "__fish_seen_subcommand_from session; and __fish_seen_subcommand_from spawn" -l resume -d "CC session UUID to resume"
-complete -c cortex -n "__fish_seen_subcommand_from session; and __fish_seen_subcommand_from spawn" -l repo -d "Repo name" -a "(__cortex_repo_names)"
-complete -c cortex -n "__fish_seen_subcommand_from session; and __fish_seen_subcommand_from spawn" -l permission-mode -d "CC mode" -a "plan full"
-complete -c cortex -n "__fish_seen_subcommand_from session; and __fish_seen_subcommand_from spawn" -l effort -d "CC effort" -a "low medium high"
-complete -c cortex -n "__fish_seen_subcommand_from session; and __fish_seen_subcommand_from spawn" -l agent -d "CC agent name"
-complete -c cortex -n "__fish_seen_subcommand_from session; and __fish_seen_subcommand_from spawn" -l allowed-tools -d "CC tools (comma-sep)"
-complete -c cortex -n "__fish_seen_subcommand_from session; and __fish_seen_subcommand_from spawn" -l worktree -d "Worktree name"
-complete -c cortex -n "__fish_seen_subcommand_from session; and __fish_seen_subcommand_from spawn" -l beside -d "Split beside session" -a "(__cortex_session_names)"
-complete -c cortex -n "__fish_seen_subcommand_from session; and __fish_seen_subcommand_from spawn" -l below -d "Split below session" -a "(__cortex_session_names)"
-complete -c cortex -n "__fish_seen_subcommand_from session; and __fish_seen_subcommand_from spawn" -l color -d "Session color" -a "blue green yellow purple orange pink cyan red"
+complete -c cortex -n "__fish_seen_subcommand_from session; and __fish_seen_subcommand_from spawn" -l resume -r -d "CC session UUID to resume"
+complete -c cortex -n "__fish_seen_subcommand_from session; and __fish_seen_subcommand_from spawn" -l repo -x -a "(__cortex_repo_names)" -d "Repo name"
+complete -c cortex -n "__fish_seen_subcommand_from session; and __fish_seen_subcommand_from spawn" -l permission-mode -x -a "plan full" -d "CC mode"
+complete -c cortex -n "__fish_seen_subcommand_from session; and __fish_seen_subcommand_from spawn" -l effort -x -a "low medium high" -d "CC effort"
+complete -c cortex -n "__fish_seen_subcommand_from session; and __fish_seen_subcommand_from spawn" -l agent -r -d "CC agent name"
+complete -c cortex -n "__fish_seen_subcommand_from session; and __fish_seen_subcommand_from spawn" -l allowed-tools -r -d "CC tools (comma-sep)"
+complete -c cortex -n "__fish_seen_subcommand_from session; and __fish_seen_subcommand_from spawn" -l worktree -r -d "Worktree name"
+complete -c cortex -n "__fish_seen_subcommand_from session; and __fish_seen_subcommand_from spawn" -l beside -x -a "(__cortex_session_names)" -d "Split beside session"
+complete -c cortex -n "__fish_seen_subcommand_from session; and __fish_seen_subcommand_from spawn" -l below -x -a "(__cortex_session_names)" -d "Split below session"
+complete -c cortex -n "__fish_seen_subcommand_from session; and __fish_seen_subcommand_from spawn" -l color -x -a "blue green yellow purple orange pink cyan red" -d "Session color"
 
 # session list flags
-complete -c cortex -n "__fish_seen_subcommand_from session; and __fish_seen_subcommand_from list" -l status -d "Filter by status" -a "active paused hidden dead completed"
-complete -c cortex -n "__fish_seen_subcommand_from session; and __fish_seen_subcommand_from list" -l runtime -d "Filter by runtime"
+complete -c cortex -n "__fish_seen_subcommand_from session; and __fish_seen_subcommand_from list" -l status -x -a "active paused hidden dead completed" -d "Filter by status"
+complete -c cortex -n "__fish_seen_subcommand_from session; and __fish_seen_subcommand_from list" -l runtime -r -d "Filter by runtime"
 complete -c cortex -n "__fish_seen_subcommand_from session; and __fish_seen_subcommand_from list" -l brief -d "Omit events/watch"
-complete -c cortex -n "__fish_seen_subcommand_from session; and __fish_seen_subcommand_from list" -l limit -d "Max sessions"
+complete -c cortex -n "__fish_seen_subcommand_from session; and __fish_seen_subcommand_from list" -l limit -r -d "Max sessions"
 
 # session close flags
 complete -c cortex -n "__fish_seen_subcommand_from session; and __fish_seen_subcommand_from close" -l force -d "Skip wrapup"
 
 # session capture flags
-complete -c cortex -n "__fish_seen_subcommand_from session; and __fish_seen_subcommand_from capture" -l lines -d "Scrollback lines"
+complete -c cortex -n "__fish_seen_subcommand_from session; and __fish_seen_subcommand_from capture" -l lines -r -d "Scrollback lines"
 
 # session move flags
-complete -c cortex -n "__fish_seen_subcommand_from session; and __fish_seen_subcommand_from move" -l beside -d "Move beside" -a "(__cortex_session_names)"
-complete -c cortex -n "__fish_seen_subcommand_from session; and __fish_seen_subcommand_from move" -l below -d "Move below" -a "(__cortex_session_names)"
+complete -c cortex -n "__fish_seen_subcommand_from session; and __fish_seen_subcommand_from move" -l beside -x -a "(__cortex_session_names)" -d "Move beside"
+complete -c cortex -n "__fish_seen_subcommand_from session; and __fish_seen_subcommand_from move" -l below -x -a "(__cortex_session_names)" -d "Move below"
 
 # session paint flags
-complete -c cortex -n "__fish_seen_subcommand_from session; and __fish_seen_subcommand_from paint" -l color -d "Border color" -a "green red amber blue purple gray"
+complete -c cortex -n "__fish_seen_subcommand_from session; and __fish_seen_subcommand_from paint" -l color -x -a "green red amber blue purple gray" -d "Border color"
 
 # session gather flags
-complete -c cortex -n "__fish_seen_subcommand_from session; and __fish_seen_subcommand_from gather" -l layout -d "Layout" -a "tiled even-horizontal even-vertical main-horizontal main-vertical"
+complete -c cortex -n "__fish_seen_subcommand_from session; and __fish_seen_subcommand_from gather" -l layout -x -a "tiled even-horizontal even-vertical main-horizontal main-vertical" -d "Layout"
 
 # session layout flags
-complete -c cortex -n "__fish_seen_subcommand_from session; and __fish_seen_subcommand_from layout" -l window -d "Filter window"
+complete -c cortex -n "__fish_seen_subcommand_from session; and __fish_seen_subcommand_from layout" -l window -r -d "Filter window"
 
 # session register flags
-complete -c cortex -n "__fish_seen_subcommand_from session; and __fish_seen_subcommand_from register" -l data -d "JSON fields"
-complete -c cortex -n "__fish_seen_subcommand_from session; and __fish_seen_subcommand_from register" -l id -d "Specific ID"
+complete -c cortex -n "__fish_seen_subcommand_from session; and __fish_seen_subcommand_from register" -l data -r -d "JSON fields"
+complete -c cortex -n "__fish_seen_subcommand_from session; and __fish_seen_subcommand_from register" -l id -r -d "Specific ID"
 
 # session update flags
-complete -c cortex -n "__fish_seen_subcommand_from session; and __fish_seen_subcommand_from update" -l data -d "JSON fields to merge"
-complete -c cortex -n "__fish_seen_subcommand_from session; and __fish_seen_subcommand_from update" -l trigger -d "Update trigger"
+complete -c cortex -n "__fish_seen_subcommand_from session; and __fish_seen_subcommand_from update" -l data -r -d "JSON fields to merge"
+complete -c cortex -n "__fish_seen_subcommand_from session; and __fish_seen_subcommand_from update" -l trigger -r -d "Update trigger"
 
 # Dynamic session name completions for commands that take a session ref
 for cmd in get close pause resume hide show restart send capture move paint auto-close update
-    complete -c cortex -n "__fish_seen_subcommand_from session; and __fish_seen_subcommand_from $cmd" -a "(__cortex_session_names)"
+    complete -c cortex -n "__fish_seen_subcommand_from session; and __fish_seen_subcommand_from $cmd" -x -a "(__cortex_session_names)"
 end
 
 # ── stream ───────────────────────────────────────────────────
@@ -182,40 +201,45 @@ complete -c cortex -n "__fish_seen_subcommand_from stream; and not __fish_seen_s
 complete -c cortex -n "__fish_seen_subcommand_from stream; and not __fish_seen_subcommand_from $__stream_cmds" -a search -d "Search history"
 complete -c cortex -n "__fish_seen_subcommand_from stream; and not __fish_seen_subcommand_from $__stream_cmds" -a update -d "Update stream"
 
-complete -c cortex -n "__fish_seen_subcommand_from stream; and __fish_seen_subcommand_from create" -l title -d "Stream title"
-complete -c cortex -n "__fish_seen_subcommand_from stream; and __fish_seen_subcommand_from create" -l repos -d "Repos (comma-sep)" -a "(__cortex_repo_names)"
-complete -c cortex -n "__fish_seen_subcommand_from stream; and __fish_seen_subcommand_from create" -l metadata -d "JSON metadata"
+# stream commands that take STREAM_ID as positional arg
+for cmd in complete decide get log update
+    complete -c cortex -n "__fish_seen_subcommand_from stream; and __fish_seen_subcommand_from $cmd" -x -a "(__cortex_stream_ids)"
+end
 
-complete -c cortex -n "__fish_seen_subcommand_from stream; and __fish_seen_subcommand_from log" -l content -d "Update content"
-complete -c cortex -n "__fish_seen_subcommand_from stream; and __fish_seen_subcommand_from log" -l summary -d "Short summary"
-complete -c cortex -n "__fish_seen_subcommand_from stream; and __fish_seen_subcommand_from log" -l metadata -d "JSON metadata"
+complete -c cortex -n "__fish_seen_subcommand_from stream; and __fish_seen_subcommand_from create" -l title -r -d "Stream title"
+complete -c cortex -n "__fish_seen_subcommand_from stream; and __fish_seen_subcommand_from create" -l repos -x -a "(__cortex_repo_names)" -d "Repos (comma-sep)"
+complete -c cortex -n "__fish_seen_subcommand_from stream; and __fish_seen_subcommand_from create" -l metadata -r -d "JSON metadata"
 
-complete -c cortex -n "__fish_seen_subcommand_from stream; and __fish_seen_subcommand_from decide" -l what -d "What was decided"
-complete -c cortex -n "__fish_seen_subcommand_from stream; and __fish_seen_subcommand_from decide" -l why -d "Why this decision"
-complete -c cortex -n "__fish_seen_subcommand_from stream; and __fish_seen_subcommand_from decide" -l metadata -d "JSON metadata"
+complete -c cortex -n "__fish_seen_subcommand_from stream; and __fish_seen_subcommand_from log" -l content -r -d "Update content"
+complete -c cortex -n "__fish_seen_subcommand_from stream; and __fish_seen_subcommand_from log" -l summary -r -d "Short summary"
+complete -c cortex -n "__fish_seen_subcommand_from stream; and __fish_seen_subcommand_from log" -l metadata -r -d "JSON metadata"
 
-complete -c cortex -n "__fish_seen_subcommand_from stream; and __fish_seen_subcommand_from complete" -l summary -d "Completion summary"
+complete -c cortex -n "__fish_seen_subcommand_from stream; and __fish_seen_subcommand_from decide" -l what -r -d "What was decided"
+complete -c cortex -n "__fish_seen_subcommand_from stream; and __fish_seen_subcommand_from decide" -l why -r -d "Why this decision"
+complete -c cortex -n "__fish_seen_subcommand_from stream; and __fish_seen_subcommand_from decide" -l metadata -r -d "JSON metadata"
 
-complete -c cortex -n "__fish_seen_subcommand_from stream; and __fish_seen_subcommand_from list" -l status -d "Filter" -a "active completed all"
+complete -c cortex -n "__fish_seen_subcommand_from stream; and __fish_seen_subcommand_from complete" -l summary -r -d "Completion summary"
 
-complete -c cortex -n "__fish_seen_subcommand_from stream; and __fish_seen_subcommand_from delete" -l type -d "Entry type" -a "stream update decision"
+complete -c cortex -n "__fish_seen_subcommand_from stream; and __fish_seen_subcommand_from list" -l status -x -a "active completed all" -d "Filter"
 
-complete -c cortex -n "__fish_seen_subcommand_from stream; and __fish_seen_subcommand_from edit" -l type -d "Entry type" -a "update decision"
-complete -c cortex -n "__fish_seen_subcommand_from stream; and __fish_seen_subcommand_from edit" -l content -d "New content"
-complete -c cortex -n "__fish_seen_subcommand_from stream; and __fish_seen_subcommand_from edit" -l summary -d "New summary"
-complete -c cortex -n "__fish_seen_subcommand_from stream; and __fish_seen_subcommand_from edit" -l what -d "New what"
-complete -c cortex -n "__fish_seen_subcommand_from stream; and __fish_seen_subcommand_from edit" -l why -d "New why"
-complete -c cortex -n "__fish_seen_subcommand_from stream; and __fish_seen_subcommand_from edit" -l metadata -d "JSON metadata"
+complete -c cortex -n "__fish_seen_subcommand_from stream; and __fish_seen_subcommand_from delete" -l type -x -a "stream update decision" -d "Entry type"
 
-complete -c cortex -n "__fish_seen_subcommand_from stream; and __fish_seen_subcommand_from update" -l title -d "New title"
-complete -c cortex -n "__fish_seen_subcommand_from stream; and __fish_seen_subcommand_from update" -l status -d "New status" -a "active completed"
-complete -c cortex -n "__fish_seen_subcommand_from stream; and __fish_seen_subcommand_from update" -l repos -d "Repos (comma-sep)"
-complete -c cortex -n "__fish_seen_subcommand_from stream; and __fish_seen_subcommand_from update" -l summary -d "New summary"
-complete -c cortex -n "__fish_seen_subcommand_from stream; and __fish_seen_subcommand_from update" -l metadata -d "JSON metadata"
+complete -c cortex -n "__fish_seen_subcommand_from stream; and __fish_seen_subcommand_from edit" -l type -x -a "update decision" -d "Entry type"
+complete -c cortex -n "__fish_seen_subcommand_from stream; and __fish_seen_subcommand_from edit" -l content -r -d "New content"
+complete -c cortex -n "__fish_seen_subcommand_from stream; and __fish_seen_subcommand_from edit" -l summary -r -d "New summary"
+complete -c cortex -n "__fish_seen_subcommand_from stream; and __fish_seen_subcommand_from edit" -l what -r -d "New what"
+complete -c cortex -n "__fish_seen_subcommand_from stream; and __fish_seen_subcommand_from edit" -l why -r -d "New why"
+complete -c cortex -n "__fish_seen_subcommand_from stream; and __fish_seen_subcommand_from edit" -l metadata -r -d "JSON metadata"
+
+complete -c cortex -n "__fish_seen_subcommand_from stream; and __fish_seen_subcommand_from update" -l title -r -d "New title"
+complete -c cortex -n "__fish_seen_subcommand_from stream; and __fish_seen_subcommand_from update" -l status -x -a "active completed" -d "New status"
+complete -c cortex -n "__fish_seen_subcommand_from stream; and __fish_seen_subcommand_from update" -l repos -r -d "Repos (comma-sep)"
+complete -c cortex -n "__fish_seen_subcommand_from stream; and __fish_seen_subcommand_from update" -l summary -r -d "New summary"
+complete -c cortex -n "__fish_seen_subcommand_from stream; and __fish_seen_subcommand_from update" -l metadata -r -d "JSON metadata"
 complete -c cortex -n "__fish_seen_subcommand_from stream; and __fish_seen_subcommand_from update" -l replace-metadata -d "Replace instead of merge"
 
-complete -c cortex -n "__fish_seen_subcommand_from stream; and __fish_seen_subcommand_from link" -l repo -d "Repository name" -a "(__cortex_repo_names)"
-complete -c cortex -n "__fish_seen_subcommand_from stream; and __fish_seen_subcommand_from link" -l branch -d "Branch name"
+complete -c cortex -n "__fish_seen_subcommand_from stream; and __fish_seen_subcommand_from link" -l repo -x -a "(__cortex_repo_names)" -d "Repository name"
+complete -c cortex -n "__fish_seen_subcommand_from stream; and __fish_seen_subcommand_from link" -l branch -r -d "Branch name"
 
 # ── team ─────────────────────────────────────────────────────
 set -l __team_cmds attach kill message messages spawn status
@@ -226,14 +250,19 @@ complete -c cortex -n "__fish_seen_subcommand_from team; and not __fish_seen_sub
 complete -c cortex -n "__fish_seen_subcommand_from team; and not __fish_seen_subcommand_from $__team_cmds" -a spawn -d "Spawn team session"
 complete -c cortex -n "__fish_seen_subcommand_from team; and not __fish_seen_subcommand_from $__team_cmds" -a status -d "Team status"
 
-complete -c cortex -n "__fish_seen_subcommand_from team; and __fish_seen_subcommand_from spawn" -l task -d "Task description"
-complete -c cortex -n "__fish_seen_subcommand_from team; and __fish_seen_subcommand_from spawn" -l prompt -d "Task instructions"
-complete -c cortex -n "__fish_seen_subcommand_from team; and __fish_seen_subcommand_from spawn" -l repo -d "Repo name" -a "(__cortex_repo_names)"
+complete -c cortex -n "__fish_seen_subcommand_from team; and __fish_seen_subcommand_from spawn" -l task -r -d "Task description"
+complete -c cortex -n "__fish_seen_subcommand_from team; and __fish_seen_subcommand_from spawn" -l prompt -r -d "Task instructions"
+complete -c cortex -n "__fish_seen_subcommand_from team; and __fish_seen_subcommand_from spawn" -l repo -x -a "(__cortex_repo_names)" -d "Repo name"
 
-complete -c cortex -n "__fish_seen_subcommand_from team; and __fish_seen_subcommand_from message" -l thread-id -d "Thread ID"
+complete -c cortex -n "__fish_seen_subcommand_from team; and __fish_seen_subcommand_from message" -l thread-id -r -d "Thread ID"
 
-complete -c cortex -n "__fish_seen_subcommand_from team; and __fish_seen_subcommand_from messages" -l to -d "Filter recipient"
-complete -c cortex -n "__fish_seen_subcommand_from team; and __fish_seen_subcommand_from messages" -l limit -d "Max messages"
+complete -c cortex -n "__fish_seen_subcommand_from team; and __fish_seen_subcommand_from messages" -l to -r -d "Filter recipient"
+complete -c cortex -n "__fish_seen_subcommand_from team; and __fish_seen_subcommand_from messages" -l limit -r -d "Max messages"
+
+# team attach/kill/message take session name as positional
+for cmd in attach kill message
+    complete -c cortex -n "__fish_seen_subcommand_from team; and __fish_seen_subcommand_from $cmd" -x -a "(__cortex_session_names)"
+end
 
 # ── test ─────────────────────────────────────────────────────
 set -l __test_cmds list run smoke
