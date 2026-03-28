@@ -1,15 +1,23 @@
 #!/usr/bin/env bash
-# Auto-bump cortex plugin patch version when plugin/ content changes.
+# Pre-commit: regenerate fish completions if CLI changed, auto-bump plugin version.
 set -euo pipefail
 
+# ── Regenerate fish completions if CLI source changed ──
+cli_changed=$(git diff --cached --name-only -- "cortex/cli.py" || true)
+if [ -n "$cli_changed" ]; then
+  fish_out="plugin/host/fish/cortex.fish"
+  uv run python scripts/gen-fish-completions.py > "$fish_out"
+  git add "$fish_out"
+  echo "Regenerated fish completions from CLI"
+fi
+
+# ── Auto-bump plugin version if plugin/ content changed ──
 plugin_json="plugin/.claude-plugin/plugin.json"
 [ -f "$plugin_json" ] || exit 0
 
-# Check if any staged files are in plugin/ (excluding plugin.json itself)
 changed=$(git diff --cached --name-only -- "plugin/" | grep -v '.claude-plugin/plugin.json' || true)
 [ -z "$changed" ] && exit 0
 
-# Bump patch version
 current=$(grep '"version"' "$plugin_json" | sed 's/.*"\([0-9]*\.[0-9]*\.[0-9]*\)".*/\1/')
 major=$(echo "$current" | cut -d. -f1)
 minor=$(echo "$current" | cut -d. -f2)
