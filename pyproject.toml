@@ -52,6 +52,7 @@ dev = [
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests", "python/tests"]
+addopts = "-m 'not e2e'"
 markers = [
     "slice0: Slice 0 — test harness self-tests",
     "slice1: Slice 1 — repo-based session tests",

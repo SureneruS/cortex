@@ -30,7 +30,8 @@ Companion brain for Claude Code — persistent context, session orchestration, m
 - **Plugin**: Marketplace at `.claude-plugin/`, plugin at `plugin/`. Skills, agents, hooks, rules.
 
 ## Commands
-- `uv run python -m pytest tests/` — run all tests
+- `uv run python -m pytest tests/` — run unit/integration tests (e2e excluded by default)
+- `uv run python -m pytest tests/ -m e2e` — run e2e tests (creates real tmux panes, steals focus)
 - `uv tool install --editable . --force` — install CLI tools globally
 - `cortex stream list` — list active streams
 - `cortex stream log <id> --content "..." --summary "..."` — log update
