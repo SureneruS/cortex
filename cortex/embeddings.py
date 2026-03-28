@@ -24,11 +24,28 @@ class Embedder:
 
     def encode_batch(self, texts: list[str]) -> list[list[float]]:
         model = self._load_model()
-        embeddings = model.encode(texts, normalize_embeddings=True)
+        embeddings = model.encode(texts, normalize_embeddings=True, show_progress_bar=False)
         return embeddings.tolist()
 
     def _load_model(self):
         if self._model is None:
-            from sentence_transformers import SentenceTransformer
-            self._model = SentenceTransformer("all-mpnet-base-v2")
+            import logging
+            import os
+            import warnings
+
+            os.environ["TOKENIZERS_PARALLELISM"] = "false"
+            os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"
+            warnings.filterwarnings("ignore")
+            logging.disable(logging.WARNING)
+
+            import sys
+            _stderr = sys.stderr
+            sys.stderr = open(os.devnull, "w")
+            try:
+                from sentence_transformers import SentenceTransformer
+                self._model = SentenceTransformer("all-mpnet-base-v2", device="cpu")
+            finally:
+                sys.stderr.close()
+                sys.stderr = _stderr
+                logging.disable(logging.NOTSET)
         return self._model

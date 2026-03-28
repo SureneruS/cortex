@@ -23,6 +23,7 @@ KNOWN_VALUES: dict[str, str | list[str]] = {
 # Flags whose values come from dynamic functions
 DYNAMIC_VALUES: dict[str, str] = {
     "repo": "(__cortex_repo_names)",
+    "repos": "(__cortex_repo_names)",
     "beside": "(__cortex_session_names)",
     "below": "(__cortex_session_names)",
 }
@@ -33,8 +34,7 @@ PR_REPO_VALUES = "(__cortex_github_repos)"
 # Commands that take a session ref as positional arg
 SESSION_REF_CMDS = {
     "session": ["get", "close", "pause", "resume", "hide", "show", "restart",
-                 "send", "capture", "move", "paint", "auto-close", "update"],
-    "team": ["attach", "kill", "message"],
+                 "capture", "move", "paint", "auto-close", "update", "attach", "message", "messages"],
 }
 
 # Commands that take a stream ID as positional arg
@@ -146,7 +146,11 @@ def generate() -> list[str]:
     a("end")
     a("")
     a("function __cortex_stream_ids")
-    a('    cortex stream list 2>/dev/null | python3 -c "import json,sys; [print(s.get(\'_id\',\'\')[:12]) for s in json.load(sys.stdin)]" 2>/dev/null')
+    a('    uv run python3 -c "')
+    a("from pymongo import MongoClient")
+    a("for s in MongoClient('mongodb://localhost:27017').cortex.streams.find({'status':'active'},{'_id':1,'title':1}):")
+    a("    print(s['_id'] + '\\t' + s.get('title',''))")
+    a('" 2>/dev/null')
     a("end")
     a("")
     a("function __cortex_cron_names")

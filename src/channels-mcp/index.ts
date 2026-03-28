@@ -162,10 +162,10 @@ await ensureIndexes(messages);
 
 const deliveredSet = new Set<string>();
 
-const INSTRUCTIONS = `Messages from team members arrive AUTOMATICALLY as <channel source="cortex-team" from="..." type="..." ...> notifications. You do NOT need to poll for them — they are pushed into your context between turns.
+const INSTRUCTIONS = `Messages from other sessions arrive AUTOMATICALLY as <channel source="cortex-team" from="..." type="..." ...> notifications. You do NOT need to poll for them — they are pushed into your context between turns.
 
-Use send_message to communicate with other team members.
-Use get_team_status to see who's active and what they're working on.
+Use send_message to communicate with other sessions or the human operator.
+Use get_status to see who's active and what they're working on.
 Use get_messages ONLY to recover messages you might have missed (e.g. after context compaction). Do NOT use it to wait for replies — replies arrive as channel notifications automatically.
 
 When you receive a message while working:
@@ -174,9 +174,15 @@ When you receive a message while working:
 - If it's unrelated to your current task, acknowledge it and handle after your current step
 - If it mentions "stop", "wrong", or "revert", pause and address it
 
+When you receive a lifecycle message (meta.type="lifecycle", meta.action="wrapup"):
+1. Acknowledge receipt via send_message to the sender
+2. Run /session-wrapup to save your learnings
+3. Update your session status: cortex session update <your_session_id> --data '{"status": "completed"}' --trigger wrapup
+4. Exit with /exit
+
 Messages are async. Don't wait for replies — continue your work.
 When you discover new tasks or blockers, report them via send_message.
-If you need a new session for a subtask, you can spawn one with cortex team spawn.
+If you need a new session for a subtask, you can spawn one with cortex session spawn.
 To reach the human, use send_message(to="human", ...) — it will be delivered to Slack.`;
 
 const mcp = new Server(
@@ -221,8 +227,8 @@ const TOOLS = [
     },
   },
   {
-    name: "get_team_status",
-    description: "Get status of all active team sessions",
+    name: "get_status",
+    description: "Get status of all active sessions",
     inputSchema: {
       type: "object" as const,
       properties: {},
@@ -256,7 +262,7 @@ mcp.setRequestHandler(CallToolRequestSchema, async (req) => {
     switch (name) {
       case "send_message":
         return await handleSendMessage(args as Record<string, unknown>);
-      case "get_team_status":
+      case "get_status":
         return await handleGetTeamStatus();
       case "get_messages":
         return await handleGetMessages(args as Record<string, unknown>);
@@ -363,8 +369,8 @@ async function handleSendMessage(args: Record<string, unknown>) {
 
 async function handleGetTeamStatus() {
   const teamSessions = await sessions
-    .find({ team: { $exists: true }, status: { $nin: ["completed", "dead"] } })
-    .project({ _id: 1, name: 1, task: 1, status: 1, last_seen: 1 })
+    .find({ status: { $nin: ["completed", "dead"] } })
+    .project({ _id: 1, name: 1, goal: 1, task: 1, status: 1, last_seen: 1 })
     .toArray();
 
   const now = Date.now();
@@ -377,7 +383,7 @@ async function handleGetTeamStatus() {
       : "never";
     return {
       name: s.name,
-      task: s.task || "",
+      task: s.task || (s as any).goal || "",
       status: s.status,
       last_seen: age,
       stale,

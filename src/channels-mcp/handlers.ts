@@ -129,19 +129,19 @@ export function buildHandlers(db: Db, sessionName: string) {
     }
   }
 
-  async function getTeamStatus(): Promise<ToolResult> {
+  async function getStatus(): Promise<ToolResult> {
     const STALE_THRESHOLD_MS = 5 * 60 * 1000;
-    const teamSessions = await sessions
-      .find({ team: { $exists: true }, status: { $nin: ["completed", "dead"] } })
-      .project({ _id: 1, name: 1, task: 1, status: 1, last_seen: 1 })
+    const allSessions = await sessions
+      .find({ status: { $nin: ["completed", "dead"] } })
+      .project({ _id: 1, name: 1, goal: 1, task: 1, status: 1, last_seen: 1 })
       .toArray();
 
     const now = Date.now();
-    const members = teamSessions.map((s: any) => {
+    const members = allSessions.map((s: any) => {
       const lastSeen = s.last_seen ? new Date(s.last_seen).getTime() : null;
       const stale = lastSeen === null || now - lastSeen > STALE_THRESHOLD_MS;
       const age = lastSeen ? `${Math.round((now - lastSeen) / 1000)}s ago` : "never";
-      return { name: s.name, task: s.task || "", status: s.status, last_seen: age, stale };
+      return { name: s.name, task: s.task || s.goal || "", status: s.status, last_seen: age, stale };
     });
 
     return ok({ members });
@@ -177,5 +177,5 @@ export function buildHandlers(db: Db, sessionName: string) {
     return ok(result);
   }
 
-  return { sendMessage, deliverPending, getTeamStatus, getMessages, ensureIndexes };
+  return { sendMessage, deliverPending, getStatus, getMessages, ensureIndexes };
 }

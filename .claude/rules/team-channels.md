@@ -1,10 +1,10 @@
-# Team Channels Rules
+# Channels Rules
 
 ## tmux vs Channels — separation of concerns
 
-- **Channels for communication.** All inter-session messaging goes through the channels MCP (MongoDB → `<channel>` notifications). Never use `tmux send-keys` to pass messages between team sessions.
-- **tmux for terminal management.** Spawning panes, moving windows, killing panes, attaching — all tmux. tmux does process lifecycle; channels does messaging.
-- **`cortex session send` is for non-team sessions only.** Team sessions use `send_message` via the channels MCP. Don't mix the two — `send-keys` bypasses the message bus, loses persistence, and Claude can't distinguish it from human typing.
+- **Channels for communication.** All inter-session messaging goes through the channels MCP (MongoDB → `<channel>` notifications). Never use `tmux send-keys` to pass messages between sessions.
+- **tmux for terminal management.** Spawning panes, moving windows, killing panes, slash commands (/color, /exit, /session-wrapup) — all tmux. tmux does process lifecycle and terminal control; channels does messaging.
+- **All sessions have channels.** Every session spawned via `cortex session spawn` gets the channels MCP. There is no separate "team session" concept — all sessions are peers in the message bus.
 
 ## Architecture
 
@@ -30,12 +30,13 @@
 - **`get_messages` returns sent AND received.** Intentional — enables context recovery after CC compacts older `<channel>` notifications.
 - **System prompt via MCP `instructions` field.** Not CLAUDE.md, not hooks, not spawn flags. The instructions field is automatically loaded when the MCP connects.
 
-## CLI (`cortex team *`)
+## CLI (`cortex session *`)
 
-- **`--task` is the name, `--prompt` is the instructions.** Don't conflate them. Task becomes the slugified session name; prompt is the detailed briefing sent via tmux send-keys after CC starts.
+- **`--name` is the session name, `--goal` is metadata, `--prompt` is the initial task.** Prompt is delivered via channels (pending MongoDB message), not tmux send-keys.
 - **Spawn sequence has rollback.** If tmux launch fails after MongoDB registration, mark the session as `dead`.
 - **Stale sweep runs on every spawn.** Catches both null `last_seen` (crashed before first heartbeat) and `last_seen > 5min` (crashed after heartbeat started).
 - **Name uniqueness is find_one, not atomic.** Accepted v1 limitation at low concurrency. Document if this causes issues.
+- **`cortex team` is deprecated.** Hidden aliases redirect to session equivalents. Use `cortex session spawn/message/messages/close/attach`.
 
 ## Daemon
 
@@ -45,7 +46,7 @@
 
 ## Known Constraints
 
-- **Plan mode disabled with `--channels`.** Team sessions cannot enter plan mode or use AskUserQuestion. Plan interactively before enabling channels.
+- **Plan mode disabled with `--channels`.** Sessions with channels cannot enter plan mode or use AskUserQuestion. Plan interactively before enabling channels.
 - **No interrupt via channels.** Messages arrive between turns, not mid-turn. Ctrl+C in terminal is the only interrupt.
-- **`--dangerously-load-development-channels` required.** Channels are research preview. If the protocol changes, only `ChannelTransport` in the TS MCP needs updating. MongoDB layer is unaffected.
+- **`--dangerously-load-development-channels` required.** Channels are research preview. All sessions spawned via `cortex session spawn` include this flag. If the protocol changes, only `ChannelTransport` in the TS MCP needs updating. MongoDB layer is unaffected.
 - **Auto mode classifier blocks `send_message`.** Must add `mcp__cortex-team__*` to allowedTools in spawn config.
