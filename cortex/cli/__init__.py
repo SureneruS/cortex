@@ -18,13 +18,6 @@ def cli() -> None:
     bind_correlation()
 
 
-def _get_state() -> MongoStateManager:
-    config = load_config()
-    sm = MongoStateManager(get_db(), config.resolved_vec_db_path)
-    sm.init_db()
-    return sm
-
-
 def _cli_log():
     return structlog.get_logger("cortex.cli")
 
@@ -40,32 +33,10 @@ def _error_exit(msg: str) -> None:
     raise SystemExit(1)
 
 
-# ── Backward-compatible shims for test mocking ───────────────
-# Tests patch cortex.cli._pane_exists etc. These delegate to the adapter.
-
-
-def _pane_exists(pane_id: str | int) -> bool:
-    return get_container().terminal.pane_exists(str(pane_id))
-
-
-def _send_to_pane(pane_id: str | int, text: str) -> bool:
-    return get_container().terminal.send_text(str(pane_id), text)
-
-
-def _wait_for_idle(pane_id: str | int, timeout: int = 30) -> bool:
-    return get_container().terminal.wait_for_idle(str(pane_id), timeout)
-
-
-def _kill_pane(pane_id: str | int) -> bool:
-    return get_container().terminal.destroy_pane(str(pane_id))
-
-
-def _get_tmux_panes() -> set[str]:
-    return get_container().terminal.list_pane_ids()
+# ── Backward-compat shim (used by stale_sweep tests) ────────
 
 
 def _sweep_stale_sessions(repo) -> int:
-    """Backward-compat shim for tests — delegates to service layer logic."""
     from datetime import datetime, timedelta, timezone
 
     db = repo._col.database
@@ -93,7 +64,7 @@ def _sweep_stale_sessions(repo) -> int:
     return count
 
 
-# Register command groups — import triggers Click decorator registration
+# Register command groups
 from cortex.cli.stream_commands import stream  # noqa: E402
 from cortex.cli.session_commands import session  # noqa: E402
 from cortex.cli.cron_commands import cron  # noqa: E402

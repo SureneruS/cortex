@@ -10,7 +10,6 @@ import click
 from cortex.cli import (
     _cli_log,
     _error_exit,
-    _get_state,
     _json_out,
     get_container,
     load_config,
@@ -97,8 +96,8 @@ def _install_fish_completions() -> None:
 @click.command()
 def status() -> None:
     """Show active Cortex streams."""
-    with _get_state() as state:
-        streams = state.get_active_streams()
+    svc = get_container().stream_service
+    streams = svc.get_active_streams()
     if not streams:
         click.echo("No active streams.")
         return
@@ -111,20 +110,20 @@ def status() -> None:
 @click.command()
 def brief() -> None:
     """Print compact session brief (for hook injection)."""
-    with _get_state() as state:
-        streams = state.get_active_streams()
-        if not streams:
-            return
-        lines = ["[Cortex] Active streams:"]
-        for s in streams[:5]:
-            ctx = state.get_stream_context(s.id)
-            recent_decisions = ctx["decisions"][-3:] if ctx["decisions"] else []
-            recent_updates = ctx["updates"][-2:] if ctx["updates"] else []
-            lines.append(f"  • {s.title} [{', '.join(s.repos)}]")
-            for d in recent_decisions:
-                lines.append(f"    Decision: {d['what']}")
-            for u in recent_updates:
-                lines.append(f"    Update: {u['summary']}")
+    svc = get_container().stream_service
+    streams = svc.get_active_streams()
+    if not streams:
+        return
+    lines = ["[Cortex] Active streams:"]
+    for s in streams[:5]:
+        ctx = svc.get_stream_context(s.id)
+        recent_decisions = ctx["decisions"][-3:] if ctx["decisions"] else []
+        recent_updates = ctx["updates"][-2:] if ctx["updates"] else []
+        lines.append(f"  • {s.title} [{', '.join(s.repos)}]")
+        for d in recent_decisions:
+            lines.append(f"    Decision: {d['what']}")
+        for u in recent_updates:
+            lines.append(f"    Update: {u['summary']}")
     click.echo("\n".join(lines))
 
 
@@ -133,42 +132,41 @@ def brief() -> None:
 @click.argument("stream_id")
 def link(session_id: str, stream_id: str) -> None:
     """Link a session to a stream."""
-    with _get_state() as state:
-        state.link_session(session_id, stream_id)
+    get_container().stream_service.link_session(session_id, stream_id)
 
 
 @click.command()
 @click.option("--session-id", default=None, help="Claude Code session ID to restore tasks for.")
 def tasks(session_id: str | None) -> None:
     """Print pending task backups for session restore."""
-    with _get_state() as state:
-        if session_id:
-            stream_ids = state.get_streams_for_session(session_id)
-        else:
-            stream_ids = [s.id for s in state.get_active_streams()]
-        if not stream_ids:
-            return
-        for sid in stream_ids:
-            ctx = state.get_stream_context(sid)
-            if not ctx:
-                continue
-            for u in reversed(ctx["updates"]):
-                meta = u.get("metadata") or {}
-                if meta.get("type") == "task_backup":
-                    click.echo(f"[Cortex] Pending tasks from last session (stream: {ctx['stream']['title']}):")
-                    click.echo(u["content"])
-                    click.echo("\nRestore these as TaskCreate items.")
-                    return
+    svc = get_container().stream_service
+    if session_id:
+        stream_ids = svc.get_streams_for_session(session_id)
+    else:
+        stream_ids = [s.id for s in svc.get_active_streams()]
+    if not stream_ids:
+        return
+    for sid in stream_ids:
+        ctx = svc.get_stream_context(sid)
+        if not ctx:
+            continue
+        for u in reversed(ctx["updates"]):
+            meta = u.get("metadata") or {}
+            if meta.get("type") == "task_backup":
+                click.echo(f"[Cortex] Pending tasks from last session (stream: {ctx['stream']['title']}):")
+                click.echo(u["content"])
+                click.echo("\nRestore these as TaskCreate items.")
+                return
 
 
 @click.command()
 def reindex() -> None:
     """Rebuild vector embedding index."""
-    with _get_state() as state:
-        click.echo("Clearing vector index...")
-        state.clear_indexes()
-        click.echo("Rebuilding vector index from MongoDB data...")
-        state._rebuild_vec_index()
+    svc = get_container().stream_service
+    click.echo("Clearing vector index...")
+    svc.clear_indexes()
+    click.echo("Rebuilding vector index from MongoDB data...")
+    svc.rebuild_vec_index()
     click.echo("Done. (Text search uses MongoDB $text indexes — no rebuild needed.)")
 
 
@@ -190,8 +188,8 @@ def checkpoint_save(week: str, content: str, stream_ids: str | None, metadata_js
     """Save or update a weekly checkpoint."""
     metadata = json.loads(metadata_json) if metadata_json else None
     ids = stream_ids.split(",") if stream_ids else None
-    with _get_state() as state:
-        cp = state.save_checkpoint(week, content, stream_ids=ids, metadata=metadata)
+    svc = get_container().stream_service
+    cp = svc.save_checkpoint(week, content, stream_ids=ids, metadata=metadata)
     _json_out({"id": cp.id, "week_of": cp.week_of, "stream_ids": cp.stream_ids})
 
 
@@ -199,8 +197,7 @@ def checkpoint_save(week: str, content: str, stream_ids: str | None, metadata_js
 @click.option("--week", default=None, help="Week identifier (latest if omitted)")
 def checkpoint_get(week: str | None) -> None:
     """Get a checkpoint (latest or specific week)."""
-    with _get_state() as state:
-        cp = state.get_checkpoint(week)
+    cp = get_container().stream_service.get_checkpoint(week)
     if cp is None:
         _error_exit("No checkpoint found")
     _json_out({

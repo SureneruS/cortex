@@ -4,7 +4,11 @@ import json
 
 import click
 
-from cortex.cli import _get_state, _error_exit, _json_out
+from cortex.cli import _error_exit, _json_out, get_container
+
+
+def _svc():
+    return get_container().stream_service
 
 
 @click.group()
@@ -17,8 +21,7 @@ def stream() -> None:
 @click.option("--status", default="active", help="Filter by status (active|completed|all)")
 def stream_list(status: str) -> None:
     """List streams."""
-    with _get_state() as state:
-        streams = state.list_streams(status=status)
+    streams = _svc().list_streams(status=status)
     _json_out([
         {
             "id": s.id, "title": s.title, "repos": s.repos,
@@ -33,8 +36,7 @@ def stream_list(status: str) -> None:
 @click.argument("stream_id")
 def stream_get(stream_id: str) -> None:
     """Get full stream context (updates, decisions, sessions)."""
-    with _get_state() as state:
-        ctx = state.get_stream_context(stream_id)
+    ctx = _svc().get_stream_context(stream_id)
     if not ctx:
         _error_exit(f"Stream {stream_id} not found")
     _json_out(ctx)
@@ -47,8 +49,7 @@ def stream_get(stream_id: str) -> None:
 def stream_create(title: str, repos: str, metadata_json: str | None) -> None:
     """Create a new stream."""
     metadata = json.loads(metadata_json) if metadata_json else None
-    with _get_state() as state:
-        s = state.create_stream(title, repos.split(","), metadata=metadata)
+    s = _svc().create_stream(title, repos.split(","), metadata=metadata)
     _json_out({"id": s.id, "title": s.title})
 
 
@@ -68,14 +69,13 @@ def stream_update(
     """Update a stream."""
     metadata = json.loads(metadata_json) if metadata_json else None
     repos_list = repos.split(",") if repos else None
-    with _get_state() as state:
-        try:
-            s = state.update_stream(
-                stream_id, title=title, status=new_status, repos=repos_list,
-                summary=summary, metadata=metadata, merge_metadata=not replace_metadata,
-            )
-        except ValueError as e:
-            _error_exit(str(e))
+    try:
+        s = _svc().update_stream(
+            stream_id, title=title, status=new_status, repos=repos_list,
+            summary=summary, metadata=metadata, merge_metadata=not replace_metadata,
+        )
+    except ValueError as e:
+        _error_exit(str(e))
     if s is None:
         _error_exit(f"Stream {stream_id} not found")
     _json_out({"id": s.id, "status": s.status, "updated_at": s.updated_at.isoformat()})
@@ -86,8 +86,7 @@ def stream_update(
 @click.option("--summary", required=True, help="Completion summary")
 def stream_complete(stream_id: str, summary: str) -> None:
     """Mark a stream as completed."""
-    with _get_state() as state:
-        state.complete_stream(stream_id, summary)
+    _svc().complete_stream(stream_id, summary)
     _json_out({"completed": stream_id, "summary": summary})
 
 
@@ -96,13 +95,13 @@ def stream_complete(stream_id: str, summary: str) -> None:
 @click.option("--type", "entry_type", required=True, type=click.Choice(["stream", "update", "decision"]))
 def stream_delete(entry_id: str, entry_type: str) -> None:
     """Delete a stream, update, or decision."""
-    with _get_state() as state:
-        if entry_type == "update":
-            state.delete_update(entry_id)
-        elif entry_type == "decision":
-            state.delete_decision(entry_id)
-        elif entry_type == "stream":
-            state.delete_stream(entry_id)
+    svc = _svc()
+    if entry_type == "update":
+        svc.delete_update(entry_id)
+    elif entry_type == "decision":
+        svc.delete_decision(entry_id)
+    elif entry_type == "stream":
+        svc.delete_stream(entry_id)
     _json_out({"deleted": entry_id, "type": entry_type})
 
 
@@ -114,11 +113,10 @@ def stream_delete(entry_id: str, entry_type: str) -> None:
 def stream_log(stream_id: str, content: str, summary: str, metadata_json: str | None) -> None:
     """Log a progress update to a stream."""
     metadata = json.loads(metadata_json) if metadata_json else None
-    with _get_state() as state:
-        try:
-            u = state.add_update(stream_id, content, summary, metadata=metadata)
-        except ValueError as e:
-            _error_exit(str(e))
+    try:
+        u = _svc().add_update(stream_id, content, summary, metadata=metadata)
+    except ValueError as e:
+        _error_exit(str(e))
     _json_out({"id": u.id, "summary": u.summary})
 
 
@@ -130,11 +128,10 @@ def stream_log(stream_id: str, content: str, summary: str, metadata_json: str | 
 def stream_decide(stream_id: str, what: str, why: str, metadata_json: str | None) -> None:
     """Log a decision to a stream."""
     metadata = json.loads(metadata_json) if metadata_json else None
-    with _get_state() as state:
-        try:
-            d = state.add_decision(stream_id, what, why, metadata=metadata)
-        except ValueError as e:
-            _error_exit(str(e))
+    try:
+        d = _svc().add_decision(stream_id, what, why, metadata=metadata)
+    except ValueError as e:
+        _error_exit(str(e))
     _json_out({"id": d.id, "what": d.what})
 
 
@@ -153,11 +150,11 @@ def stream_edit(
 ) -> None:
     """Edit an existing update or decision."""
     metadata = json.loads(metadata_json) if metadata_json else None
-    with _get_state() as state:
-        if entry_type == "update":
-            result = state.edit_update(entry_id, content=content, summary=summary, metadata=metadata)
-        else:
-            result = state.edit_decision(entry_id, what=what, why=why, metadata=metadata)
+    svc = _svc()
+    if entry_type == "update":
+        result = svc.edit_update(entry_id, content=content, summary=summary, metadata=metadata)
+    else:
+        result = svc.edit_decision(entry_id, what=what, why=why, metadata=metadata)
     if result is None:
         _error_exit(f"{entry_type} {entry_id} not found")
     _json_out({"id": result.id, "type": entry_type, "edited": True})
@@ -169,8 +166,7 @@ def stream_search(query: str) -> None:
     """Search across updates, decisions, and checkpoints."""
     from cortex.models import Checkpoint, Decision, Update
 
-    with _get_state() as state:
-        results = state.search(query)
+    results = get_container().search_service.search(query)
     items = []
     for r in results:
         if isinstance(r, Update):
@@ -189,9 +185,8 @@ def stream_search(query: str) -> None:
 @click.option("--branch", default="", help="Branch name")
 def stream_link(session_id: str, stream_id: str, repo: str, branch: str) -> None:
     """Link a session to a stream."""
-    with _get_state() as state:
-        try:
-            state.link_session(session_id, stream_id, repo=repo, branch=branch)
-        except ValueError as e:
-            _error_exit(str(e))
+    try:
+        _svc().link_session(session_id, stream_id, repo=repo, branch=branch)
+    except ValueError as e:
+        _error_exit(str(e))
     _json_out({"linked": True, "session_id": session_id, "stream_id": stream_id})
