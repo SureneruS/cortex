@@ -42,6 +42,28 @@ def init() -> None:
 
     state.close()
 
+    _install_fish_completions()
+
+
+def _install_fish_completions() -> None:
+    """Symlink fish completions from the cortex repo."""
+    import os
+    from pathlib import Path
+
+    src = Path(__file__).resolve().parent.parent / "plugin" / "host" / "fish" / "cortex.fish"
+    dest = Path.home() / ".config" / "fish" / "completions" / "cortex.fish"
+
+    if not src.exists():
+        return
+
+    dest.parent.mkdir(parents=True, exist_ok=True)
+
+    if dest.is_symlink() or dest.exists():
+        os.remove(dest)
+
+    os.symlink(src, dest)
+    click.echo(f"  Fish completions: {dest} → {src}")
+
 
 @cli.command()
 def status() -> None:
