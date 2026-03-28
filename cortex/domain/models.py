@@ -53,6 +53,7 @@ class Session:
     color: str | None = None
     repos: list[str] = field(default_factory=list)
     cc_session_id: str | None = None
+    cc_sessions: list[dict] = field(default_factory=list)
     events: list[SessionEvent] = field(default_factory=list)
 
 

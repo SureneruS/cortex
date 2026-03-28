@@ -51,6 +51,10 @@ class MongoSessionRepository:
         doc["events"] = [
             _make_event("status", None, doc["status"], "spawn"),
         ]
+        if doc.get("cc_session_id"):
+            doc.setdefault("cc_sessions", [
+                {"cc_session_id": doc["cc_session_id"], "started_at": now},
+            ])
         self._col.insert_one(doc)
         return doc
 
@@ -76,6 +80,31 @@ class MongoSessionRepository:
             ops["$push"] = {"events": {"$each": events}}
 
         self._col.update_one({"_id": session_id}, ops)
+        return self.get(session_id)
+
+    def append_cc_session(
+        self,
+        session_id: str,
+        cc_session_id: str,
+        *,
+        trigger: str = "session_start_hook",
+        extra: dict | None = None,
+    ) -> dict | None:
+        current = self.get(session_id)
+        if current is None:
+            return None
+
+        entry = {"cc_session_id": cc_session_id, "started_at": _now()}
+        if extra:
+            entry.update(extra)
+
+        self._col.update_one(
+            {"_id": session_id},
+            {
+                "$set": {"cc_session_id": cc_session_id},
+                "$push": {"cc_sessions": entry},
+            },
+        )
         return self.get(session_id)
 
     def update_runtime(
@@ -109,7 +138,13 @@ class MongoSessionRepository:
             options = ", ".join(f"{d['_id']} ({d.get('status')})" for d in by_name)
             raise ValueError(f"Ambiguous name '{ref}' matches {len(by_name)} sessions: {options}")
 
-        by_cc = self._col.find_one({"cc_session_id": ref, **active_filter})
+        by_cc = self._col.find_one({
+            "$or": [
+                {"cc_session_id": ref},
+                {"cc_sessions.cc_session_id": ref},
+            ],
+            **active_filter,
+        })
         if by_cc is not None:
             return by_cc
 

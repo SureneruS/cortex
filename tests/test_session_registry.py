@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -252,6 +253,74 @@ def test_backward_compat_old_session(session_repo):
     assert updated["events"][0]["to"] == "idle"
 
 
+# --- cc_sessions tracking (CTX-63/CTX-68) ---
+
+
+def test_register_with_cc_session_id_initializes_array(session_repo):
+    doc = session_repo.register("s1", {"name": "test", "cc_session_id": "cc-aaa"})
+    assert doc["cc_session_id"] == "cc-aaa"
+    assert len(doc["cc_sessions"]) == 1
+    assert doc["cc_sessions"][0]["cc_session_id"] == "cc-aaa"
+    assert "started_at" in doc["cc_sessions"][0]
+
+
+def test_register_without_cc_session_id_no_array(session_repo):
+    doc = session_repo.register("s1", {"name": "test"})
+    assert doc.get("cc_session_id") is None
+    assert "cc_sessions" not in doc
+
+
+def test_append_cc_session_adds_to_array(session_repo):
+    session_repo.register("s1", {"name": "test", "cc_session_id": "cc-aaa"})
+    updated = session_repo.append_cc_session("s1", "cc-bbb")
+    assert updated["cc_session_id"] == "cc-bbb"
+    assert len(updated["cc_sessions"]) == 2
+    assert updated["cc_sessions"][0]["cc_session_id"] == "cc-aaa"
+    assert updated["cc_sessions"][1]["cc_session_id"] == "cc-bbb"
+
+
+def test_append_cc_session_with_extra(session_repo):
+    session_repo.register("s1", {"name": "test", "cc_session_id": "cc-aaa"})
+    updated = session_repo.append_cc_session(
+        "s1", "cc-bbb", extra={"transcript_path": "/tmp/t.jsonl", "cc_version": "1.2.3"}
+    )
+    entry = updated["cc_sessions"][1]
+    assert entry["cc_session_id"] == "cc-bbb"
+    assert entry["transcript_path"] == "/tmp/t.jsonl"
+    assert entry["cc_version"] == "1.2.3"
+
+
+def test_append_cc_session_nonexistent(session_repo):
+    assert session_repo.append_cc_session("nope", "cc-aaa") is None
+
+
+def test_append_cc_session_on_session_without_initial_array(session_repo):
+    """Sessions registered without cc_session_id get array created on first link."""
+    session_repo.register("s1", {"name": "test"})
+    updated = session_repo.append_cc_session("s1", "cc-aaa")
+    assert updated["cc_session_id"] == "cc-aaa"
+    assert len(updated["cc_sessions"]) == 1
+    assert updated["cc_sessions"][0]["cc_session_id"] == "cc-aaa"
+
+
+def test_resolve_by_old_cc_session_id(session_repo):
+    """After /clear, resolve should still find session by its previous cc_session_id."""
+    session_repo.register("s1", {"name": "test", "cc_session_id": "cc-aaa"})
+    session_repo.append_cc_session("s1", "cc-bbb")
+    # cc_session_id is now cc-bbb, but cc-aaa is in cc_sessions array
+    doc = session_repo.resolve("cc-aaa")
+    assert doc is not None
+    assert doc["_id"] == "s1"
+
+
+def test_resolve_by_current_cc_session_id(session_repo):
+    session_repo.register("s1", {"name": "test", "cc_session_id": "cc-aaa"})
+    session_repo.append_cc_session("s1", "cc-bbb")
+    doc = session_repo.resolve("cc-bbb")
+    assert doc is not None
+    assert doc["_id"] == "s1"
+
+
 # --- CLI tests ---
 
 
@@ -475,3 +544,158 @@ class TestCLIHealth:
         assert code == 0
         untracked = [f for f in output["findings"] if f.get("check") == "untracked_pane"]
         assert len(untracked) == 2
+
+
+class TestCLILinkCC:
+    def test_link_cc_appends_to_array(self, _patch_cli_db, cli_db):
+        repo = MongoSessionRepo(cli_db)
+        repo.register("s1", {"name": "test", "cc_session_id": "cc-aaa"})
+        code, output = _run_cli(["session", "link-cc", "s1", "cc-bbb"])
+        assert code == 0
+        assert output["cc_session_id"] == "cc-bbb"
+        assert len(output["cc_sessions"]) == 2
+
+    def test_link_cc_with_extra_data(self, _patch_cli_db, cli_db):
+        repo = MongoSessionRepo(cli_db)
+        repo.register("s1", {"name": "test", "cc_session_id": "cc-aaa"})
+        code, output = _run_cli([
+            "session", "link-cc", "s1", "cc-bbb",
+            "--data", '{"transcript_path": "/tmp/t.jsonl"}',
+        ])
+        assert code == 0
+        assert output["cc_sessions"][1]["transcript_path"] == "/tmp/t.jsonl"
+
+    def test_link_cc_nonexistent_session(self, _patch_cli_db):
+        code, output = _run_cli(["session", "link-cc", "nope", "cc-aaa"])
+        assert code == 1
+        assert "not found" in output["error"]
+
+
+class TestSessionStartHookClearLifecycle:
+    """CTX-68: /clear fires SessionStart again — should update, not duplicate."""
+
+    def test_clear_calls_link_cc_not_register(self):
+        """On /clear with active session: calls link-cc and update, never register."""
+        from nova.hooks.session_start import handle_session_start
+
+        existing = json.dumps({"status": "active", "name": "worker", "repos": ["cortex"]})
+        calls = []
+
+        def fake_cortex_cli(*args):
+            calls.append(args)
+            if args[:2] == ("session", "get"):
+                return existing
+            return "{}"
+
+        with (
+            patch("nova.hooks.session_start._cortex_cli", side_effect=fake_cortex_cli),
+            patch.dict(os.environ, {"CORTEX_SESSION_ID": "ctx-1"}),
+        ):
+            handle_session_start({
+                "session_id": "cc-second",
+                "transcript_path": "/tmp/t2.jsonl",
+                "cwd": "/Users/test/workspace/cercli/cortex",
+            })
+
+        cmds = [c[:2] for c in calls]
+        assert ("session", "get") in cmds
+        assert ("session", "link-cc") in cmds
+        assert ("session", "update") in cmds
+        assert ("session", "register") not in cmds
+
+        link_call = next(c for c in calls if c[:2] == ("session", "link-cc"))
+        assert link_call[2] == "ctx-1"
+        assert link_call[3] == "cc-second"
+
+    def test_clear_on_dead_session_reactivates_then_links(self):
+        """If session was dead, hook reactivates it before linking new CC session."""
+        from nova.hooks.session_start import handle_session_start
+
+        existing = json.dumps({"status": "dead", "name": "worker", "repos": ["cortex"]})
+        calls = []
+
+        def fake_cortex_cli(*args):
+            calls.append(args)
+            if args[:2] == ("session", "get"):
+                return existing
+            return "{}"
+
+        with (
+            patch("nova.hooks.session_start._cortex_cli", side_effect=fake_cortex_cli),
+            patch.dict(os.environ, {"CORTEX_SESSION_ID": "ctx-1"}),
+        ):
+            handle_session_start({
+                "session_id": "cc-second",
+                "transcript_path": "/tmp/t2.jsonl",
+                "cwd": "/Users/test/workspace/cercli/cortex",
+            })
+
+        cmds = [c[:2] for c in calls]
+        assert ("session", "register") not in cmds
+
+        # Should have: get, update (reactivate), link-cc, update (fields)
+        update_calls = [c for c in calls if c[:2] == ("session", "update")]
+        assert len(update_calls) == 2
+
+        # First update reactivates
+        reactivate = update_calls[0]
+        reactivate_data = json.loads(reactivate[4])  # --data value
+        assert reactivate_data["status"] == "active"
+        assert reactivate[6] == "clear_reactivate"  # --trigger value
+
+        # link-cc was called
+        assert ("session", "link-cc") in cmds
+
+    def test_no_cortex_session_id_registers_new(self):
+        """Without CORTEX_SESSION_ID env var, hook registers a new session."""
+        from nova.hooks.session_start import handle_session_start
+
+        calls = []
+
+        def fake_cortex_cli(*args):
+            calls.append(args)
+            return "{}"
+
+        with (
+            patch("nova.hooks.session_start._cortex_cli", side_effect=fake_cortex_cli),
+            patch.dict(os.environ, {}, clear=False),
+        ):
+            os.environ.pop("CORTEX_SESSION_ID", None)
+            handle_session_start({
+                "session_id": "cc-new",
+                "transcript_path": "/tmp/t.jsonl",
+                "cwd": "/Users/test/workspace/cercli/cortex",
+            })
+
+        cmds = [c[:2] for c in calls]
+        assert ("session", "register") in cmds
+        assert ("session", "link-cc") not in cmds
+
+    def test_cortex_session_not_found_registers_with_id(self):
+        """If CORTEX_SESSION_ID is set but session doesn't exist, register with that ID."""
+        from nova.hooks.session_start import handle_session_start
+
+        calls = []
+
+        def fake_cortex_cli(*args):
+            calls.append(args)
+            if args[:2] == ("session", "get"):
+                return None
+            return "{}"
+
+        with (
+            patch("nova.hooks.session_start._cortex_cli", side_effect=fake_cortex_cli),
+            patch.dict(os.environ, {"CORTEX_SESSION_ID": "ctx-orphan"}),
+        ):
+            handle_session_start({
+                "session_id": "cc-new",
+                "transcript_path": "/tmp/t.jsonl",
+                "cwd": "/Users/test/workspace/cercli/cortex",
+            })
+
+        cmds = [c[:2] for c in calls]
+        assert ("session", "register") in cmds
+        register_call = next(c for c in calls if c[:2] == ("session", "register"))
+        assert "--id" in register_call
+        id_idx = list(register_call).index("--id")
+        assert register_call[id_idx + 1] == "ctx-orphan"

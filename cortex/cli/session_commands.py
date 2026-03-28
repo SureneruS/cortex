@@ -195,6 +195,27 @@ def update(session_id: str, data: str, trigger: str) -> None:
     _json_out(result)
 
 
+@session.command("link-cc")
+@click.argument("session_id")
+@click.argument("cc_session_id")
+@click.option("--data", default=None, help="JSON object of extra fields for the cc_sessions entry")
+def link_cc(session_id: str, cc_session_id: str, data: str | None) -> None:
+    """Link a new CC session ID (appends to cc_sessions array)."""
+    log = _cli_log()
+    doc = _resolve_or_exit(session_id)
+    extra = None
+    if data:
+        try:
+            extra = json.loads(data)
+        except json.JSONDecodeError as e:
+            _error_exit(f"Invalid JSON: {e}")
+    result = _repo().append_cc_session(doc["_id"], cc_session_id, extra=extra)
+    if result is None:
+        _error_exit(f"Session not found: {session_id}")
+    log.info("CC session linked", session_id=doc["_id"], cc_session_id=cc_session_id)
+    _json_out(result)
+
+
 # ── Message ──────────────────────────────────────────────────
 
 
