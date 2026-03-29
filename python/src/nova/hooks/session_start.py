@@ -58,7 +58,6 @@ def handle_session_start(hook_input: dict) -> dict:
         pass
 
     if cortex_session_id and session_id:
-        # Check if the cortex session is still active (may be closed by /clear)
         existing = _cortex_cli("session", "get", cortex_session_id)
         existing_data = None
         if existing:
@@ -67,14 +66,28 @@ def handle_session_start(hook_input: dict) -> dict:
             except (json.JSONDecodeError, TypeError):
                 pass
 
-        is_active = existing_data and existing_data.get("status") not in ("completed", "dead")
+        if existing_data:
+            is_terminal = existing_data.get("status") in ("completed", "dead")
 
-        if is_active:
-            # Spawned session: link CC UUID to existing Cortex registry entry
-            update_data: dict = {
-                "cc_session_id": session_id,
-                "transcript_path": transcript_path,
-            }
+            if is_terminal:
+                # Reactivate — /clear fired after session was marked terminal
+                _cortex_cli(
+                    "session", "update", cortex_session_id,
+                    "--data", json.dumps({"status": "active"}),
+                    "--trigger", "clear_reactivate",
+                )
+
+            # Link new CC session (appends to cc_sessions array)
+            extra: dict = {"transcript_path": transcript_path}
+            if cc_version:
+                extra["cc_version"] = cc_version
+            _cortex_cli(
+                "session", "link-cc", cortex_session_id, session_id,
+                "--data", json.dumps(extra),
+            )
+
+            # Update top-level fields
+            update_data: dict = {"transcript_path": transcript_path}
             if cc_version:
                 update_data["cc_version"] = cc_version
             if not existing_data.get("repos"):
@@ -85,16 +98,17 @@ def handle_session_start(hook_input: dict) -> dict:
                 "--trigger", "session_start_hook",
             )
         else:
-            # Session was closed (e.g. /clear) — register as new
+            # Cortex session not found at all — should not happen, but register
             _cortex_cli(
                 "session", "register",
+                "--id", cortex_session_id,
                 "--data", json.dumps({
                     "cc_session_id": session_id,
-                    "name": (existing_data or {}).get("name", repo_name or "cleared"),
+                    "name": repo_name or "orphan",
                     "role": os.environ.get("CORTEX_SESSION_ROLE", "worker"),
-                    "spawned_by": "clear",
+                    "spawned_by": "session_start_hook",
                     "transcript_path": transcript_path,
-                    "repos": (existing_data or {}).get("repos", [repo_name] if repo_name else []),
+                    "repos": [repo_name] if repo_name else [],
                 }),
             )
     elif session_id:
