@@ -122,6 +122,14 @@ class MongoStateManager:
                 "    vec_rowid INTEGER NOT NULL"
                 ");"
             )
+            self._conn.executescript(
+                "CREATE TABLE IF NOT EXISTS vec_pending ("
+                "    entity_id TEXT PRIMARY KEY,"
+                "    entity_type TEXT NOT NULL,"
+                "    stream_id TEXT NOT NULL,"
+                "    content TEXT NOT NULL"
+                ");"
+            )
         except Exception:
             log.warning("sqlite_vec not available — vector search disabled", exc_info=True)
             self._has_vec = False
@@ -473,9 +481,34 @@ class MongoStateManager:
             return results
         return self._regex_search(query)
 
+    def _flush_pending(self) -> None:
+        """Compute embeddings for all pending entries and move them to vec_index."""
+        if not self._has_vec or self._conn is None:
+            return
+        rows = self._conn.execute("SELECT entity_id, entity_type, stream_id, content FROM vec_pending").fetchall()
+        if not rows:
+            return
+        from cortex.embeddings import Embedder, serialize_f32
+
+        entries = [(r[0], r[1], r[2], r[3]) for r in rows]
+        texts = [e[3] for e in entries]
+        embeddings = Embedder.get().encode_batch(texts)
+        for (entity_id, entity_type, stream_id, _), embedding in zip(entries, embeddings):
+            self._conn.execute(
+                "INSERT INTO vec_index(embedding, entity_id, entity_type, stream_id) VALUES (?, ?, ?, ?)",
+                (serialize_f32(embedding), entity_id, entity_type, stream_id),
+            )
+            vec_rowid = self._conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+            self._conn.execute(
+                "INSERT OR REPLACE INTO vec_map(entity_id, vec_rowid) VALUES (?, ?)",
+                (entity_id, vec_rowid),
+            )
+        self._conn.execute("DELETE FROM vec_pending")
+
     def _vec_search(self, query: str, limit: int = 20) -> list[tuple[str, str, float]]:
         if not self._has_vec or self._conn is None:
             return []
+        self._flush_pending()
         from cortex.embeddings import Embedder, serialize_f32
 
         query_embedding = Embedder.get().encode(query)
@@ -736,6 +769,7 @@ class MongoStateManager:
         if self._has_vec and self._conn is not None:
             self._conn.execute("DELETE FROM vec_index")
             self._conn.execute("DELETE FROM vec_map")
+            self._conn.execute("DELETE FROM vec_pending")
 
     def _rebuild_search_index(self) -> None:
         pass  # MongoDB $text indexes are automatic
@@ -743,6 +777,7 @@ class MongoStateManager:
     def _rebuild_vec_index(self) -> None:
         if not self._has_vec or self._conn is None:
             return
+        self._conn.execute("DELETE FROM vec_pending")
         from cortex.embeddings import Embedder, serialize_f32
 
         entries: list[tuple[str, str, str, str]] = []
@@ -771,22 +806,16 @@ class MongoStateManager:
             )
 
     def _index_entity(self, entity_id: str, entity_type: str, stream_id: str, content: str) -> None:
+        """Queue content for lazy embedding — no model loaded until search."""
         if self._has_vec and self._conn is not None:
-            from cortex.embeddings import Embedder, serialize_f32
-
-            embedding = Embedder.get().encode(content)
             self._conn.execute(
-                "INSERT INTO vec_index(embedding, entity_id, entity_type, stream_id) VALUES (?, ?, ?, ?)",
-                (serialize_f32(embedding), entity_id, entity_type, stream_id),
-            )
-            vec_rowid = self._conn.execute("SELECT last_insert_rowid()").fetchone()[0]
-            self._conn.execute(
-                "INSERT OR REPLACE INTO vec_map(entity_id, vec_rowid) VALUES (?, ?)",
-                (entity_id, vec_rowid),
+                "INSERT OR REPLACE INTO vec_pending(entity_id, entity_type, stream_id, content) VALUES (?, ?, ?, ?)",
+                (entity_id, entity_type, stream_id, content),
             )
 
     def _deindex_entity(self, entity_id: str) -> None:
         if self._has_vec and self._conn is not None:
+            self._conn.execute("DELETE FROM vec_pending WHERE entity_id = ?", (entity_id,))
             row = self._conn.execute(
                 "SELECT vec_rowid FROM vec_map WHERE entity_id = ?", (entity_id,)
             ).fetchone()
