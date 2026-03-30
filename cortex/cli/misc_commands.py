@@ -245,7 +245,10 @@ def control() -> None:
     repo = container.sessions
     tmux = container.terminal
 
-    existing = repo._col.find_one({"role": "control", "status": {"$nin": ["completed", "dead"]}})
+    existing = repo._col.find_one(
+        {"role": "control", "name": {"$regex": "^control-"}, "status": {"$nin": ["completed", "dead"]}},
+        sort=[("created_at", -1)],
+    )
 
     if existing:
         _status = existing["status"]
