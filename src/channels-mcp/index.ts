@@ -18,9 +18,11 @@ interface Message {
   to: string;
   content: string;
   meta: Record<string, string>;
-  status: "pending" | "delivered";
+  status: "pending" | "claimed" | "delivered";
   created_at: string;
   delivered_at: string | null;
+  claimed_by?: string;
+  claimed_at?: string;
 }
 
 interface SessionDoc {
@@ -45,6 +47,13 @@ const HEARTBEAT_INTERVAL_MS = 30_000;
 const MAX_CONTENT_SIZE = 10_240;
 const STALE_THRESHOLD_MS = 5 * 60 * 1000;
 const META_KEY_RE = /^[a-zA-Z0-9_]+$/;
+
+if (!process.env.TMUX) {
+  process.stderr.write(
+    "[cortex-team] Not running inside tmux — exiting (Cortex sessions are tmux-only)\n"
+  );
+  process.exit(0);
+}
 
 if (!SESSION_NAME || !SESSION_ID || !MONGODB_URI) {
   process.stderr.write(
@@ -468,25 +477,45 @@ async function deliverPending(): Promise<void> {
       .toArray();
 
     for (const msg of pending) {
+      // Claim (not deliver) — atomically mark as "claimed" so other pollers skip it
       const claimed = await messages.findOneAndUpdate(
         { _id: msg._id, status: "pending" },
-        { $set: { status: "delivered", delivered_at: new Date().toISOString() } }
+        { $set: { status: "claimed", claimed_by: SESSION_ID, claimed_at: new Date().toISOString() } }
       );
       if (!claimed) continue;
 
       if (deliveredSet.has(msg._id)) continue;
-      deliveredSet.add(msg._id);
 
-      await transport.deliver(msg.content, {
-        from: msg.from,
-        msg_id: msg._id,
-        ...msg.meta,
-      });
+      try {
+        await transport.deliver(msg.content, {
+          from: msg.from,
+          msg_id: msg._id,
+          ...msg.meta,
+        });
 
-      log("info", "Delivered message", {
-        msg_id: msg._id,
-        from: msg.from,
-      });
+        // Delivery succeeded — mark as delivered
+        deliveredSet.add(msg._id);
+        await messages.updateOne(
+          { _id: msg._id },
+          { $set: { status: "delivered", delivered_at: new Date().toISOString() } }
+        );
+
+        log("info", "Delivered message", {
+          msg_id: msg._id,
+          from: msg.from,
+        });
+      } catch (deliverErr) {
+        // Delivery failed — revert to pending so another poller can retry
+        await messages.updateOne(
+          { _id: msg._id, status: "claimed" },
+          { $set: { status: "pending" }, $unset: { claimed_by: "", claimed_at: "" } }
+        );
+        const errMsg = deliverErr instanceof Error ? deliverErr.message : String(deliverErr);
+        log("warn", "Delivery failed, reverted to pending", {
+          msg_id: msg._id,
+          error: errMsg,
+        });
+      }
     }
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
@@ -494,8 +523,27 @@ async function deliverPending(): Promise<void> {
   }
 }
 
+const STALE_CLAIM_MS = 10_000; // 10s — if claimed but not delivered, revert
+
+async function recoverStaleClaims(): Promise<void> {
+  try {
+    const threshold = new Date(Date.now() - STALE_CLAIM_MS).toISOString();
+    const result = await messages.updateMany(
+      { to: SESSION_NAME, status: "claimed", claimed_at: { $lt: threshold } },
+      { $set: { status: "pending" }, $unset: { claimed_by: "", claimed_at: "" } }
+    );
+    if (result.modifiedCount > 0) {
+      log("info", "Recovered stale claims", { count: result.modifiedCount });
+    }
+  } catch (err) {
+    const errMsg = err instanceof Error ? err.message : String(err);
+    log("error", "Stale claim recovery failed", { error: errMsg });
+  }
+}
+
 // setTimeout recursion to prevent overlapping polls
 async function pollLoop(): Promise<void> {
+  await recoverStaleClaims();
   await deliverPending();
   setTimeout(pollLoop, POLL_INTERVAL_MS);
 }
