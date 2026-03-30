@@ -36,7 +36,7 @@ function err(error: string): ToolResult {
   return { content: [{ type: "text", text: JSON.stringify({ success: false, error }) }] };
 }
 
-export function buildHandlers(db: Db, sessionName: string) {
+export function buildHandlers(db: Db, sessionName: string, sessionId?: string) {
   const messages = db.collection<any>("messages");
   const sessions = db.collection<any>("session_registry");
   const deliveredSet = new Set<string>();
@@ -111,18 +111,30 @@ export function buildHandlers(db: Db, sessionName: string) {
       for (const msg of pending) {
         const claimed = await messages.findOneAndUpdate(
           { _id: msg._id, status: "pending" },
-          { $set: { status: "delivered", delivered_at: new Date().toISOString() } }
+          { $set: { status: "claimed", claimed_by: sessionId || sessionName, claimed_at: new Date().toISOString() } }
         );
         if (!claimed) continue;
 
         if (deliveredSet.has(msg._id)) continue;
-        deliveredSet.add(msg._id);
 
-        await transport.deliver(msg.content, {
-          from: msg.from,
-          msg_id: msg._id,
-          ...msg.meta,
-        });
+        try {
+          await transport.deliver(msg.content, {
+            from: msg.from,
+            msg_id: msg._id,
+            ...msg.meta,
+          });
+
+          deliveredSet.add(msg._id);
+          await messages.updateOne(
+            { _id: msg._id },
+            { $set: { status: "delivered", delivered_at: new Date().toISOString() } }
+          );
+        } catch {
+          await messages.updateOne(
+            { _id: msg._id, status: "claimed" },
+            { $set: { status: "pending" }, $unset: { claimed_by: "", claimed_at: "" } }
+          );
+        }
       }
     } catch {
       // Log and continue — poll failure must not crash the server
