@@ -494,7 +494,14 @@ class SessionService:
 
     # ── Message ──────────────────────────────────────────────
 
-    def send_message(self, recipient: str, content: str, *, thread_id: str | None = None) -> dict:
+    def send_message(
+        self,
+        recipient: str,
+        content: str,
+        *,
+        thread_id: str | None = None,
+        extra_meta: dict | None = None,
+    ) -> dict:
         import uuid
 
         if recipient != "human":
@@ -509,6 +516,8 @@ class SessionService:
             "priority": "high",
             "thread_id": thread_id or ("t_" + uuid.uuid4().hex[:12]),
         }
+        if extra_meta:
+            meta.update(extra_meta)
         msg = self._messages.create(sender, recipient, content, meta=meta)
         return {"success": True, "msg_id": msg.id, "to": recipient}
 

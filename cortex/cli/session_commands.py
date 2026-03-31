@@ -252,10 +252,17 @@ def link_cc(session_id: str, cc_session_id: str, data: str | None) -> None:
 @click.argument("session_name")
 @click.argument("content")
 @click.option("--thread-id", default=None, help="Thread ID for conversation linking")
-def message(session_name: str, content: str, thread_id: str | None) -> None:
+@click.option("--meta", "meta_json", default=None, help="JSON object of extra meta fields")
+def message(session_name: str, content: str, thread_id: str | None, meta_json: str | None) -> None:
     """Send a message to a session via channels."""
+    extra_meta = None
+    if meta_json:
+        try:
+            extra_meta = json.loads(meta_json)
+        except json.JSONDecodeError as e:
+            _error_exit(f"Invalid --meta JSON: {e}")
     try:
-        result = _svc().send_message(session_name, content, thread_id=thread_id)
+        result = _svc().send_message(session_name, content, thread_id=thread_id, extra_meta=extra_meta)
     except SessionNotFound as e:
         _error_exit(str(e))
     _json_out(result)
@@ -683,12 +690,38 @@ def _lighten_hex(hex_color: str, amount: int = 20) -> str:
     return f"#{r:02x}{g:02x}{b:02x}"
 
 
+def _is_interactive_message(msg) -> bool:
+    meta = msg.meta or {}
+    return meta.get("source") == "interactive" or meta.get("type") == "interactive"
+
+
+def _render_interactive(console, msg, color_map: dict[str, dict[str, str]]) -> None:
+    """Render interactive (user-typed) input as a compact inline line."""
+    from datetime import datetime, timezone
+
+    theme = _get_sender_theme(msg.sender, color_map)
+    color = theme["color"]
+
+    try:
+        utc_dt = datetime.fromisoformat(msg.created_at).replace(tzinfo=timezone.utc)
+        ts = utc_dt.astimezone().strftime("%H:%M:%S")
+    except (ValueError, TypeError):
+        ts = msg.created_at[11:19] if len(msg.created_at) >= 19 else msg.created_at
+
+    content = msg.content.strip().split("\n")[0][:120]
+    console.print(f"  [dim]{ts}[/]  [bold {color}]{msg.sender}[/] [dim]⌨[/]  {content}")
+
+
 def _render_message(console, msg, color_map: dict[str, dict[str, str]]) -> None:
     from rich.markdown import Markdown
     from rich.panel import Panel
     from rich.style import Style
     from rich.text import Text
     from rich.theme import Theme
+
+    if _is_interactive_message(msg):
+        _render_interactive(console, msg, color_map)
+        return
 
     theme = _get_sender_theme(msg.sender, color_map)
     color = theme["color"]
@@ -795,15 +828,181 @@ def _render_event(console, event: dict, color_map: dict[str, dict[str, str]]) ->
     console.print(f"  [dim]{ts}[/]  {icon} {label}{suffix}")
 
 
-def _merge_timeline(messages: list, events: list[dict]) -> list:
-    """Merge messages and events into a single timeline sorted by timestamp."""
+def _render_transcript(console, entry: dict, color_map: dict[str, dict[str, str]]) -> None:
+    """Render a transcript entry (assistant response) as compact dimmed text."""
+    name = entry.get("session_name", "?")
+    ts = entry.get("ts", "")
+    text = entry.get("text", "")
+    role = entry.get("role", "assistant")
+
+    theme = _get_sender_theme(name, color_map)
+    color = theme["color"]
+
+    lines = text.strip().split("\n")
+    max_lines = 4
+    if len(lines) > max_lines:
+        preview = "\n".join(lines[:max_lines])
+        truncated = True
+    else:
+        preview = "\n".join(lines)
+        truncated = False
+
+    # Limit each line length
+    preview_lines = []
+    for line in preview.split("\n"):
+        if len(line) > 120:
+            preview_lines.append(line[:120] + "...")
+        else:
+            preview_lines.append(line)
+    preview = "\n".join(preview_lines)
+
+    icon = ">" if role == "assistant" else "<"
+    console.print(f"  [dim]{ts}[/]  [{color}]{name}[/] [dim]{icon}[/]  [dim italic]{preview}[/]")
+    if truncated:
+        console.print(f"  [dim]         ... ({len(lines)} lines)[/]")
+
+
+class TranscriptTailer:
+    """Tails transcript JSONL files for watched sessions."""
+
+    def __init__(self, session_names: list[str] | None = None) -> None:
+        self._names = session_names
+        self._offsets: dict[str, int] = {}  # session_name -> file byte offset
+        self._paths: dict[str, str] = {}    # session_name -> transcript_path
+
+    def _resolve_paths(self) -> None:
+        """Look up transcript_path from session registry for watched sessions."""
+        repo = _repo()
+        filters: dict = {"status": {"$nin": ["completed", "dead"]}}
+        if self._names:
+            filters["name"] = {"$in": self._names}
+        sessions = repo.list(filters, brief=True)
+        for doc in sessions:
+            name = doc.get("name")
+            path = doc.get("transcript_path")
+            if name and path:
+                self._paths[name] = path
+
+    def poll(self) -> list[dict]:
+        """Read new transcript entries since last poll. Returns timeline-compatible dicts."""
+        if not self._paths:
+            self._resolve_paths()
+
+        entries = []
+        for name, path in list(self._paths.items()):
+            try:
+                entries.extend(self._read_new_lines(name, path))
+            except (OSError, IOError):
+                continue
+        return entries
+
+    def _read_new_lines(self, session_name: str, path: str) -> list[dict]:
+        import os as _os
+
+        try:
+            file_size = _os.path.getsize(path)
+        except OSError:
+            return []
+
+        offset = self._offsets.get(session_name, 0)
+        if file_size <= offset:
+            return []
+
+        entries = []
+        with open(path, "r") as f:
+            f.seek(offset)
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    entry = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                parsed = self._parse_entry(session_name, entry)
+                if parsed:
+                    entries.append(parsed)
+            self._offsets[session_name] = f.tell()
+        return entries
+
+    @staticmethod
+    def _parse_entry(session_name: str, entry: dict) -> dict | None:
+        entry_type = entry.get("type", "")
+        msg = entry.get("message", {})
+        role = msg.get("role", "")
+
+        if entry_type == "assistant" and role == "assistant":
+            text = _extract_text(msg.get("content", ""))
+            if text:
+                from datetime import datetime, timezone
+                ts_raw = entry.get("timestamp", "")
+                try:
+                    if ts_raw:
+                        utc_dt = datetime.fromisoformat(ts_raw).replace(tzinfo=timezone.utc)
+                        ts = utc_dt.astimezone().strftime("%H:%M:%S")
+                    else:
+                        ts = datetime.now().strftime("%H:%M:%S")
+                except (ValueError, TypeError):
+                    ts = datetime.now().strftime("%H:%M:%S")
+                return {
+                    "kind": "transcript",
+                    "session_name": session_name,
+                    "role": "assistant",
+                    "text": text,
+                    "ts": ts,
+                    "sort_key": ts_raw or datetime.now(timezone.utc).isoformat(),
+                }
+        return None
+
+
+def _extract_text(content) -> str:
+    """Extract text from assistant message content (string or list of blocks)."""
+    if isinstance(content, str):
+        return content.strip()
+    if isinstance(content, list):
+        texts = []
+        for block in content:
+            if isinstance(block, dict) and block.get("type") == "text":
+                texts.append(block.get("text", ""))
+        return "\n".join(texts).strip()
+    return ""
+
+
+def _merge_timeline(messages: list, events: list[dict], transcript: list[dict] | None = None) -> list:
+    """Merge messages, events, and transcript entries into a single timeline sorted by timestamp."""
     timeline = []
     for m in messages:
         timeline.append(("msg", m.created_at, m))
     for e in events:
         timeline.append(("event", e.get("at", ""), e))
+    if transcript:
+        for t in transcript:
+            timeline.append(("transcript", t.get("sort_key", ""), t))
     timeline.sort(key=lambda x: x[1])
     return timeline
+
+
+WATCH_MODES = ("messages", "full", "interactive")
+
+
+def _should_show_message(msg, mode: str) -> bool:
+    """Filter messages based on watch mode."""
+    if mode == "messages":
+        return not _is_interactive_message(msg)
+    if mode == "interactive":
+        return True
+    # "full" mode — show everything
+    return True
+
+
+def _render_timeline_item(console, kind: str, item, color_map: dict[str, dict[str, str]], mode: str) -> None:
+    if kind == "msg":
+        if _should_show_message(item, mode):
+            _render_message(console, item, color_map)
+    elif kind == "event":
+        _render_event(console, item, color_map)
+    elif kind == "transcript":
+        _render_transcript(console, item, color_map)
 
 
 @session.command()
@@ -811,14 +1010,18 @@ def _merge_timeline(messages: list, events: list[dict]) -> list:
 @click.option("--limit", "history_limit", default=50, help="Max initial messages (within last 24h)")
 @click.option("--poll", "poll_interval", default=2.0, type=float, help="Poll interval in seconds")
 @click.option("--no-live", is_flag=True, default=False, help="Show history and exit")
-def watch(names: tuple[str, ...], history_limit: int, poll_interval: float, no_live: bool) -> None:
+@click.option("--mode", "watch_mode", default="messages", type=click.Choice(WATCH_MODES),
+              help="messages: channel messages only (default). full: messages + transcript. interactive: messages + user input.")
+def watch(names: tuple[str, ...], history_limit: int, poll_interval: float, no_live: bool, watch_mode: str) -> None:
     """Live-tail messages between sessions in a chat view.
 
     \b
     Usage:
-      cortex session watch name1 name2   # Messages between two sessions
-      cortex session watch name1          # All messages to/from one session
-      cortex session watch                # All inter-session messages
+      cortex session watch name1 name2            # Messages between two sessions
+      cortex session watch name1                   # All messages to/from one session
+      cortex session watch                         # All inter-session messages
+      cortex session watch name1 --mode full       # Messages + assistant transcript
+      cortex session watch name1 --mode interactive # Messages + user input
     """
     import signal
 
@@ -834,8 +1037,11 @@ def watch(names: tuple[str, ...], history_limit: int, poll_interval: float, no_l
     if sessions and len(sessions) > 2:
         _error_exit("At most 2 session names")
 
+    include_transcript = watch_mode == "full"
+
+    mode_label = f" [dim]({watch_mode})[/]" if watch_mode != "messages" else ""
     label = " & ".join(names) if names else "all sessions"
-    console.print(Rule(f"[bold]Watching: {label}[/]"))
+    console.print(Rule(f"[bold]Watching: {label}[/]{mode_label}"))
 
     color_map = _build_session_color_map()
     from datetime import datetime, timedelta, timezone
@@ -843,15 +1049,18 @@ def watch(names: tuple[str, ...], history_limit: int, poll_interval: float, no_l
     msgs = msg_repo.watch_messages(sessions=sessions, after=cutoff, limit=history_limit)
     events = session_repo.list_events(sessions=sessions, after=cutoff, limit=history_limit)
 
+    # Transcript tailing (skip history on initial load — too noisy)
+    tailer = TranscriptTailer(session_names=sessions) if include_transcript else None
+    if tailer:
+        # Seek to end of transcript files so we only show new entries
+        tailer.poll()
+
     timeline = _merge_timeline(msgs, events)
     if not timeline:
         console.print("[dim]No history.[/]")
     else:
-        for kind, ts, item in timeline:
-            if kind == "msg":
-                _render_message(console, item, color_map)
-            else:
-                _render_event(console, item, color_map)
+        for kind, _ts, item in timeline:
+            _render_timeline_item(console, kind, item, color_map, watch_mode)
 
     if no_live:
         return
@@ -870,12 +1079,11 @@ def watch(names: tuple[str, ...], history_limit: int, poll_interval: float, no_l
             time.sleep(poll_interval)
             new_msgs = msg_repo.watch_messages(sessions=sessions, after=last_ts)
             new_events = session_repo.list_events(sessions=sessions, after=last_ts)
-            for kind, ts, item in _merge_timeline(new_msgs, new_events):
-                if kind == "msg":
-                    _render_message(console, item, color_map)
-                else:
-                    _render_event(console, item, color_map)
-                last_ts = ts
+            new_transcript = tailer.poll() if tailer else None
+            for kind, ts, item in _merge_timeline(new_msgs, new_events, new_transcript):
+                _render_timeline_item(console, kind, item, color_map, watch_mode)
+                if kind != "transcript":
+                    last_ts = ts
     except KeyboardInterrupt:
         console.print(Rule("[dim]stopped[/]"))
     finally:
