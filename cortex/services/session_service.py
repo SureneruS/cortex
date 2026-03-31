@@ -32,6 +32,10 @@ class SessionService:
         self._messages = messages
         self._terminal = terminal
 
+    @staticmethod
+    def _caller() -> str | None:
+        return os.environ.get("CORTEX_SESSION_NAME")
+
     # ── Resolution ───────────────────────────────────────────
 
     def resolve(self, ref: str) -> dict:
@@ -139,7 +143,7 @@ class SessionService:
 
             log.info("Session spawned", name=name, pane_id=pane_id)
         else:
-            self._sessions.update(session_id, {"status": "dead"}, trigger="spawn-fail")
+            self._sessions.update(session_id, {"status": "dead"}, trigger="spawn-fail", actor=self._caller())
             log.error("Spawn failed — no pane_id from terminal")
 
         result = {
@@ -177,7 +181,7 @@ class SessionService:
             log.info("Expired pending messages", count=expired, session=session_name)
 
         # Close registry
-        doc = self._sessions.close(session_id)
+        doc = self._sessions.close(session_id, actor=self._caller())
 
         # Kill pane
         pane_still_alive = pane_id is not None and self._terminal.pane_exists(pane_id)
@@ -211,7 +215,7 @@ class SessionService:
         else:
             self._terminal.destroy_pane(pane_id)
 
-        self._sessions.update(session_id, {"status": "paused"}, trigger="pause")
+        self._sessions.update(session_id, {"status": "paused"}, trigger="pause", actor=self._caller())
         doc = self._sessions.get(session_id)
         log.info("Session paused", session_id=session_id)
         return doc
@@ -244,12 +248,12 @@ class SessionService:
             "status": "active",
             "pane_id": new_pane_id,
             "resumed_session_id": new_session_id,
-        }, trigger="resume")
+        }, trigger="resume", actor=self._caller())
 
         self._sessions.update(new_session_id, {
             "status": "completed",
             "shadow_of": session_id,
-        }, trigger="resume-link")
+        }, trigger="resume-link", actor=self._caller())
 
         doc = self._sessions.get(session_id)
         log.info("Session resumed", session_id=session_id, pane_id=new_pane_id)
@@ -282,7 +286,7 @@ class SessionService:
             "status": "hidden",
             "pane_id": pane_id,
             "hidden_from": src_session,
-        }, trigger="hide")
+        }, trigger="hide", actor=self._caller())
 
         doc = self._sessions.get(session_id)
         log.info("Session hidden", session_id=session_id)
@@ -305,7 +309,7 @@ class SessionService:
         if not self._terminal.move_window(src_target, f"{target_session}:"):
             raise RuntimeError("move-window failed")
 
-        self._sessions.update(session_id, {"status": "active", "hidden_from": None}, trigger="show")
+        self._sessions.update(session_id, {"status": "active", "hidden_from": None}, trigger="show", actor=self._caller())
         doc = self._sessions.get(session_id)
         log.info("Session shown", session_id=session_id)
         return doc
@@ -327,7 +331,7 @@ class SessionService:
 
             if pane_id is None or str(pane_id) not in live_panes:
                 self._sessions.update(
-                    session_id, {"status": "dead", "runtime": "unknown"}, trigger="health-check"
+                    session_id, {"status": "dead", "runtime": "unknown"}, trigger="health-check", actor="system"
                 )
                 findings.append({
                     "severity": "critical",
@@ -399,7 +403,7 @@ class SessionService:
             pane_id = doc.get("pane_id")
             if pane_id is None or not self._terminal.pane_exists(pane_id):
                 session_id = doc["_id"]
-                self._sessions.close(session_id, trigger="cleanup")
+                self._sessions.close(session_id, trigger="cleanup", actor="system")
                 closed.append({"session_id": session_id, "name": doc.get("name"), "pane_id": pane_id})
         return closed
 
@@ -619,7 +623,7 @@ class SessionService:
 
         count = 0
         for s in stale:
-            self._sessions.update(s["_id"], {"status": "dead"}, trigger="stale-sweep")
+            self._sessions.update(s["_id"], {"status": "dead"}, trigger="stale-sweep", actor="system")
             self._messages.expire_for_session(s.get("name", ""))
             count += 1
         return count

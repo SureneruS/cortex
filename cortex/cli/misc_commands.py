@@ -282,7 +282,7 @@ def control() -> None:
                 return
 
         if _status == "active":
-            repo.update(existing["_id"], {"status": "dead"}, trigger="control-stale")
+            repo.update(existing["_id"], {"status": "dead"}, trigger="control-stale", actor="human")
 
     now = datetime.now()
     name = f"control-{now.strftime('%d-%b').lower()}"
@@ -321,7 +321,7 @@ def control() -> None:
         tmux.spawn_background_sender(pane_id, "/color red")
         log.info("Control session spawned", name=name, pane_id=pane_id)
     else:
-        repo.update(session_id, {"status": "dead"}, trigger="spawn-fail")
+        repo.update(session_id, {"status": "dead"}, trigger="spawn-fail", actor="human")
         _error_exit("Failed to launch control pane")
 
     _json_out({"action": "spawned", "session_id": session_id, "name": name, "pane_id": pane_id})

@@ -24,6 +24,11 @@ def _repo():
     return get_container().sessions
 
 
+def _caller() -> str | None:
+    import os
+    return os.environ.get("CORTEX_SESSION_NAME")
+
+
 def _resolve_or_exit(ref: str) -> dict:
     svc = _svc()
     try:
@@ -189,7 +194,7 @@ def update(session_id: str, data: str, trigger: str) -> None:
         _error_exit(f"Invalid JSON: {e}")
     doc = _resolve_or_exit(session_id)
     try:
-        result = _repo().update(doc["_id"], fields, trigger=trigger)
+        result = _repo().update(doc["_id"], fields, trigger=trigger, actor=_caller())
     except ValueError as e:
         _error_exit(str(e))
     log.info("Session updated", session_id=doc["_id"])
@@ -302,7 +307,7 @@ def auto_close(pane_id: str) -> None:
     if not sessions:
         _error_exit(f"No active session for pane {pane_id}")
     doc = sessions[0]
-    result = repo.close(doc["_id"], trigger="auto-close")
+    result = repo.close(doc["_id"], trigger="auto-close", actor="tmux-hook")
     log.info("Auto-closed session", session_id=doc["_id"])
     _json_out(result)
 
@@ -452,7 +457,7 @@ def scatter(refs: tuple[str, ...]) -> None:
         if location:
             new_pane_id = location.split(".")[-1] if "." in location else pane_id
             if new_pane_id != pane_id:
-                repo.update(doc["_id"], {"pane_id": new_pane_id}, trigger="scatter")
+                repo.update(doc["_id"], {"pane_id": new_pane_id}, trigger="scatter", actor=_caller())
             scattered.append(doc.get("name"))
 
     _json_out({"scattered": scattered, "count": len(scattered)})
@@ -746,6 +751,7 @@ def _render_event(console, event: dict, color_map: dict[str, dict[str, str]]) ->
     from_status = event.get("from")
     trigger = event.get("trigger", "")
     reason = event.get("reason")
+    actor = event.get("actor")
 
     icon = EVENT_ICONS.get(trigger, "~")
     status_color = EVENT_COLORS.get(to_status, "white")
@@ -755,9 +761,14 @@ def _render_event(console, event: dict, color_map: dict[str, dict[str, str]]) ->
     else:
         label = f"{name} [{status_color}]{to_status}[/]"
 
-    extra = f"  [dim italic]{reason}[/]" if reason else ""
+    parts = []
+    if actor:
+        parts.append(f"[dim]by {actor}[/]")
+    if reason:
+        parts.append(f"[dim italic]{reason}[/]")
+    suffix = "  " + "  ".join(parts) if parts else ""
 
-    console.print(f"  [dim]{ts}[/]  {icon} {label}{extra}")
+    console.print(f"  [dim]{ts}[/]  {icon} {label}{suffix}")
 
 
 def _merge_timeline(messages: list, events: list[dict]) -> list:
