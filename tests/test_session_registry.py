@@ -303,6 +303,45 @@ def test_append_cc_session_on_session_without_initial_array(session_repo):
     assert updated["cc_sessions"][0]["cc_session_id"] == "cc-aaa"
 
 
+# --- Dedup: race condition at spawn time (CTX-94) ---
+
+
+def test_register_dedup_same_cc_session_id(session_repo):
+    """Two rapid register calls with the same cc_session_id produce only one document."""
+    data = {"name": "manual", "cc_session_id": "cc-dup", "spawned_by": "manual"}
+    doc1 = session_repo.register(None, data.copy())
+    doc2 = session_repo.register(None, data.copy())
+    assert doc1["_id"] == doc2["_id"]
+    all_docs = session_repo.list({"cc_session_id": "cc-dup"})
+    assert len(all_docs) == 1
+
+
+def test_register_dedup_allows_different_cc_session_ids(session_repo):
+    """Different cc_session_ids still create separate documents."""
+    doc1 = session_repo.register(None, {"name": "s1", "cc_session_id": "cc-aaa"})
+    doc2 = session_repo.register(None, {"name": "s2", "cc_session_id": "cc-bbb"})
+    assert doc1["_id"] != doc2["_id"]
+
+
+def test_register_dedup_allows_reuse_after_completed(session_repo):
+    """A completed session's cc_session_id can be reused for a new registration."""
+    doc1 = session_repo.register("s1", {"name": "test", "cc_session_id": "cc-reuse"})
+    session_repo.close("s1")
+    doc2 = session_repo.register(None, {"name": "test2", "cc_session_id": "cc-reuse"})
+    assert doc2["_id"] != doc1["_id"]
+
+
+def test_append_cc_session_dedup_same_cc_session_id(session_repo):
+    """Two rapid link-cc calls with the same cc_session_id don't duplicate the array entry."""
+    session_repo.register("s1", {"name": "test", "cc_session_id": "cc-aaa"})
+    session_repo.append_cc_session("s1", "cc-bbb")
+    session_repo.append_cc_session("s1", "cc-bbb")
+    doc = session_repo.get("s1")
+    assert doc["cc_session_id"] == "cc-bbb"
+    cc_ids = [e["cc_session_id"] for e in doc["cc_sessions"]]
+    assert cc_ids == ["cc-aaa", "cc-bbb"]
+
+
 def test_resolve_by_old_cc_session_id(session_repo):
     """After /clear, resolve should still find session by its previous cc_session_id."""
     session_repo.register("s1", {"name": "test", "cc_session_id": "cc-aaa"})

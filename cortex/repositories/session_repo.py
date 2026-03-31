@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
+from pymongo import ReturnDocument
 from pymongo.database import Database
 
 from cortex.domain.models import SessionStatus, RuntimeStatus
@@ -58,6 +59,19 @@ class MongoSessionRepository:
             doc.setdefault("cc_sessions", [
                 {"cc_session_id": doc["cc_session_id"], "started_at": now},
             ])
+
+        cc_session_id = data.get("cc_session_id")
+        if cc_session_id:
+            # Atomic find-or-create: if an active session with this cc_session_id
+            # already exists, return it instead of creating a duplicate.
+            result = self._col.find_one_and_update(
+                {"cc_session_id": cc_session_id, "status": {"$nin": ["completed", "dead"]}},
+                {"$setOnInsert": doc},
+                upsert=True,
+                return_document=ReturnDocument.AFTER,
+            )
+            return result
+
         self._col.insert_one(doc)
         return doc
 
@@ -101,13 +115,22 @@ class MongoSessionRepository:
         if extra:
             entry.update(extra)
 
-        self._col.update_one(
-            {"_id": session_id},
+        # Atomic: only push if this cc_session_id isn't already in the array
+        result = self._col.update_one(
+            {"_id": session_id, "cc_sessions.cc_session_id": {"$ne": cc_session_id}},
             {
                 "$set": {"cc_session_id": cc_session_id},
                 "$push": {"cc_sessions": entry},
             },
         )
+
+        if result.matched_count == 0:
+            # cc_session_id already in array — just ensure top-level field is set
+            self._col.update_one(
+                {"_id": session_id},
+                {"$set": {"cc_session_id": cc_session_id}},
+            )
+
         return self.get(session_id)
 
     def update_runtime(
