@@ -384,9 +384,15 @@ def _seed_session_with_pane(cli_db):
     repo.register("cli-pane-1", {"name": "pane-session", "pane_id": "%42"})
 
 
+def _no_session_env():
+    """Remove CORTEX_SESSION_ID so close permission check sees 'human' (always allowed)."""
+    env = {k: v for k, v in os.environ.items() if k != "CORTEX_SESSION_ID"}
+    return patch.dict(os.environ, env, clear=True)
+
+
 class TestCLIClose:
     def test_close_session_no_pane(self, _patch_cli_db, _seed_session):
-        with patch("cortex.adapters.tmux.TmuxAdapter.pane_exists", return_value=False):
+        with _no_session_env(), patch("cortex.adapters.tmux.TmuxAdapter.pane_exists", return_value=False):
             code, output = _run_cli(["session", "close", "cli-test-1"])
         assert code == 0
         assert output["status"] == "completed"
@@ -399,6 +405,7 @@ class TestCLIClose:
 
     def test_close_force_skips_wrapup(self, _patch_cli_db, _seed_session_with_pane):
         with (
+            _no_session_env(),
             patch("cortex.adapters.tmux.TmuxAdapter.pane_exists", return_value=True),
             patch("cortex.adapters.tmux.TmuxAdapter.send_text") as send,
             patch("cortex.adapters.tmux.TmuxAdapter.destroy_pane", return_value=True) as kill,
@@ -411,6 +418,7 @@ class TestCLIClose:
 
     def test_close_lifecycle_with_pane(self, _patch_cli_db, _seed_session_with_pane):
         with (
+            _no_session_env(),
             patch("cortex.adapters.tmux.TmuxAdapter.pane_exists", return_value=True),
             patch("cortex.adapters.tmux.TmuxAdapter.send_text", return_value=True) as send,
             patch("cortex.adapters.tmux.TmuxAdapter.wait_for_idle", return_value=True) as wait,
@@ -427,6 +435,7 @@ class TestCLIClose:
         self, _patch_cli_db, _seed_session_with_pane
     ):
         with (
+            _no_session_env(),
             patch("cortex.adapters.tmux.TmuxAdapter.pane_exists", return_value=False),
             patch("cortex.adapters.tmux.TmuxAdapter.send_text") as send,
             patch("cortex.adapters.tmux.TmuxAdapter.destroy_pane") as kill,
@@ -441,6 +450,7 @@ class TestCLIClose:
         self, _patch_cli_db, _seed_session_with_pane
     ):
         with (
+            _no_session_env(),
             patch("cortex.adapters.tmux.TmuxAdapter.pane_exists", return_value=True),
             patch("cortex.adapters.tmux.TmuxAdapter.send_text", return_value=True),
             patch("cortex.adapters.tmux.TmuxAdapter.wait_for_idle", return_value=False),
@@ -699,3 +709,236 @@ class TestSessionStartHookClearLifecycle:
         assert "--id" in register_call
         id_idx = list(register_call).index("--id")
         assert register_call[id_idx + 1] == "ctx-orphan"
+
+
+# --- Sub-session spawning (parent_id, limits, close permissions) ---
+
+
+class TestParentId:
+    def test_register_with_parent_id(self, session_repo):
+        session_repo.register("parent-1", {"name": "control", "role": "control"})
+        session_repo.register("child-1", {"name": "worker-a", "parent_id": "parent-1"})
+        child = session_repo.get("child-1")
+        assert child["parent_id"] == "parent-1"
+
+    def test_register_without_parent_id(self, session_repo):
+        doc = session_repo.register("s1", {"name": "standalone"})
+        assert doc.get("parent_id") is None
+
+    def test_list_children_by_parent_id(self, session_repo):
+        session_repo.register("parent-1", {"name": "control"})
+        session_repo.register("child-1", {"name": "w-a", "parent_id": "parent-1"})
+        session_repo.register("child-2", {"name": "w-b", "parent_id": "parent-1"})
+        session_repo.register("other", {"name": "w-c", "parent_id": "other-parent"})
+        children = session_repo.list({"parent_id": "parent-1"})
+        assert len(children) == 2
+        assert {c["name"] for c in children} == {"w-a", "w-b"}
+
+
+class TestSpawnLimit:
+    def test_spawn_denied_at_limit(self, _patch_cli_db, cli_db):
+        from datetime import datetime, timezone
+        from cortex.services.session_service import MAX_ACTIVE_SESSIONS
+        repo = MongoSessionRepo(cli_db)
+        now = datetime.now(timezone.utc).isoformat()
+        for i in range(MAX_ACTIVE_SESSIONS):
+            repo.register(f"s{i}", {"name": f"session-{i}", "last_seen": now})
+        with patch("cortex.adapters.tmux.TmuxAdapter.pane_exists", return_value=False):
+            code, output = _run_cli([
+                "session", "spawn", "--name", "overflow",
+            ])
+        assert code == 1
+        assert "session limit" in output["error"].lower()
+
+    def test_spawn_ok_below_limit(self, _patch_cli_db, cli_db):
+        from datetime import datetime, timezone
+        repo = MongoSessionRepo(cli_db)
+        repo.register("s1", {"name": "existing", "last_seen": datetime.now(timezone.utc).isoformat()})
+        with (
+            patch("cortex.adapters.tmux.TmuxAdapter.create_pane", return_value="%99"),
+            patch("cortex.adapters.tmux.TmuxAdapter.send_keys"),
+            patch("cortex.adapters.tmux.TmuxAdapter.spawn_background_sender"),
+            patch("cortex.adapters.tmux.TmuxAdapter.pane_exists", return_value=True),
+            patch("time.sleep"),
+        ):
+            code, output = _run_cli(["session", "spawn", "--name", "new-worker"])
+        assert code == 0
+        assert output["name"] == "new-worker"
+
+    def test_spawn_ok_when_dead_sessions_dont_count(self, _patch_cli_db, cli_db):
+        from cortex.services.session_service import MAX_ACTIVE_SESSIONS
+        repo = MongoSessionRepo(cli_db)
+        for i in range(MAX_ACTIVE_SESSIONS):
+            repo.register(f"s{i}", {"name": f"session-{i}", "status": "completed"})
+        with (
+            patch("cortex.adapters.tmux.TmuxAdapter.create_pane", return_value="%99"),
+            patch("cortex.adapters.tmux.TmuxAdapter.send_keys"),
+            patch("cortex.adapters.tmux.TmuxAdapter.spawn_background_sender"),
+            patch("cortex.adapters.tmux.TmuxAdapter.pane_exists", return_value=True),
+            patch("time.sleep"),
+        ):
+            code, output = _run_cli(["session", "spawn", "--name", "fresh"])
+        assert code == 0
+
+
+class TestClosePermission:
+    def test_human_can_close_any(self, _patch_cli_db, _seed_session):
+        """No CORTEX_SESSION_ID means human — can close any session."""
+        with (
+            _no_session_env(),
+            patch("cortex.adapters.tmux.TmuxAdapter.pane_exists", return_value=False),
+        ):
+            code, output = _run_cli(["session", "close", "cli-test-1"])
+        assert code == 0
+        assert output["status"] == "completed"
+
+    def test_self_close_allowed(self, _patch_cli_db, cli_db):
+        repo = MongoSessionRepo(cli_db)
+        repo.register("self-1", {"name": "self-closer"})
+        with (
+            patch.dict(os.environ, {"CORTEX_SESSION_ID": "self-1"}),
+            patch("cortex.adapters.tmux.TmuxAdapter.pane_exists", return_value=False),
+        ):
+            code, output = _run_cli(["session", "close", "self-1"])
+        assert code == 0
+
+    def test_parent_can_close_child(self, _patch_cli_db, cli_db):
+        repo = MongoSessionRepo(cli_db)
+        repo.register("parent-1", {"name": "parent"})
+        repo.register("child-1", {"name": "child", "parent_id": "parent-1"})
+        with (
+            patch.dict(os.environ, {"CORTEX_SESSION_ID": "parent-1"}),
+            patch("cortex.adapters.tmux.TmuxAdapter.pane_exists", return_value=False),
+        ):
+            code, output = _run_cli(["session", "close", "child-1"])
+        assert code == 0
+        assert output["status"] == "completed"
+
+    def test_grandparent_can_close_grandchild(self, _patch_cli_db, cli_db):
+        repo = MongoSessionRepo(cli_db)
+        repo.register("gp", {"name": "grandparent"})
+        repo.register("p", {"name": "parent", "parent_id": "gp"})
+        repo.register("c", {"name": "child", "parent_id": "p"})
+        with (
+            patch.dict(os.environ, {"CORTEX_SESSION_ID": "gp"}),
+            patch("cortex.adapters.tmux.TmuxAdapter.pane_exists", return_value=False),
+        ):
+            code, output = _run_cli(["session", "close", "c"])
+        assert code == 0
+
+    def test_sibling_cannot_close(self, _patch_cli_db, cli_db):
+        repo = MongoSessionRepo(cli_db)
+        repo.register("parent-1", {"name": "parent"})
+        repo.register("sib-a", {"name": "sibling-a", "parent_id": "parent-1"})
+        repo.register("sib-b", {"name": "sibling-b", "parent_id": "parent-1"})
+        with (
+            patch.dict(os.environ, {"CORTEX_SESSION_ID": "sib-a"}),
+            patch("cortex.adapters.tmux.TmuxAdapter.pane_exists", return_value=False),
+        ):
+            code, output = _run_cli(["session", "close", "sib-b"])
+        assert code == 1
+        assert "not an ancestor" in output["error"].lower()
+
+    def test_child_cannot_close_parent(self, _patch_cli_db, cli_db):
+        repo = MongoSessionRepo(cli_db)
+        repo.register("parent-1", {"name": "parent"})
+        repo.register("child-1", {"name": "child", "parent_id": "parent-1"})
+        with (
+            patch.dict(os.environ, {"CORTEX_SESSION_ID": "child-1"}),
+            patch("cortex.adapters.tmux.TmuxAdapter.pane_exists", return_value=False),
+        ):
+            code, output = _run_cli(["session", "close", "parent-1"])
+        assert code == 1
+        assert "not an ancestor" in output["error"].lower()
+
+
+class TestCascadeClose:
+    def test_cascade_closes_children(self, _patch_cli_db, cli_db):
+        repo = MongoSessionRepo(cli_db)
+        repo.register("parent-1", {"name": "parent"})
+        repo.register("child-1", {"name": "child-a", "parent_id": "parent-1"})
+        repo.register("child-2", {"name": "child-b", "parent_id": "parent-1"})
+        with (
+            _no_session_env(),
+            patch("cortex.adapters.tmux.TmuxAdapter.pane_exists", return_value=False),
+        ):
+            code, output = _run_cli(["session", "close", "parent-1", "--cascade"])
+        assert code == 0
+        assert output["status"] == "completed"
+        assert repo.get("child-1")["status"] == "completed"
+        assert repo.get("child-2")["status"] == "completed"
+
+    def test_cascade_closes_grandchildren(self, _patch_cli_db, cli_db):
+        repo = MongoSessionRepo(cli_db)
+        repo.register("gp", {"name": "grandparent"})
+        repo.register("p", {"name": "parent", "parent_id": "gp"})
+        repo.register("c", {"name": "child", "parent_id": "p"})
+        with (
+            _no_session_env(),
+            patch("cortex.adapters.tmux.TmuxAdapter.pane_exists", return_value=False),
+        ):
+            code, output = _run_cli(["session", "close", "gp", "--cascade"])
+        assert code == 0
+        assert repo.get("p")["status"] == "completed"
+        assert repo.get("c")["status"] == "completed"
+
+    def test_cascade_skips_already_dead(self, _patch_cli_db, cli_db):
+        repo = MongoSessionRepo(cli_db)
+        repo.register("parent-1", {"name": "parent"})
+        repo.register("dead-child", {"name": "dead", "parent_id": "parent-1", "status": "completed"})
+        repo.register("live-child", {"name": "live", "parent_id": "parent-1"})
+        with (
+            _no_session_env(),
+            patch("cortex.adapters.tmux.TmuxAdapter.pane_exists", return_value=False),
+        ):
+            code, output = _run_cli(["session", "close", "parent-1", "--cascade"])
+        assert code == 0
+        assert repo.get("live-child")["status"] == "completed"
+
+
+class TestChildrenCommand:
+    def test_children_lists_active_only(self, _patch_cli_db, cli_db):
+        repo = MongoSessionRepo(cli_db)
+        repo.register("parent-1", {"name": "parent"})
+        repo.register("c1", {"name": "active-child", "parent_id": "parent-1"})
+        repo.register("c2", {"name": "dead-child", "parent_id": "parent-1", "status": "completed"})
+        code, output = _run_cli(["session", "children", "parent-1"])
+        assert code == 0
+        assert len(output) == 1
+        assert output[0]["name"] == "active-child"
+
+    def test_children_all_flag(self, _patch_cli_db, cli_db):
+        repo = MongoSessionRepo(cli_db)
+        repo.register("parent-1", {"name": "parent"})
+        repo.register("c1", {"name": "active-child", "parent_id": "parent-1"})
+        repo.register("c2", {"name": "dead-child", "parent_id": "parent-1", "status": "completed"})
+        code, output = _run_cli(["session", "children", "parent-1", "--all"])
+        assert code == 0
+        assert len(output) == 2
+
+
+class TestTreeCommand:
+    def test_tree_shows_hierarchy(self, _patch_cli_db, cli_db):
+        repo = MongoSessionRepo(cli_db)
+        repo.register("root", {"name": "control", "role": "control"})
+        repo.register("w1", {"name": "worker-1", "parent_id": "root"})
+        repo.register("w2", {"name": "worker-2", "parent_id": "root"})
+        repo.register("sw1", {"name": "sub-worker", "parent_id": "w1"})
+        code, output = _run_cli(["session", "tree", "root"])
+        assert code == 0
+        assert len(output) == 1
+        root_node = output[0]
+        assert root_node["name"] == "control"
+        assert len(root_node["children"]) == 2
+        w1_node = next(c for c in root_node["children"] if c["name"] == "worker-1")
+        assert len(w1_node["children"]) == 1
+        assert w1_node["children"][0]["name"] == "sub-worker"
+
+    def test_tree_all_roots(self, _patch_cli_db, cli_db):
+        repo = MongoSessionRepo(cli_db)
+        repo.register("r1", {"name": "root-1"})
+        repo.register("r2", {"name": "root-2"})
+        repo.register("c1", {"name": "child", "parent_id": "r1"})
+        code, output = _run_cli(["session", "tree"])
+        assert code == 0
+        assert len(output) == 2
