@@ -646,11 +646,20 @@ def _get_sender_theme(sender: str, color_map: dict[str, dict[str, str]]) -> dict
     return color_map[sender]
 
 
+def _lighten_hex(hex_color: str, amount: int = 20) -> str:
+    """Lighten a hex color by adding to each RGB channel."""
+    h = hex_color.lstrip("#")
+    r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+    r, g, b = min(r + amount, 255), min(g + amount, 255), min(b + amount, 255)
+    return f"#{r:02x}{g:02x}{b:02x}"
+
+
 def _render_message(console, msg, color_map: dict[str, dict[str, str]]) -> None:
     from rich.markdown import Markdown
     from rich.panel import Panel
     from rich.style import Style
     from rich.text import Text
+    from rich.theme import Theme
 
     theme = _get_sender_theme(msg.sender, color_map)
     color = theme["color"]
@@ -684,6 +693,12 @@ def _render_message(console, msg, color_map: dict[str, dict[str, str]]) -> None:
     except Exception:
         body = Text(content)
 
+    code_bg = _lighten_hex(bg, 20)
+    code_theme = Theme({
+        "markdown.code": f"bold bright_cyan on {code_bg}",
+        "markdown.code_block": f"cyan on {code_bg}",
+    })
+
     panel = Panel(
         body,
         title=header,
@@ -692,7 +707,9 @@ def _render_message(console, msg, color_map: dict[str, dict[str, str]]) -> None:
         style=Style(bgcolor=bg),
         padding=(0, 1),
     )
+    console.push_theme(code_theme)
     console.print(panel)
+    console.pop_theme()
 
 
 @session.command()
@@ -713,13 +730,8 @@ def watch(names: tuple[str, ...], history_limit: int, poll_interval: float, no_l
 
     from rich.console import Console
     from rich.rule import Rule
-    from rich.theme import Theme
 
-    watch_theme = Theme({
-        "markdown.code": "bold bright_cyan",
-        "markdown.code_block": "cyan",
-    })
-    console = Console(theme=watch_theme)
+    console = Console()
     repo = get_container().messages
     sessions = list(names) if names else None
 
@@ -748,7 +760,7 @@ def watch(names: tuple[str, ...], history_limit: int, poll_interval: float, no_l
 
     def _on_resize(signum, frame):
         nonlocal console
-        console = Console(theme=watch_theme)
+        console = Console()
 
     signal.signal(signal.SIGWINCH, _on_resize)
 
