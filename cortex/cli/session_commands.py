@@ -656,7 +656,12 @@ def _render_message(console, msg, color_map: dict[str, dict[str, str]]) -> None:
     color = theme["color"]
     bg = theme["bg"]
 
-    ts = msg.created_at[11:19] if len(msg.created_at) >= 19 else msg.created_at
+    from datetime import datetime, timezone
+    try:
+        utc_dt = datetime.fromisoformat(msg.created_at).replace(tzinfo=timezone.utc)
+        ts = utc_dt.astimezone().strftime("%H:%M:%S")
+    except (ValueError, TypeError):
+        ts = msg.created_at[11:19] if len(msg.created_at) >= 19 else msg.created_at
     meta = msg.meta or {}
     msg_type = meta.get("type", "")
     priority = meta.get("priority", "")
