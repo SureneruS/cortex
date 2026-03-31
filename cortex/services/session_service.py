@@ -246,15 +246,12 @@ class SessionService:
         if caller_id == target_id:
             return
 
-        caller_name = os.environ.get("CORTEX_SESSION_NAME")
         current = self._sessions.get(target_id)
         while current:
             pid = current.get("parent_id")
             if pid == caller_id:
                 return
             if not pid:
-                if caller_name and current.get("spawned_by") == caller_name:
-                    return
                 break
             current = self._sessions.get(pid)
 

@@ -890,31 +890,6 @@ class TestClosePermission:
         assert code == 1
         assert "not an ancestor" in output["error"].lower()
 
-    def test_spawned_by_fallback_allows_close(self, _patch_cli_db, cli_db):
-        """Pre-parent_id sessions (parent_id=None) can be closed via spawned_by."""
-        repo = MongoSessionRepo(cli_db)
-        repo.register("parent-1", {"name": "control", "status": "active"})
-        repo.register("child-1", {"name": "worker", "spawned_by": "control", "status": "active"})
-        with (
-            patch.dict(os.environ, {"CORTEX_SESSION_ID": "parent-1", "CORTEX_SESSION_NAME": "control"}),
-            patch("cortex.adapters.tmux.TmuxAdapter.pane_exists", return_value=False),
-        ):
-            code, output = _run_cli(["session", "close", "worker"])
-        assert code == 0
-
-    def test_spawned_by_fallback_rejects_non_spawner(self, _patch_cli_db, cli_db):
-        """spawned_by fallback rejects if caller name doesn't match."""
-        repo = MongoSessionRepo(cli_db)
-        repo.register("other-1", {"name": "other-session", "status": "active"})
-        repo.register("child-1", {"name": "worker", "spawned_by": "control", "status": "active"})
-        with (
-            patch.dict(os.environ, {"CORTEX_SESSION_ID": "other-1", "CORTEX_SESSION_NAME": "other-session"}),
-            patch("cortex.adapters.tmux.TmuxAdapter.pane_exists", return_value=False),
-        ):
-            code, output = _run_cli(["session", "close", "worker"])
-        assert code == 1
-        assert "not an ancestor" in output["error"].lower()
-
 
 class TestCascadeClose:
     def test_cascade_closes_children(self, _patch_cli_db, cli_db):
