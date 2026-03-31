@@ -747,13 +747,15 @@ class SessionService:
 
     def _sweep_stale(self) -> int:
         stale_cutoff = (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat()
-        threshold = datetime.now(timezone.utc).isoformat()
+        # Grace period: don't sweep sessions that were just created and haven't
+        # had their first heartbeat yet (channels MCP needs time to start).
+        boot_grace = (datetime.now(timezone.utc) - timedelta(minutes=2)).isoformat()
 
         stale = self._sessions.list({
             "status": {"$nin": ["completed", "dead"]},
             "$or": [
-                {"last_seen": None},
-                {"last_seen": {"$exists": False}},
+                {"last_seen": None, "created_at": {"$lt": boot_grace}},
+                {"last_seen": {"$exists": False}, "created_at": {"$lt": boot_grace}},
                 {"last_seen": {"$lt": stale_cutoff}},
             ],
         })

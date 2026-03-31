@@ -34,7 +34,7 @@ def _minutes_ago(n: int) -> str:
 
 class TestSweepStaleSessions:
     def test_sweep_marks_null_last_seen_session_dead(self, session_repo: MongoSessionRepo):
-        """Sessions with null last_seen = crashed before first heartbeat → dead."""
+        """Sessions with null last_seen created >2min ago = crashed before first heartbeat → dead."""
         session_repo.register(
             "null-hb",
             {
@@ -45,6 +45,10 @@ class TestSweepStaleSessions:
                 "last_seen": None,
             },
         )
+        # Backdate created_at past the 2-minute grace period
+        session_repo._col.update_one(
+            {"_id": "null-hb"}, {"$set": {"created_at": _minutes_ago(3)}}
+        )
 
         count = _sweep_stale_sessions(session_repo)
 
@@ -53,7 +57,7 @@ class TestSweepStaleSessions:
         assert doc["status"] == "dead"
 
     def test_sweep_marks_missing_last_seen_session_dead(self, session_repo: MongoSessionRepo):
-        """Sessions without last_seen field at all are treated same as null."""
+        """Sessions without last_seen field at all are treated same as null (if past grace period)."""
         session_repo._col.insert_one(
             {
                 "_id": "no-field",
@@ -61,7 +65,7 @@ class TestSweepStaleSessions:
                 "team": "default",
                 "task": "task",
                 "status": "active",
-                "created_at": _utc_now(),
+                "created_at": _minutes_ago(3),
                 "events": [],
                 "runtime": "unknown",
             }
@@ -72,6 +76,25 @@ class TestSweepStaleSessions:
         assert count >= 1
         doc = session_repo.get("no-field")
         assert doc["status"] == "dead"
+
+    def test_sweep_does_not_touch_recently_created_session(self, session_repo: MongoSessionRepo):
+        """Sessions with null last_seen but created <2min ago are still booting — not swept."""
+        session_repo.register(
+            "fresh-boot",
+            {
+                "name": "just-spawned",
+                "team": "default",
+                "task": "task",
+                "status": "active",
+                "last_seen": None,
+            },
+        )
+
+        count = _sweep_stale_sessions(session_repo)
+
+        assert count == 0
+        doc = session_repo.get("fresh-boot")
+        assert doc["status"] == "active"
 
     def test_sweep_expires_pending_messages(
         self, session_repo: MongoSessionRepo, mongo_db: Database
@@ -86,6 +109,9 @@ class TestSweepStaleSessions:
                 "status": "active",
                 "last_seen": None,
             },
+        )
+        session_repo._col.update_one(
+            {"_id": "stale-msg"}, {"$set": {"created_at": _minutes_ago(3)}}
         )
         mongo_db["messages"].insert_many(
             [
@@ -180,6 +206,9 @@ class TestSweepStaleSessions:
                 "last_seen": None,
             },
         )
+        session_repo._col.update_one(
+            {"_id": "reg-1"}, {"$set": {"created_at": _minutes_ago(3)}}
+        )
 
         count = _sweep_stale_sessions(session_repo)
 
@@ -199,6 +228,9 @@ class TestSweepStaleSessions:
                     "last_seen": None,
                 },
             )
+            session_repo._col.update_one(
+                {"_id": f"stale-{i}"}, {"$set": {"created_at": _minutes_ago(3)}}
+            )
 
         count = _sweep_stale_sessions(session_repo)
 
@@ -214,6 +246,9 @@ class TestSweepStaleSessions:
                 "status": "active",
                 "last_seen": None,
             },
+        )
+        session_repo._col.update_one(
+            {"_id": "stale-evt"}, {"$set": {"created_at": _minutes_ago(3)}}
         )
 
         _sweep_stale_sessions(session_repo)
@@ -237,6 +272,9 @@ class TestSpawnTriggersSweep:
                 "status": "active",
                 "last_seen": None,
             },
+        )
+        session_repo._col.update_one(
+            {"_id": "pre-stale"}, {"$set": {"created_at": _minutes_ago(3)}}
         )
 
         runner = CliRunner()

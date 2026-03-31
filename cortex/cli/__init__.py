@@ -43,12 +43,13 @@ def _sweep_stale_sessions(repo) -> int:
     messages_col = db["messages"]
     threshold = datetime.now(timezone.utc).isoformat()
     stale_cutoff = (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat()
+    boot_grace = (datetime.now(timezone.utc) - timedelta(minutes=2)).isoformat()
 
     stale = list(repo._col.find({
         "status": {"$nin": ["completed", "dead"]},
         "$or": [
-            {"last_seen": None},
-            {"last_seen": {"$exists": False}},
+            {"last_seen": None, "created_at": {"$lt": boot_grace}},
+            {"last_seen": {"$exists": False}, "created_at": {"$lt": boot_grace}},
             {"last_seen": {"$lt": stale_cutoff}},
         ],
     }))
