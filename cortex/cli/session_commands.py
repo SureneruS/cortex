@@ -606,21 +606,55 @@ def paint(ref: str | None, color: str | None) -> None:
 # ── Watch ───────────────────────────────────────────────────
 
 
-SENDER_COLORS = [
-    "cyan", "green", "yellow", "magenta", "blue", "red",
-    "bright_cyan", "bright_green", "bright_yellow", "bright_magenta",
+SESSION_COLOR_MAP = {
+    "blue":    {"color": "#58a6ff", "bg": "#0d1a2d"},
+    "green":   {"color": "#3fb950", "bg": "#0a1a0d"},
+    "yellow":  {"color": "#d29922", "bg": "#1a1506"},
+    "purple":  {"color": "#bc8cff", "bg": "#170d2e"},
+    "orange":  {"color": "#d29922", "bg": "#1a1506"},
+    "pink":    {"color": "#f778ba", "bg": "#1f0d18"},
+    "cyan":    {"color": "#58a6ff", "bg": "#0d1a2d"},
+    "red":     {"color": "#f85149", "bg": "#1f0a0a"},
+}
+
+FALLBACK_THEMES = [
+    {"color": "#58a6ff", "bg": "#0d1a2d"},  # blue
+    {"color": "#d29922", "bg": "#1a1506"},  # orange
+    {"color": "#bc8cff", "bg": "#170d2e"},  # purple
+    {"color": "#f85149", "bg": "#1f0a0a"},  # red
+    {"color": "#3fb950", "bg": "#0a1a0d"},  # green
 ]
 
 
-def _render_message(console, msg, color_map: dict[str, str]) -> None:
+def _build_session_color_map() -> dict[str, dict[str, str]]:
+    """Pre-populate color_map from active sessions in the registry."""
+    repo = _repo()
+    sessions = repo.list({"status": {"$nin": ["completed", "dead"]}}, brief=True)
+    result: dict[str, dict[str, str]] = {}
+    for doc in sessions:
+        name = doc.get("name")
+        cc_color = doc.get("color")
+        if name and cc_color and cc_color in SESSION_COLOR_MAP:
+            result[name] = SESSION_COLOR_MAP[cc_color]
+    return result
+
+
+def _get_sender_theme(sender: str, color_map: dict[str, dict[str, str]]) -> dict[str, str]:
+    if sender not in color_map:
+        used = len(color_map)
+        color_map[sender] = FALLBACK_THEMES[used % len(FALLBACK_THEMES)]
+    return color_map[sender]
+
+
+def _render_message(console, msg, color_map: dict[str, dict[str, str]]) -> None:
     from rich.markdown import Markdown
     from rich.panel import Panel
+    from rich.style import Style
     from rich.text import Text
 
-    sender = msg.sender
-    if sender not in color_map:
-        color_map[sender] = SENDER_COLORS[len(color_map) % len(SENDER_COLORS)]
-    color = color_map[sender]
+    theme = _get_sender_theme(msg.sender, color_map)
+    color = theme["color"]
+    bg = theme["bg"]
 
     ts = msg.created_at[11:19] if len(msg.created_at) >= 19 else msg.created_at
     meta = msg.meta or {}
@@ -635,7 +669,7 @@ def _render_message(console, msg, color_map: dict[str, str]) -> None:
     badge = f" ({', '.join(badge_parts)})" if badge_parts else ""
 
     header = Text.from_markup(
-        f"[bold {color}]{sender}[/] [dim]→[/] [bold]{msg.recipient}[/]"
+        f"[bold {color}]{msg.sender}[/] [dim]→[/] [bold]{msg.recipient}[/]"
         f"  [dim]{ts}[/]{badge}"
     )
 
@@ -649,7 +683,8 @@ def _render_message(console, msg, color_map: dict[str, str]) -> None:
         body,
         title=header,
         title_align="left",
-        border_style=color,
+        border_style=Style(color=color),
+        style=Style(bgcolor=bg),
         padding=(0, 1),
     )
     console.print(panel)
@@ -669,6 +704,8 @@ def watch(names: tuple[str, ...], history_limit: int, poll_interval: float, no_l
       cortex session watch name1          # All messages to/from one session
       cortex session watch                # All inter-session messages
     """
+    import signal
+
     from rich.console import Console
     from rich.rule import Rule
 
@@ -682,7 +719,7 @@ def watch(names: tuple[str, ...], history_limit: int, poll_interval: float, no_l
     label = " & ".join(names) if names else "all sessions"
     console.print(Rule(f"[bold]Watching: {label}[/]"))
 
-    color_map: dict[str, str] = {}
+    color_map = _build_session_color_map()
     msgs = repo.watch_messages(sessions=sessions, limit=history_limit)
 
     if not msgs:
@@ -697,6 +734,12 @@ def watch(names: tuple[str, ...], history_limit: int, poll_interval: float, no_l
     last_ts = msgs[-1].created_at if msgs else None
     console.print(Rule("[dim]live[/]"))
 
+    def _on_resize(signum, frame):
+        nonlocal console
+        console = Console()
+
+    signal.signal(signal.SIGWINCH, _on_resize)
+
     try:
         while True:
             time.sleep(poll_interval)
@@ -706,3 +749,5 @@ def watch(names: tuple[str, ...], history_limit: int, poll_interval: float, no_l
                 last_ts = m.created_at
     except KeyboardInterrupt:
         console.print(Rule("[dim]stopped[/]"))
+    finally:
+        signal.signal(signal.SIGWINCH, signal.SIG_DFL)
