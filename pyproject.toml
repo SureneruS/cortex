@@ -8,6 +8,7 @@ dependencies = [
     "click",
     "textual",
     "sentence-transformers",
+    "onnxruntime",
     "sqlite-vec",
     "fastapi",
     "uvicorn[standard]",
