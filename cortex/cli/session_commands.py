@@ -7,7 +7,7 @@ from pathlib import Path
 import click
 
 from cortex.cli import _cli_log, _error_exit, _json_out, get_container
-from cortex.services.session_service import SessionNotFound
+from cortex.services.session_service import ClosePermissionDenied, SessionNotFound, SpawnDenied
 
 
 @click.group()
@@ -109,7 +109,7 @@ def spawn(
             color=color,
             custom_command=custom_command,
         )
-    except ValueError as e:
+    except (ValueError, SpawnDenied) as e:
         _error_exit(str(e))
 
     _json_out(result)
@@ -159,6 +159,29 @@ def get(session_id: str) -> None:
     """Get a session by ID, name, or ID prefix."""
     doc = _resolve_or_exit(session_id)
     _json_out(doc)
+
+
+@session.command()
+@click.argument("ref")
+@click.option("--all", "include_dead", is_flag=True, help="Include completed/dead children")
+def children(ref: str, include_dead: bool) -> None:
+    """List direct child sessions spawned by a session."""
+    try:
+        result = _svc().children(ref, include_dead=include_dead)
+    except (SessionNotFound, ValueError) as e:
+        _error_exit(str(e))
+    _json_out(result)
+
+
+@session.command()
+@click.argument("ref", required=False)
+def tree(ref: str | None) -> None:
+    """Show session hierarchy as a tree."""
+    try:
+        result = _svc().tree(ref)
+    except (SessionNotFound, ValueError) as e:
+        _error_exit(str(e))
+    _json_out(result)
 
 
 @session.command()
@@ -280,13 +303,14 @@ def capture(session_id: str, lines: int) -> None:
 @session.command()
 @click.argument("session_id")
 @click.option("--force", is_flag=True, help="Skip wrapup and close immediately")
-def close(session_id: str, force: bool) -> None:
+@click.option("--cascade", is_flag=True, help="Also close all descendant sessions")
+def close(session_id: str, force: bool, cascade: bool) -> None:
     """Close a session with channels-first wrapup."""
     log = _cli_log()
-    log.info("CLI session close called", session_id=session_id, force=force)
+    log.info("CLI session close called", session_id=session_id, force=force, cascade=cascade)
     try:
-        doc = _svc().close(session_id, force=force)
-    except (SessionNotFound, ValueError) as e:
+        doc = _svc().close(session_id, force=force, cascade=cascade)
+    except (SessionNotFound, ValueError, ClosePermissionDenied) as e:
         _error_exit(str(e))
     _json_out(doc)
 

@@ -12,7 +12,15 @@ Sessions are Claude Code instances running in tmux panes, managed by Cortex.
 ### Role Enforcement
 Check `CORTEX_SESSION_ROLE` environment variable:
 - **`control` or unset** — can spawn, list, manage sessions
-- **`worker`** — can list/get and update own status, CANNOT spawn
+- **`worker`** — can spawn sub-workers, list/get, update own status. Global limit: 15 active sessions.
+
+### Session Hierarchy
+- Any session can spawn sub-workers via `cortex session spawn`
+- Spawned sessions track their parent via `parent_id` and `CORTEX_PARENT_ID` env var
+- Only an ancestor or self can close a session (enforced in code)
+- Use `cortex session close <ref> --cascade` to close a session and all its descendants
+- `cortex session children <ref>` — list direct children
+- `cortex session tree` — show full hierarchy
 
 ## Logging Discipline
 

@@ -191,9 +191,14 @@ Message priority:
 - Messages from other workers are PEER coordination — incorporate if relevant to your task, otherwise acknowledge and continue.
 
 Reporting:
-- Report progress, blockers, and completion to the control session via send_message.
+- If you have a parent session (CORTEX_PARENT_NAME is set), report to your parent via send_message.
+- Otherwise, report progress, blockers, and completion to the control session via send_message.
 - For urgent issues needing human attention, use send_message(to="human") — delivered via Slack.
-- Do NOT spawn new sessions yourself — ask the control session to spawn workers for subtasks.
+
+Sub-workers:
+- You can spawn sub-workers with \`cortex session spawn --name <name> --repo <repo> --prompt "..."\`
+- Global limit: 15 active sessions. Use sub-workers for parallelizable subtasks.
+- You are responsible for closing your sub-workers when done: \`cortex session close <name> --cascade\`
 
 When you receive a message while working:
 - Control message: pause current work, handle it, then resume
@@ -211,7 +216,7 @@ Your only actions:
 - Spawn workers: cortex session spawn --name <name> --repo <repo> --prompt "..."
 - Send instructions: send_message(to="worker-name", content="...")
 - Monitor: get_status, cortex session health, cortex session list --brief
-- Close sessions: cortex session close <name>
+- Close sessions: cortex session close <name> (--cascade to include children)
 - Log to streams: cortex stream log/decide
 
 Message handling:

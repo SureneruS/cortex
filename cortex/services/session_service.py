@@ -15,10 +15,21 @@ log = structlog.get_logger("cortex.session_service")
 CC_COLORS = ["blue", "green", "yellow", "purple", "orange", "pink", "cyan", "red"]
 
 
+MAX_ACTIVE_SESSIONS = 15
+
+
 class SessionNotFound(Exception):
     def __init__(self, ref: str) -> None:
         self.ref = ref
         super().__init__(f"Session not found: {ref}")
+
+
+class SpawnDenied(Exception):
+    pass
+
+
+class ClosePermissionDenied(Exception):
+    pass
 
 
 class SessionService:
@@ -69,12 +80,22 @@ class SessionService:
         if swept:
             log.info("Swept stale sessions", count=swept)
 
+        self._check_spawn_limit()
+
         name = self._unique_name(name)
         session_id = _new_id()
         spawned_by = os.environ.get("CORTEX_SESSION_NAME", "human")
+        parent_id = os.environ.get("CORTEX_SESSION_ID")
 
         if not color:
             color = self._pick_color()
+
+        # Resolve parent info for tracking
+        parent_name: str | None = None
+        if parent_id:
+            parent_doc = self._sessions.get(parent_id)
+            if parent_doc:
+                parent_name = parent_doc.get("name")
 
         data = {
             "name": name,
@@ -83,6 +104,7 @@ class SessionService:
             "role": "worker",
             "runtime": "unknown",
             "color": color,
+            "parent_id": parent_id,
         }
         if goal:
             data["goal"] = goal
@@ -97,7 +119,7 @@ class SessionService:
         self._sessions.register(session_id, data)
         log.info("Session registered", session_id=session_id, name=name)
 
-        prompt_file = self._write_system_prompt(session_id, name)
+        prompt_file = self._write_system_prompt(session_id, name, parent_name=parent_name)
         fish_cmd = self._build_fish_cmd(
             session_id=session_id,
             name=name,
@@ -110,6 +132,8 @@ class SessionService:
             worktree=worktree,
             prompt_file=prompt_file,
             custom_command=custom_command,
+            parent_id=parent_id,
+            parent_name=parent_name,
         )
 
         # Resolve spatial targets
@@ -154,8 +178,18 @@ class SessionService:
 
     # ── Close ────────────────────────────────────────────────
 
-    def close(self, ref: str, *, force: bool = False) -> dict:
+    def close(self, ref: str, *, force: bool = False, cascade: bool = False) -> dict:
         doc = self.resolve(ref)
+        session_id = doc["_id"]
+
+        self._check_close_permission(session_id)
+
+        if cascade:
+            self._close_descendants(session_id, force=force)
+
+        return self._close_single(doc, force=force)
+
+    def _close_single(self, doc: dict, *, force: bool = False) -> dict:
         session_id = doc["_id"]
         session_name = doc.get("name", session_id)
         pane_id = doc.get("pane_id")
@@ -189,6 +223,37 @@ class SessionService:
 
         log.info("Session closed", session_id=session_id, wrapup=wrapup_ok)
         return doc
+
+    def _close_descendants(self, session_id: str, *, force: bool = False) -> list[dict]:
+        children = self._sessions.list({
+            "parent_id": session_id,
+            "status": {"$nin": ["completed", "dead"]},
+        })
+        closed = []
+        for child in children:
+            closed.extend(self._close_descendants(child["_id"], force=force))
+            closed.append(self._close_single(child, force=force))
+        return closed
+
+    def _check_close_permission(self, target_id: str) -> None:
+        caller_id = os.environ.get("CORTEX_SESSION_ID")
+        if not caller_id:
+            return
+        if caller_id == target_id:
+            return
+
+        current = self._sessions.get(target_id)
+        while current:
+            pid = current.get("parent_id")
+            if pid == caller_id:
+                return
+            if not pid:
+                break
+            current = self._sessions.get(pid)
+
+        raise ClosePermissionDenied(
+            f"Session '{caller_id}' cannot close '{target_id}' — not an ancestor or self"
+        )
 
     # ── Pause ────────────────────────────────────────────────
 
@@ -443,7 +508,51 @@ class SessionService:
         msg = self._messages.create(sender, recipient, content, meta=meta)
         return {"success": True, "msg_id": msg.id, "to": recipient}
 
+    # ── Children / Tree ────────────────────────────────────────
+
+    def children(self, ref: str, *, include_dead: bool = False) -> list[dict]:
+        doc = self.resolve(ref)
+        filters: dict = {"parent_id": doc["_id"]}
+        if not include_dead:
+            filters["status"] = {"$nin": ["completed", "dead"]}
+        return self._sessions.list(filters)
+
+    def tree(self, ref: str | None = None) -> list[dict]:
+        if ref:
+            root = self.resolve(ref)
+            return [self._build_tree_node(root)]
+
+        roots = self._sessions.list({
+            "status": {"$nin": ["completed", "dead"]},
+            "$or": [
+                {"parent_id": None},
+                {"parent_id": {"$exists": False}},
+            ],
+        })
+        return [self._build_tree_node(r) for r in roots]
+
+    def _build_tree_node(self, doc: dict) -> dict:
+        children = self._sessions.list({
+            "parent_id": doc["_id"],
+            "status": {"$nin": ["completed", "dead"]},
+        })
+        node = {
+            "session_id": doc["_id"],
+            "name": doc.get("name"),
+            "status": doc.get("status"),
+            "role": doc.get("role"),
+            "children": [self._build_tree_node(c) for c in children],
+        }
+        return node
+
     # ── Internal helpers ─────────────────────────────────────
+
+    def _check_spawn_limit(self) -> None:
+        active = self._sessions.list({"status": {"$nin": ["completed", "dead"]}})
+        if len(active) >= MAX_ACTIVE_SESSIONS:
+            raise SpawnDenied(
+                f"Global session limit reached ({MAX_ACTIVE_SESSIONS} active sessions)"
+            )
 
     def _pick_color(self) -> str:
         active = self._sessions.list({"status": {"$nin": ["completed", "dead"]}})
@@ -466,19 +575,31 @@ class SessionService:
                 return candidate
             suffix += 1
 
-    def _write_system_prompt(self, session_id: str, name: str) -> Path:
+    def _write_system_prompt(
+        self, session_id: str, name: str, *, parent_name: str | None = None,
+    ) -> Path:
         prompt_dir = Path.home() / ".cortex" / "session-prompts"
         prompt_dir.mkdir(parents=True, exist_ok=True)
         prompt_file = prompt_dir / f"{session_id}.txt"
 
-        system_prompt = (
-            f"You are a Cortex worker session (name: {name}, id: {session_id}).\n\n"
-            f"Your role: execute the task you're given. Focus, ship, report back.\n"
-            f"A control session coordinates all workers — follow its instructions.\n"
-            f"Report progress and blockers to the control session via messages.\n"
-            f"When done or asked to wrap up, run /session-wrapup and /exit.\n"
-            f"Use /cortex-cli skill for the full command reference."
-        )
+        if parent_name:
+            system_prompt = (
+                f"You are a Cortex worker session (name: {name}, id: {session_id}).\n\n"
+                f"You were spawned by '{parent_name}'. Report progress and results back to '{parent_name}'.\n"
+                f"You can spawn your own sub-workers with `cortex session spawn` if needed.\n"
+                f"When done or asked to wrap up, run /session-wrapup and /exit.\n"
+                f"Use /cortex-cli skill for the full command reference."
+            )
+        else:
+            system_prompt = (
+                f"You are a Cortex worker session (name: {name}, id: {session_id}).\n\n"
+                f"Your role: execute the task you're given. Focus, ship, report back.\n"
+                f"A control session coordinates all workers — follow its instructions.\n"
+                f"You can spawn sub-workers with `cortex session spawn` if needed.\n"
+                f"Report progress and blockers to the control session via messages.\n"
+                f"When done or asked to wrap up, run /session-wrapup and /exit.\n"
+                f"Use /cortex-cli skill for the full command reference."
+            )
         prompt_file.write_text(system_prompt)
         return prompt_file
 
@@ -496,6 +617,8 @@ class SessionService:
         worktree: str | None,
         prompt_file: Path,
         custom_command: str | None,
+        parent_id: str | None = None,
+        parent_name: str | None = None,
     ) -> str:
         from cortex.mongo import MONGO_URI, MONGO_DB
 
@@ -508,6 +631,10 @@ class SessionService:
             f"set -x CORTEX_SESSION_NAME {name}; "
             f"set -x CORTEX_MONGODB_URI {mongodb_uri}; "
         )
+        if parent_id:
+            env_setup += f"set -x CORTEX_PARENT_ID {parent_id}; "
+        if parent_name:
+            env_setup += f"set -x CORTEX_PARENT_NAME {parent_name}; "
 
         if custom_command:
             return f"{env_setup}{custom_command}"
