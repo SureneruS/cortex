@@ -692,7 +692,7 @@ def _render_message(console, msg, color_map: dict[str, dict[str, str]]) -> None:
 
 @session.command()
 @click.argument("names", nargs=-1)
-@click.option("--limit", "history_limit", default=50, help="Initial history messages")
+@click.option("--limit", "history_limit", default=50, help="Max initial messages (within last 24h)")
 @click.option("--poll", "poll_interval", default=2.0, type=float, help="Poll interval in seconds")
 @click.option("--no-live", is_flag=True, default=False, help="Show history and exit")
 def watch(names: tuple[str, ...], history_limit: int, poll_interval: float, no_live: bool) -> None:
@@ -720,7 +720,9 @@ def watch(names: tuple[str, ...], history_limit: int, poll_interval: float, no_l
     console.print(Rule(f"[bold]Watching: {label}[/]"))
 
     color_map = _build_session_color_map()
-    msgs = repo.watch_messages(sessions=sessions, limit=history_limit)
+    from datetime import datetime, timedelta, timezone
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
+    msgs = repo.watch_messages(sessions=sessions, after=cutoff, limit=history_limit)
 
     if not msgs:
         console.print("[dim]No message history.[/]")
