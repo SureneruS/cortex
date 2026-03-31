@@ -25,6 +25,7 @@ def _make_event(
     to_val: str,
     trigger: str,
     reason: str | None = None,
+    actor: str | None = None,
 ) -> dict:
     event = {
         "field": field,
@@ -35,6 +36,8 @@ def _make_event(
     }
     if reason:
         event["reason"] = reason
+    if actor:
+        event["actor"] = actor
     return event
 
 
@@ -49,7 +52,7 @@ class MongoSessionRepository:
         doc = {"_id": session_id, "created_at": now, "status": "active", **data}
         doc.setdefault("runtime", "unknown")
         doc["events"] = [
-            _make_event("status", None, doc["status"], "spawn"),
+            _make_event("status", None, doc["status"], "spawn", actor=doc.get("spawned_by")),
         ]
         if doc.get("cc_session_id"):
             doc.setdefault("cc_sessions", [
@@ -61,7 +64,7 @@ class MongoSessionRepository:
     def get(self, session_id: str) -> dict | None:
         return self._col.find_one({"_id": session_id})
 
-    def update(self, session_id: str, data: dict, *, trigger: str = "update") -> dict | None:
+    def update(self, session_id: str, data: dict, *, trigger: str = "update", actor: str | None = None) -> dict | None:
         current = self.get(session_id)
         if current is None:
             return None
@@ -73,7 +76,7 @@ class MongoSessionRepository:
                     raise ValueError(
                         f"Invalid {field}: {data[field]!r}. Must be one of {sorted(valid_set)}"
                     )
-                events.append(_make_event(field, current.get(field), data[field], trigger))
+                events.append(_make_event(field, current.get(field), data[field], trigger, actor=actor))
 
         ops: dict = {"$set": data}
         if events:
@@ -108,9 +111,9 @@ class MongoSessionRepository:
         return self.get(session_id)
 
     def update_runtime(
-        self, session_id: str, runtime: str, trigger: str = "health-check"
+        self, session_id: str, runtime: str, trigger: str = "health-check", actor: str | None = None
     ) -> dict | None:
-        return self.update(session_id, {"runtime": runtime}, trigger=trigger)
+        return self.update(session_id, {"runtime": runtime}, trigger=trigger, actor=actor)
 
     def list(
         self,
@@ -194,11 +197,12 @@ class MongoSessionRepository:
                 "at": "$events.at",
                 "trigger": "$events.trigger",
                 "reason": "$events.reason",
+                "actor": "$events.actor",
             }},
         ])
         return list(self._col.aggregate(pipeline))
 
-    def close(self, session_id: str, trigger: str = "close") -> dict | None:
+    def close(self, session_id: str, trigger: str = "close", actor: str | None = None) -> dict | None:
         return self.update(
-            session_id, {"status": "completed", "closed_at": _now()}, trigger=trigger
+            session_id, {"status": "completed", "closed_at": _now()}, trigger=trigger, actor=actor
         )

@@ -48,7 +48,7 @@ def execute_check_watches(job: dict) -> None:
                         ],
                         capture_output=True,
                     )
-                    session_repo.update(session["_id"], {"status": "active"}, trigger="cron")
+                    session_repo.update(session["_id"], {"status": "active"}, trigger="cron", actor="daemon")
             continue
 
         repo = watch.get("repo")
@@ -98,7 +98,7 @@ def execute_check_watches(job: dict) -> None:
         if not changes:
             log.info("Minor state diff for %s#%s, updating baseline", repo, number)
             session_repo.update(
-                session["_id"], {"watch": {**watch, "last_state": current_state}}, trigger="cron"
+                session["_id"], {"watch": {**watch, "last_state": current_state}}, trigger="cron", actor="daemon"
             )
             continue
 
@@ -146,6 +146,7 @@ Output ONLY the message text, nothing else."""
                 "watch": {**watch, "last_state": current_state},
             },
             trigger="cron",
+            actor="daemon",
         )
 
 

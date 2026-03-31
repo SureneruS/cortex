@@ -55,7 +55,7 @@ def _sweep_stale_sessions(repo) -> int:
 
     count = 0
     for s in stale:
-        repo.update(s["_id"], {"status": "dead"}, trigger="stale-sweep")
+        repo.update(s["_id"], {"status": "dead"}, trigger="stale-sweep", actor="system")
         messages_col.update_many(
             {"to": s["name"], "status": "pending"},
             {"$set": {"status": "expired", "delivered_at": threshold}},
