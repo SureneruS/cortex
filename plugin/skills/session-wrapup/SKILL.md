@@ -71,3 +71,12 @@ Then report what was cleaned up. Flag anything still pending:
 - Open PRs awaiting review
 - Uncommitted work
 - Active Cortex streams continuing to next session
+
+### 8. Close (worker sessions only)
+
+Check `CORTEX_SESSION_ROLE` environment variable.
+
+**If worker session** (`CORTEX_SESSION_ROLE=worker`):
+Run `cortex session close $CORTEX_SESSION_NAME --force` — this updates the registry AND kills the pane in one step.
+
+**If control or interactive session**: Do NOT auto-close. The user will exit manually when ready.
