@@ -73,23 +73,6 @@ def _cortex_cli(*args: str) -> str | None:
         return None
 
 
-def _write_interactive_message(session_name: str, prompt: str) -> None:
-    """Write user's interactive input to the message bus (fire-and-forget)."""
-    try:
-        content = prompt[:500]
-        meta = json.dumps({"source": "interactive", "type": "interactive", "sender_type": "human", "priority": "normal"})
-        subprocess.Popen(
-            [
-                "cortex", "session", "message", session_name, content,
-                "--meta", meta,
-            ],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-    except Exception:
-        pass
-
-
 def _tokenize(text: str) -> set[str]:
     words = set()
     for word in text.lower().split():
@@ -134,17 +117,12 @@ def handle_user_prompt(
 
     # Update Cortex registry with last_active_at
     cortex_session_id = os.environ.get("CORTEX_SESSION_ID")
-    cortex_session_name = os.environ.get("CORTEX_SESSION_NAME")
     if cortex_session_id:
         _cortex_cli(
             "session", "update", cortex_session_id,
             "--data", json.dumps({"runtime": "working"}),
             "--trigger", "user_prompt",
         )
-
-    # Fire-and-forget: write interactive input to message bus for watch visibility
-    if cortex_session_name and prompt_content:
-        _write_interactive_message(cortex_session_name, prompt_content)
 
     if not state_file.exists():
         return {}

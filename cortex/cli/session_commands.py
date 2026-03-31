@@ -690,38 +690,12 @@ def _lighten_hex(hex_color: str, amount: int = 20) -> str:
     return f"#{r:02x}{g:02x}{b:02x}"
 
 
-def _is_interactive_message(msg) -> bool:
-    meta = msg.meta or {}
-    return meta.get("source") == "interactive" or meta.get("type") == "interactive"
-
-
-def _render_interactive(console, msg, color_map: dict[str, dict[str, str]]) -> None:
-    """Render interactive (user-typed) input as a compact inline line."""
-    from datetime import datetime, timezone
-
-    theme = _get_sender_theme(msg.sender, color_map)
-    color = theme["color"]
-
-    try:
-        utc_dt = datetime.fromisoformat(msg.created_at).replace(tzinfo=timezone.utc)
-        ts = utc_dt.astimezone().strftime("%H:%M:%S")
-    except (ValueError, TypeError):
-        ts = msg.created_at[11:19] if len(msg.created_at) >= 19 else msg.created_at
-
-    content = msg.content.strip().split("\n")[0][:120]
-    console.print(f"  [dim]{ts}[/]  [bold {color}]{msg.sender}[/] [dim]⌨[/]  {content}")
-
-
 def _render_message(console, msg, color_map: dict[str, dict[str, str]]) -> None:
     from rich.markdown import Markdown
     from rich.panel import Panel
     from rich.style import Style
     from rich.text import Text
     from rich.theme import Theme
-
-    if _is_interactive_message(msg):
-        _render_interactive(console, msg, color_map)
-        return
 
     theme = _get_sender_theme(msg.sender, color_map)
     color = theme["color"]
@@ -856,10 +830,15 @@ def _render_transcript(console, entry: dict, color_map: dict[str, dict[str, str]
             preview_lines.append(line)
     preview = "\n".join(preview_lines)
 
-    icon = ">" if role == "assistant" else "<"
-    console.print(f"  [dim]{ts}[/]  [{color}]{name}[/] [dim]{icon}[/]  [dim italic]{preview}[/]")
-    if truncated:
-        console.print(f"  [dim]         ... ({len(lines)} lines)[/]")
+    if role == "user":
+        # User input: bold name + keyboard icon, not dimmed
+        first_line = preview.split("\n")[0]
+        console.print(f"  [dim]{ts}[/]  [bold {color}]{name}[/] [dim]⌨[/]  {first_line}")
+    else:
+        # Assistant response: dimmed and compact
+        console.print(f"  [dim]{ts}[/]  [{color}]{name}[/] [dim]>[/]  [dim italic]{preview}[/]")
+        if truncated:
+            console.print(f"  [dim]         ... ({len(lines)} lines)[/]")
 
 
 class TranscriptTailer:
@@ -931,7 +910,7 @@ class TranscriptTailer:
         msg = entry.get("message", {})
         role = msg.get("role", "")
 
-        if entry_type == "assistant" and role == "assistant":
+        if entry_type in ("assistant", "user") and role in ("assistant", "user"):
             text = _extract_text(msg.get("content", ""))
             if text:
                 from datetime import datetime, timezone
@@ -947,7 +926,7 @@ class TranscriptTailer:
                 return {
                     "kind": "transcript",
                     "session_name": session_name,
-                    "role": "assistant",
+                    "role": role,
                     "text": text,
                     "ts": ts,
                     "sort_key": ts_raw or datetime.now(timezone.utc).isoformat(),
@@ -985,23 +964,15 @@ def _merge_timeline(messages: list, events: list[dict], transcript: list[dict] |
 WATCH_MODES = ("messages", "full", "interactive")
 
 
-def _should_show_message(msg, mode: str) -> bool:
-    """Filter messages based on watch mode."""
-    if mode == "messages":
-        return not _is_interactive_message(msg)
-    if mode == "interactive":
-        return True
-    # "full" mode — show everything
-    return True
-
-
 def _render_timeline_item(console, kind: str, item, color_map: dict[str, dict[str, str]], mode: str) -> None:
     if kind == "msg":
-        if _should_show_message(item, mode):
-            _render_message(console, item, color_map)
+        _render_message(console, item, color_map)
     elif kind == "event":
         _render_event(console, item, color_map)
     elif kind == "transcript":
+        role = item.get("role", "assistant")
+        if mode == "interactive" and role != "user":
+            return
         _render_transcript(console, item, color_map)
 
 
@@ -1037,7 +1008,7 @@ def watch(names: tuple[str, ...], history_limit: int, poll_interval: float, no_l
     if sessions and len(sessions) > 2:
         _error_exit("At most 2 session names")
 
-    include_transcript = watch_mode == "full"
+    include_transcript = watch_mode in ("full", "interactive")
 
     mode_label = f" [dim]({watch_mode})[/]" if watch_mode != "messages" else ""
     label = " & ".join(names) if names else "all sessions"
