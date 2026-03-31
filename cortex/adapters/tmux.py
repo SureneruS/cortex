@@ -33,7 +33,7 @@ class TmuxAdapter:
         *,
         target_session: str | None = None,
     ) -> str | None:
-        args = ["new-window", "-P", "-F", "#{pane_id}", "-c", cwd]
+        args = ["new-window", "-d", "-P", "-F", "#{pane_id}", "-c", cwd]
         if target_session:
             args.extend(["-t", target_session])
         args.extend(["fish", "-c", shell_cmd])
@@ -110,7 +110,7 @@ class TmuxAdapter:
         orientation: str = "h",
         target_pane: str | None = None,
     ) -> str | None:
-        args = ["split-window", f"-{orientation}"]
+        args = ["split-window", f"-{orientation}", "-d"]
         if target_pane:
             args.extend(["-t", target_pane])
         args.extend(["-P", "-F", "#{pane_id}", "-c", cwd, "fish", "-c", shell_cmd])
@@ -161,7 +161,7 @@ class TmuxAdapter:
         cwd: str | None = None,
         shell_cmd: str | None = None,
     ) -> str | None:
-        args = ["new-window", "-P", "-F", "#{pane_id}"]
+        args = ["new-window", "-d", "-P", "-F", "#{pane_id}"]
         if target_session:
             args.extend(["-t", target_session])
         if window_name:
