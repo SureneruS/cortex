@@ -7,7 +7,7 @@ import structlog
 
 log = structlog.get_logger("cortex.vector_store")
 
-SIMILARITY_THRESHOLD = 0.7
+SIMILARITY_THRESHOLD = 0.5
 
 
 class SqliteVectorStore:

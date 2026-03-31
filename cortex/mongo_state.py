@@ -11,6 +11,7 @@ from pymongo.database import Database
 
 import structlog
 
+from cortex.adapters.vector_store import SIMILARITY_THRESHOLD
 from cortex.models import Checkpoint, Decision, Stream, Update
 from cortex.observability import trace
 
@@ -70,9 +71,6 @@ def _doc_to_checkpoint(doc: dict) -> Checkpoint:
         updated_at=datetime.fromisoformat(doc["updated_at"]),
         metadata=doc.get("metadata"),
     )
-
-
-SIMILARITY_THRESHOLD = 0.7
 
 
 class MongoStateManager:
