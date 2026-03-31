@@ -154,6 +154,41 @@ def test_list_brief_excludes_watch_last_state(session_repo):
     assert results[0]["watch"]["type"] == "pr"
 
 
+def test_watch_lifecycle_updates_runtime(session_repo):
+    """CTX-31: runtime must be updated when entering/exiting watch mode."""
+    session_repo.register("s1", {"name": "watcher"})
+    assert session_repo.get("s1")["runtime"] == "unknown"
+
+    # Enter watch — runtime should update to waiting_input
+    session_repo.update(
+        "s1",
+        {"status": "watching", "runtime": "waiting_input", "watch": {"type": "pr"}},
+        trigger="pr-watch",
+    )
+    doc = session_repo.get("s1")
+    assert doc["status"] == "watching"
+    assert doc["runtime"] == "waiting_input"
+
+    # Wake from watch — runtime should update to working
+    session_repo.update(
+        "s1",
+        {"status": "active", "runtime": "working"},
+        trigger="cron",
+        actor="daemon",
+    )
+    doc = session_repo.get("s1")
+    assert doc["status"] == "active"
+    assert doc["runtime"] == "working"
+
+    # Verify events recorded both runtime transitions
+    runtime_events = [e for e in doc["events"] if e["field"] == "runtime"]
+    assert len(runtime_events) == 2
+    assert runtime_events[0]["from"] == "unknown"
+    assert runtime_events[0]["to"] == "waiting_input"
+    assert runtime_events[1]["from"] == "waiting_input"
+    assert runtime_events[1]["to"] == "working"
+
+
 def test_list_with_limit(session_repo):
     for i in range(5):
         session_repo.register(f"s{i}", {"name": f"session-{i}"})

@@ -133,7 +133,7 @@ def pr_watch(number: int, session_id: str, repo: str | None, message: str | None
             watch_config["message"] = message
         session_repo = get_container().sessions
         import os
-        session_repo.update(session_id, {"status": "watching", "watch": watch_config}, trigger="pr-watch", actor=os.environ.get("CORTEX_SESSION_NAME"))
+        session_repo.update(session_id, {"status": "watching", "runtime": "waiting_input", "watch": watch_config}, trigger="pr-watch", actor=os.environ.get("CORTEX_SESSION_NAME"))
         _json_out({"ok": True, "session_id": session_id, "pr": number, "baseline": state})
     except Exception as e:
         _error_exit(str(e))

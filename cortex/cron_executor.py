@@ -48,7 +48,7 @@ def execute_check_watches(job: dict) -> None:
                         ],
                         capture_output=True,
                     )
-                    session_repo.update(session["_id"], {"status": "active"}, trigger="cron", actor="daemon")
+                    session_repo.update(session["_id"], {"status": "active", "runtime": "working"}, trigger="cron", actor="daemon")
             continue
 
         repo = watch.get("repo")
@@ -143,6 +143,7 @@ Output ONLY the message text, nothing else."""
             session["_id"],
             {
                 "status": "active",
+                "runtime": "working",
                 "watch": {**watch, "last_state": current_state},
             },
             trigger="cron",
