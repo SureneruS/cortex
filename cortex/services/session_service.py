@@ -88,7 +88,7 @@ class SessionService:
 
         name = self._unique_name(name)
         session_id = _new_id()
-        spawned_by = os.environ.get("CORTEX_SESSION_NAME", "human")
+        spawned_by = os.environ.get("CORTEX_SESSION_NAME", "cli")
         parent_id = os.environ.get("CORTEX_SESSION_ID")
 
         if not color:

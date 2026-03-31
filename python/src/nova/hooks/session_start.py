@@ -106,7 +106,7 @@ def handle_session_start(hook_input: dict) -> dict:
                     "cc_session_id": session_id,
                     "name": repo_name or "orphan",
                     "role": os.environ.get("CORTEX_SESSION_ROLE", "worker"),
-                    "spawned_by": "session_start_hook",
+                    "spawned_by": "hook",
                     "transcript_path": transcript_path,
                     "repos": [repo_name] if repo_name else [],
                 }),

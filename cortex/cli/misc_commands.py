@@ -291,7 +291,7 @@ def control() -> None:
     repo.register(session_id, {
         "name": name, "role": "control",
         "goal": "Control session — coordinate workers, manage streams",
-        "spawned_by": "human", "workspace": "default",
+        "spawned_by": "cli", "workspace": "default",
         "runtime": "unknown", "color": "red",
     })
 

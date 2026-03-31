@@ -118,7 +118,7 @@ def team_session_factory(session_repo: MongoSessionRepo):
                 "team": "default",
                 "status": status,
                 "last_seen": last_seen,
-                "spawned_by": "human",
+                "spawned_by": "cli",
             },
         )
 
