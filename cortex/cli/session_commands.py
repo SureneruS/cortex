@@ -208,7 +208,8 @@ def register(data: str, session_id: str | None) -> None:
 @click.argument("session_id")
 @click.option("--data", required=True, help="JSON object of fields to merge")
 @click.option("--trigger", default="update", help="What triggered this update")
-def update(session_id: str, data: str, trigger: str) -> None:
+@click.option("--increment", default=None, help="Field name to atomically increment by 1")
+def update(session_id: str, data: str, trigger: str, increment: str | None) -> None:
     """Update a session's fields."""
     log = _cli_log()
     try:
@@ -216,8 +217,9 @@ def update(session_id: str, data: str, trigger: str) -> None:
     except json.JSONDecodeError as e:
         _error_exit(f"Invalid JSON: {e}")
     doc = _resolve_or_exit(session_id)
+    inc = {increment: 1} if increment else None
     try:
-        result = _repo().update(doc["_id"], fields, trigger=trigger, actor=_caller())
+        result = _repo().update(doc["_id"], fields, trigger=trigger, actor=_caller(), increment=inc)
     except ValueError as e:
         _error_exit(str(e))
     log.info("Session updated", session_id=doc["_id"])

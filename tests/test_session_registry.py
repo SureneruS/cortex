@@ -66,6 +66,21 @@ def test_update_nonexistent(session_repo):
     assert session_repo.update("nope", {"status": "idle"}) is None
 
 
+def test_update_with_increment(session_repo):
+    session_repo.register("sess-inc", {"name": "inc-test"})
+    updated = session_repo.update(
+        "sess-inc", {"runtime": "waiting_input"}, increment={"turn_count": 1}
+    )
+    assert updated["turn_count"] == 1
+    assert updated["runtime"] == "waiting_input"
+
+    # Increment again
+    updated2 = session_repo.update(
+        "sess-inc", {"runtime": "working"}, increment={"turn_count": 1}
+    )
+    assert updated2["turn_count"] == 2
+
+
 def test_list_with_filters(session_repo):
     session_repo.register("s1", {"status": "active", "workspace": "default"})
     session_repo.register("s2", {"status": "active", "workspace": "background"})

@@ -78,7 +78,15 @@ class MongoSessionRepository:
     def get(self, session_id: str) -> dict | None:
         return self._col.find_one({"_id": session_id})
 
-    def update(self, session_id: str, data: dict, *, trigger: str = "update", actor: str | None = None) -> dict | None:
+    def update(
+        self,
+        session_id: str,
+        data: dict,
+        *,
+        trigger: str = "update",
+        actor: str | None = None,
+        increment: dict | None = None,
+    ) -> dict | None:
         current = self.get(session_id)
         if current is None:
             return None
@@ -95,6 +103,8 @@ class MongoSessionRepository:
         ops: dict = {"$set": data}
         if events:
             ops["$push"] = {"events": {"$each": events}}
+        if increment:
+            ops["$inc"] = increment
 
         self._col.update_one({"_id": session_id}, ops)
         return self.get(session_id)
