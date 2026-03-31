@@ -361,8 +361,8 @@ class SessionService:
         doc = self.resolve(ref)
         session_id = doc["_id"]
 
-        if doc.get("status") != "hidden":
-            raise ValueError(f"Session is {doc.get('status')}, not hidden")
+        if not doc.get("hidden_from"):
+            raise ValueError(f"Session '{doc.get('name', session_id)}' is not in a background workspace")
 
         pane_id = doc.get("pane_id")
         if not pane_id or not self._terminal.pane_exists(pane_id):
@@ -374,7 +374,8 @@ class SessionService:
         if not self._terminal.move_window(src_target, f"{target_session}:"):
             raise RuntimeError("move-window failed")
 
-        self._sessions.update(session_id, {"status": "active", "hidden_from": None}, trigger="show", actor=self._caller())
+        restore_status = "active" if doc.get("status") == "hidden" else doc.get("status")
+        self._sessions.update(session_id, {"status": restore_status, "hidden_from": None}, trigger="show", actor=self._caller())
         doc = self._sessions.get(session_id)
         log.info("Session shown", session_id=session_id)
         return doc
