@@ -713,8 +713,13 @@ def watch(names: tuple[str, ...], history_limit: int, poll_interval: float, no_l
 
     from rich.console import Console
     from rich.rule import Rule
+    from rich.theme import Theme
 
-    console = Console()
+    watch_theme = Theme({
+        "markdown.code": "bold bright_cyan",
+        "markdown.code_block": "cyan",
+    })
+    console = Console(theme=watch_theme)
     repo = get_container().messages
     sessions = list(names) if names else None
 
@@ -743,7 +748,7 @@ def watch(names: tuple[str, ...], history_limit: int, poll_interval: float, no_l
 
     def _on_resize(signum, frame):
         nonlocal console
-        console = Console()
+        console = Console(theme=watch_theme)
 
     signal.signal(signal.SIGWINCH, _on_resize)
 
