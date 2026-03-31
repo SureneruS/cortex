@@ -90,6 +90,28 @@ class MongoMessageRepository:
         docs = list(self._col.find(query).sort("created_at", -1).limit(limit))
         return [_doc_to_message(d) for d in docs]
 
+    def watch_messages(
+        self,
+        *,
+        sessions: list[str] | None = None,
+        after: str | None = None,
+        limit: int = 100,
+    ) -> list[Message]:
+        query: dict = {}
+        if sessions and len(sessions) == 2:
+            a, b = sessions
+            query["$or"] = [
+                {"from": a, "to": b},
+                {"from": b, "to": a},
+            ]
+        elif sessions and len(sessions) == 1:
+            name = sessions[0]
+            query["$or"] = [{"from": name}, {"to": name}]
+        if after:
+            query["created_at"] = {"$gt": after}
+        docs = list(self._col.find(query).sort("created_at", 1).limit(limit))
+        return [_doc_to_message(d) for d in docs]
+
 
 def _doc_to_message(doc: dict) -> Message:
     return Message(

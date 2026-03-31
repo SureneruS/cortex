@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 
 import click
@@ -602,3 +603,106 @@ def paint(ref: str | None, color: str | None) -> None:
     _json_out({"painted": painted, "skipped": skipped})
 
 
+# ── Watch ───────────────────────────────────────────────────
+
+
+SENDER_COLORS = [
+    "cyan", "green", "yellow", "magenta", "blue", "red",
+    "bright_cyan", "bright_green", "bright_yellow", "bright_magenta",
+]
+
+
+def _render_message(console, msg, color_map: dict[str, str]) -> None:
+    from rich.markdown import Markdown
+    from rich.panel import Panel
+    from rich.text import Text
+
+    sender = msg.sender
+    if sender not in color_map:
+        color_map[sender] = SENDER_COLORS[len(color_map) % len(SENDER_COLORS)]
+    color = color_map[sender]
+
+    ts = msg.created_at[11:19] if len(msg.created_at) >= 19 else msg.created_at
+    meta = msg.meta or {}
+    msg_type = meta.get("type", "")
+    priority = meta.get("priority", "")
+
+    badge_parts = []
+    if msg_type:
+        badge_parts.append(msg_type)
+    if priority and priority != "normal":
+        badge_parts.append(f"[bold red]{priority}[/]")
+    badge = f" ({', '.join(badge_parts)})" if badge_parts else ""
+
+    header = Text.from_markup(
+        f"[bold {color}]{sender}[/] [dim]→[/] [bold]{msg.recipient}[/]"
+        f"  [dim]{ts}[/]{badge}"
+    )
+
+    content = msg.content.strip()
+    try:
+        body = Markdown(content)
+    except Exception:
+        body = Text(content)
+
+    panel = Panel(
+        body,
+        title=header,
+        title_align="left",
+        border_style=color,
+        padding=(0, 1),
+    )
+    console.print(panel)
+
+
+@session.command()
+@click.argument("names", nargs=-1)
+@click.option("--limit", "history_limit", default=50, help="Initial history messages")
+@click.option("--poll", "poll_interval", default=2.0, type=float, help="Poll interval in seconds")
+@click.option("--no-live", is_flag=True, default=False, help="Show history and exit")
+def watch(names: tuple[str, ...], history_limit: int, poll_interval: float, no_live: bool) -> None:
+    """Live-tail messages between sessions in a chat view.
+
+    \b
+    Usage:
+      cortex session watch name1 name2   # Messages between two sessions
+      cortex session watch name1          # All messages to/from one session
+      cortex session watch                # All inter-session messages
+    """
+    from rich.console import Console
+    from rich.rule import Rule
+
+    console = Console()
+    repo = get_container().messages
+    sessions = list(names) if names else None
+
+    if sessions and len(sessions) > 2:
+        _error_exit("At most 2 session names")
+
+    label = " & ".join(names) if names else "all sessions"
+    console.print(Rule(f"[bold]Watching: {label}[/]"))
+
+    color_map: dict[str, str] = {}
+    msgs = repo.watch_messages(sessions=sessions, limit=history_limit)
+
+    if not msgs:
+        console.print("[dim]No message history.[/]")
+    else:
+        for m in msgs:
+            _render_message(console, m, color_map)
+
+    if no_live:
+        return
+
+    last_ts = msgs[-1].created_at if msgs else None
+    console.print(Rule("[dim]live[/]"))
+
+    try:
+        while True:
+            time.sleep(poll_interval)
+            new_msgs = repo.watch_messages(sessions=sessions, after=last_ts)
+            for m in new_msgs:
+                _render_message(console, m, color_map)
+                last_ts = m.created_at
+    except KeyboardInterrupt:
+        console.print(Rule("[dim]stopped[/]"))
