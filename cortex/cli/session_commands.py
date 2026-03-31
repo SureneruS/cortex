@@ -802,8 +802,41 @@ def _render_event(console, event: dict, color_map: dict[str, dict[str, str]]) ->
     console.print(f"  [dim]{ts}[/]  {icon} {label}{suffix}")
 
 
+def _strip_markdown(text: str) -> list[str]:
+    """Strip markdown formatting to produce plain text for log-style display."""
+    import re
+
+    lines = text.strip().splitlines()
+    cleaned = []
+    in_code_block = False
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("```"):
+            in_code_block = not in_code_block
+            continue
+        if in_code_block:
+            continue
+        if not stripped:
+            continue
+        # Strip header markers
+        stripped = re.sub(r"^#{1,6}\s+", "", stripped)
+        # Strip bold/italic markers
+        stripped = stripped.replace("**", "").replace("__", "")
+        # Strip bullet/list markers
+        stripped = re.sub(r"^[-*+]\s+", "", stripped)
+        stripped = re.sub(r"^\d+\.\s+", "", stripped)
+        # Strip inline code backticks
+        stripped = re.sub(r"`([^`]+)`", r"\1", stripped)
+        # Strip markdown links [text](url) -> text
+        stripped = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", stripped)
+        stripped = stripped.strip()
+        if stripped:
+            cleaned.append(stripped)
+    return cleaned
+
+
 def _render_transcript(console, entry: dict, color_map: dict[str, dict[str, str]]) -> None:
-    """Render a transcript entry (assistant response) as compact dimmed text."""
+    """Render a transcript entry as a single compact log line."""
     name = entry.get("session_name", "?")
     ts = entry.get("ts", "")
     text = entry.get("text", "")
@@ -812,33 +845,20 @@ def _render_transcript(console, entry: dict, color_map: dict[str, dict[str, str]
     theme = _get_sender_theme(name, color_map)
     color = theme["color"]
 
-    lines = text.strip().split("\n")
-    max_lines = 4
-    if len(lines) > max_lines:
-        preview = "\n".join(lines[:max_lines])
-        truncated = True
-    else:
-        preview = "\n".join(lines)
-        truncated = False
+    lines = _strip_markdown(text)
+    if not lines:
+        return
 
-    # Limit each line length
-    preview_lines = []
-    for line in preview.split("\n"):
-        if len(line) > 120:
-            preview_lines.append(line[:120] + "...")
-        else:
-            preview_lines.append(line)
-    preview = "\n".join(preview_lines)
+    from rich.markup import escape
+    first_line = escape(lines[0])
+    if len(first_line) > 120:
+        first_line = first_line[:120] + "…"
+    extra = f"  [dim](+{len(lines) - 1} lines)[/]" if len(lines) > 1 else ""
 
     if role == "user":
-        # User input: bold name + keyboard icon, not dimmed
-        first_line = preview.split("\n")[0]
-        console.print(f"  [dim]{ts}[/]  [bold {color}]{name}[/] [dim]⌨[/]  {first_line}")
+        console.print(f"  [dim]{ts}[/]  [bold {color}]{name}[/] [dim]⌨[/]  {first_line}{extra}")
     else:
-        # Assistant response: dimmed and compact
-        console.print(f"  [dim]{ts}[/]  [{color}]{name}[/] [dim]>[/]  [dim italic]{preview}[/]")
-        if truncated:
-            console.print(f"  [dim]         ... ({len(lines)} lines)[/]")
+        console.print(f"  [dim]{ts}[/]  [{color}]{name}[/] [dim]>[/]  [dim]{first_line}[/]{extra}")
 
 
 class TranscriptTailer:
@@ -848,6 +868,8 @@ class TranscriptTailer:
         self._names = session_names
         self._offsets: dict[str, int] = {}  # session_name -> file byte offset
         self._paths: dict[str, str] = {}    # session_name -> transcript_path
+        self._poll_count = 0
+        self._refresh_every = 5  # re-check registry every N polls
 
     def _resolve_paths(self) -> None:
         """Look up transcript_path from session registry for watched sessions."""
@@ -859,12 +881,13 @@ class TranscriptTailer:
         for doc in sessions:
             name = doc.get("name")
             path = doc.get("transcript_path")
-            if name and path:
+            if name and path and name not in self._paths:
                 self._paths[name] = path
 
     def poll(self) -> list[dict]:
         """Read new transcript entries since last poll. Returns timeline-compatible dicts."""
-        if not self._paths:
+        self._poll_count += 1
+        if not self._paths or self._poll_count % self._refresh_every == 0:
             self._resolve_paths()
 
         entries = []
