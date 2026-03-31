@@ -163,6 +163,41 @@ class MongoSessionRepository:
 
         return None
 
+    def list_events(
+        self,
+        *,
+        sessions: list[str] | None = None,
+        after: str | None = None,
+        limit: int = 100,
+    ) -> list[dict]:
+        """Return session events (status/runtime changes) as flat dicts."""
+        match: dict = {}
+        if sessions:
+            match["name"] = {"$in": sessions}
+
+        pipeline: list[dict] = []
+        if match:
+            pipeline.append({"$match": match})
+        pipeline.append({"$unwind": "$events"})
+        if after:
+            pipeline.append({"$match": {"events.at": {"$gt": after}}})
+        pipeline.extend([
+            {"$match": {"events.field": "status"}},
+            {"$sort": {"events.at": 1}},
+            {"$limit": limit},
+            {"$project": {
+                "_id": 0,
+                "session_name": "$name",
+                "field": "$events.field",
+                "from": "$events.from",
+                "to": "$events.to",
+                "at": "$events.at",
+                "trigger": "$events.trigger",
+                "reason": "$events.reason",
+            }},
+        ])
+        return list(self._col.aggregate(pipeline))
+
     def close(self, session_id: str, trigger: str = "close") -> dict | None:
         return self.update(
             session_id, {"status": "completed", "closed_at": _now()}, trigger=trigger

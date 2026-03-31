@@ -712,6 +712,65 @@ def _render_message(console, msg, color_map: dict[str, dict[str, str]]) -> None:
     console.pop_theme()
 
 
+EVENT_ICONS = {
+    "spawn": "+",
+    "close": "x",
+    "stale_sweep": "x",
+    "health-check": "~",
+}
+
+EVENT_COLORS = {
+    "active": "green",
+    "completed": "dim",
+    "dead": "red",
+    "paused": "yellow",
+    "hidden": "dim",
+    "watching": "cyan",
+    "blocked": "red",
+    "idle": "yellow",
+}
+
+
+def _render_event(console, event: dict, color_map: dict[str, dict[str, str]]) -> None:
+    from datetime import datetime, timezone
+
+    ts_raw = event.get("at", "")
+    try:
+        utc_dt = datetime.fromisoformat(ts_raw).replace(tzinfo=timezone.utc)
+        ts = utc_dt.astimezone().strftime("%H:%M:%S")
+    except (ValueError, TypeError):
+        ts = ts_raw[11:19] if len(ts_raw) >= 19 else ts_raw
+
+    name = event.get("session_name", "?")
+    to_status = event.get("to", "?")
+    from_status = event.get("from")
+    trigger = event.get("trigger", "")
+    reason = event.get("reason")
+
+    icon = EVENT_ICONS.get(trigger, "~")
+    status_color = EVENT_COLORS.get(to_status, "white")
+
+    if from_status:
+        label = f"{name} {from_status} → [{status_color}]{to_status}[/]"
+    else:
+        label = f"{name} [{status_color}]{to_status}[/]"
+
+    extra = f"  [dim italic]{reason}[/]" if reason else ""
+
+    console.print(f"  [dim]{ts}[/]  {icon} {label}{extra}")
+
+
+def _merge_timeline(messages: list, events: list[dict]) -> list:
+    """Merge messages and events into a single timeline sorted by timestamp."""
+    timeline = []
+    for m in messages:
+        timeline.append(("msg", m.created_at, m))
+    for e in events:
+        timeline.append(("event", e.get("at", ""), e))
+    timeline.sort(key=lambda x: x[1])
+    return timeline
+
+
 @session.command()
 @click.argument("names", nargs=-1)
 @click.option("--limit", "history_limit", default=50, help="Max initial messages (within last 24h)")
@@ -732,7 +791,9 @@ def watch(names: tuple[str, ...], history_limit: int, poll_interval: float, no_l
     from rich.rule import Rule
 
     console = Console()
-    repo = get_container().messages
+    container = get_container()
+    msg_repo = container.messages
+    session_repo = _repo()
     sessions = list(names) if names else None
 
     if sessions and len(sessions) > 2:
@@ -744,18 +805,23 @@ def watch(names: tuple[str, ...], history_limit: int, poll_interval: float, no_l
     color_map = _build_session_color_map()
     from datetime import datetime, timedelta, timezone
     cutoff = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
-    msgs = repo.watch_messages(sessions=sessions, after=cutoff, limit=history_limit)
+    msgs = msg_repo.watch_messages(sessions=sessions, after=cutoff, limit=history_limit)
+    events = session_repo.list_events(sessions=sessions, after=cutoff, limit=history_limit)
 
-    if not msgs:
-        console.print("[dim]No message history.[/]")
+    timeline = _merge_timeline(msgs, events)
+    if not timeline:
+        console.print("[dim]No history.[/]")
     else:
-        for m in msgs:
-            _render_message(console, m, color_map)
+        for kind, ts, item in timeline:
+            if kind == "msg":
+                _render_message(console, item, color_map)
+            else:
+                _render_event(console, item, color_map)
 
     if no_live:
         return
 
-    last_ts = msgs[-1].created_at if msgs else None
+    last_ts = timeline[-1][1] if timeline else None
     console.print(Rule("[dim]live[/]"))
 
     def _on_resize(signum, frame):
@@ -767,10 +833,14 @@ def watch(names: tuple[str, ...], history_limit: int, poll_interval: float, no_l
     try:
         while True:
             time.sleep(poll_interval)
-            new_msgs = repo.watch_messages(sessions=sessions, after=last_ts)
-            for m in new_msgs:
-                _render_message(console, m, color_map)
-                last_ts = m.created_at
+            new_msgs = msg_repo.watch_messages(sessions=sessions, after=last_ts)
+            new_events = session_repo.list_events(sessions=sessions, after=last_ts)
+            for kind, ts, item in _merge_timeline(new_msgs, new_events):
+                if kind == "msg":
+                    _render_message(console, item, color_map)
+                else:
+                    _render_event(console, item, color_map)
+                last_ts = ts
     except KeyboardInterrupt:
         console.print(Rule("[dim]stopped[/]"))
     finally:
