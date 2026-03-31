@@ -307,7 +307,7 @@ def control() -> None:
         f"set -x CORTEX_SESSION_ID {session_id}; "
         f"set -x CORTEX_SESSION_NAME {name}; "
         f"set -x CORTEX_MONGODB_URI {mongodb_uri}; "
-        f"claude {channels_flag}"
+        f"claude {channels_flag}--disallowedTools SendMessage "
         f"--name {name} --append-system-prompt-file {prompt_file}; exit"
     )
 

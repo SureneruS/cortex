@@ -651,10 +651,11 @@ class SessionService:
         tools_flag = f"--allowed-tools {allowed_tools} " if allowed_tools else ""
         wt_flag = f"--worktree {worktree} " if worktree else ""
         cc_flags = f"{pm_flag}{effort_flag}{agent_flag}{tools_flag}{wt_flag}"
+        deny_flag = "--disallowedTools SendMessage "
 
         return (
             f"{env_setup}"
-            f"claude {channels_flag}{model_flag}{resume_flag}{cc_flags}"
+            f"claude {channels_flag}{deny_flag}{model_flag}{resume_flag}{cc_flags}"
             f"--name {name} --append-system-prompt-file {prompt_file}; exit"
         )
 
