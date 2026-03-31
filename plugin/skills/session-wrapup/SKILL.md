@@ -71,3 +71,13 @@ Then report what was cleaned up. Flag anything still pending:
 - Open PRs awaiting review
 - Uncommitted work
 - Active Cortex streams continuing to next session
+
+### 8. Exit
+
+Check `CORTEX_SESSION_ROLE` and `CORTEX_SESSION_NAME` environment variables.
+
+**If worker session** (`CORTEX_SESSION_ROLE=worker`):
+1. Mark session completed: `cortex session update $CORTEX_SESSION_NAME --data '{"status":"completed"}'`
+2. Run `/exit` to terminate the CC process
+
+**If control or interactive session**: Do NOT auto-exit. The user will exit manually when ready.
