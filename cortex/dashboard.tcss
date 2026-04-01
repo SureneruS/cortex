@@ -1,0 +1,320 @@
+/* ── Cortex Mission Control ── Deep space theme ─────────────── */
+
+$bg-deep: #0a0e14;
+$bg-surface: #11151c;
+$bg-panel: #151b24;
+$bg-hover: #1a2233;
+$border-dim: #1e2633;
+$border-accent: #2a3544;
+$text-primary: #c9d1d9;
+$text-dim: #484f58;
+$text-muted: #6e7681;
+
+$blue: #58a6ff;
+$green: #3fb950;
+$gold: #d29922;
+$purple: #bc8cff;
+$red: #f85149;
+$pink: #f778ba;
+$cyan: #39c5cf;
+$orange: #d2883e;
+
+/* ── Screen ─────────────────────────────────────────────────── */
+
+Screen {
+    background: $bg-deep;
+    color: $text-primary;
+    layout: vertical;
+}
+
+/* ── Header ─────────────────────────────────────────────────── */
+
+#header-bar {
+    dock: top;
+    height: 3;
+    background: $bg-surface;
+    border-bottom: solid $border-dim;
+    layout: horizontal;
+    padding: 0 1;
+}
+
+#logo {
+    width: auto;
+    padding: 1 2 0 1;
+    color: $blue;
+    text-style: bold;
+}
+
+#header-stats {
+    width: 1fr;
+    content-align: right middle;
+    padding: 1 2 0 0;
+    color: $text-muted;
+}
+
+/* ── Main layout ────────────────────────────────────────────── */
+
+#main-area {
+    layout: horizontal;
+    height: 1fr;
+}
+
+/* ── Left panel: Sessions ───────────────────────────────────── */
+
+#sessions-panel {
+    width: 38;
+    min-width: 30;
+    background: $bg-surface;
+    border-right: solid $border-dim;
+    layout: vertical;
+}
+
+#sessions-title {
+    height: 3;
+    padding: 1 1 0 1;
+    color: $blue;
+    text-style: bold;
+    background: $bg-surface;
+    border-bottom: solid $border-dim;
+}
+
+#sessions-list {
+    height: 1fr;
+    scrollbar-size: 1 1;
+    scrollbar-color: $border-accent;
+    scrollbar-color-hover: $text-dim;
+}
+
+.session-item {
+    height: 3;
+    padding: 0 1;
+    background: $bg-surface;
+    border-bottom: solid $border-dim;
+}
+
+.session-item:hover {
+    background: $bg-hover;
+}
+
+.session-item.-selected {
+    background: $bg-hover;
+    border-left: thick $blue;
+}
+
+/* ── Center panel: Timeline ─────────────────────────────────── */
+
+#timeline-panel {
+    width: 1fr;
+    min-width: 40;
+    layout: vertical;
+    background: $bg-deep;
+}
+
+#timeline-title {
+    height: 3;
+    padding: 1 1 0 1;
+    color: $purple;
+    text-style: bold;
+    background: $bg-surface;
+    border-bottom: solid $border-dim;
+}
+
+#timeline-scroll {
+    height: 1fr;
+    scrollbar-size: 1 1;
+    scrollbar-color: $border-accent;
+    scrollbar-color-hover: $text-dim;
+    padding: 0 1;
+}
+
+.msg-bubble {
+    margin: 0 0 0 0;
+}
+
+.event-line {
+    height: auto;
+    padding: 0 1;
+    color: $text-dim;
+}
+
+/* ── Right panel: Streams + Health ──────────────────────────── */
+
+#right-panel {
+    width: 34;
+    min-width: 26;
+    background: $bg-surface;
+    border-left: solid $border-dim;
+    layout: vertical;
+}
+
+#streams-section {
+    height: 1fr;
+    layout: vertical;
+    border-bottom: solid $border-dim;
+}
+
+#streams-title {
+    height: 3;
+    padding: 1 1 0 1;
+    color: $gold;
+    text-style: bold;
+    background: $bg-surface;
+    border-bottom: solid $border-dim;
+}
+
+#streams-list {
+    height: 1fr;
+    scrollbar-size: 1 1;
+    scrollbar-color: $border-accent;
+    scrollbar-color-hover: $text-dim;
+}
+
+.stream-item {
+    height: auto;
+    padding: 0 1;
+    background: $bg-surface;
+    border-bottom: solid $border-dim;
+}
+
+#health-section {
+    height: auto;
+    min-height: 8;
+    max-height: 12;
+    layout: vertical;
+    padding: 0;
+}
+
+#health-title {
+    height: 3;
+    padding: 1 1 0 1;
+    color: $green;
+    text-style: bold;
+    background: $bg-surface;
+    border-bottom: solid $border-dim;
+}
+
+.health-row {
+    height: 1;
+    padding: 0 1;
+    background: $bg-surface;
+}
+
+/* ── Status bar (bottom) ────────────────────────────────────── */
+
+#status-bar {
+    dock: bottom;
+    height: 1;
+    background: $bg-panel;
+    border-top: solid $border-dim;
+    layout: horizontal;
+    padding: 0 1;
+}
+
+.status-item {
+    width: auto;
+    padding: 0 2 0 0;
+    color: $text-muted;
+}
+
+.status-item.-active {
+    color: $green;
+}
+
+.status-item.-error {
+    color: $red;
+}
+
+#status-right {
+    width: 1fr;
+    content-align: right middle;
+    color: $text-dim;
+}
+
+/* ── Session detail overlay ─────────────────────────────────── */
+
+#detail-overlay {
+    layout: vertical;
+    background: $bg-surface;
+    border: solid $blue;
+    margin: 2 4;
+    padding: 1 2;
+}
+
+#detail-header {
+    height: 3;
+    padding: 0 0 1 0;
+    border-bottom: solid $border-dim;
+}
+
+#detail-body {
+    height: 1fr;
+    scrollbar-size: 1 1;
+    scrollbar-color: $border-accent;
+    padding: 1 0;
+}
+
+#detail-events {
+    height: 1fr;
+    scrollbar-size: 1 1;
+    scrollbar-color: $border-accent;
+    padding: 0;
+}
+
+/* ── Filter bar ─────────────────────────────────────────────── */
+
+#filter-bar {
+    dock: bottom;
+    height: 3;
+    background: $bg-panel;
+    border-top: solid $border-accent;
+    padding: 0 1;
+    display: none;
+}
+
+#filter-bar.-visible {
+    display: block;
+}
+
+/* ── Scrollbar theming ──────────────────────────────────────── */
+
+VerticalScroll {
+    scrollbar-size: 1 1;
+    scrollbar-color: $border-accent;
+    scrollbar-color-hover: $text-dim;
+    scrollbar-color-active: $blue;
+}
+
+/* ── Sparkline ──────────────────────────────────────────────── */
+
+#msg-spark {
+    width: 20;
+    height: 1;
+    margin: 0 1;
+}
+
+#msg-spark > .sparkline--max-color {
+    color: $blue;
+}
+
+#msg-spark > .sparkline--min-color {
+    color: $border-accent;
+}
+
+/* ── Modal overlay ──────────────────────────────────────────── */
+
+SessionDetailScreen {
+    align: center middle;
+    background: rgba(10, 14, 20, 0.85);
+}
+
+/* ── Input styling ──────────────────────────────────────────── */
+
+Input {
+    background: $bg-panel;
+    border: solid $border-accent;
+    color: $text-primary;
+}
+
+Input:focus {
+    border: solid $blue;
+}
