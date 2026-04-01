@@ -8,9 +8,6 @@ import time
 
 import structlog
 
-from cortex.observability import setup_logging
-
-setup_logging("daemon")
 log = structlog.get_logger("cortex.daemon")
 
 POLL_INTERVAL = 60
@@ -257,6 +254,9 @@ def _write_human_message_fallback(msg: dict) -> None:
 
 
 def run() -> None:
+    from cortex.observability import setup_logging
+    setup_logging("daemon", force=True)
+
     from cortex.cron import CronManager
     from cortex.mongo import get_db
 

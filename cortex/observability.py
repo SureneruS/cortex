@@ -17,15 +17,17 @@ LOG_DIR = Path.home() / ".cortex" / "logs"
 _configured = False
 
 
-def setup_logging(component: str = "cortex") -> None:
+def setup_logging(component: str = "cortex", *, force: bool = False) -> None:
     """Configure structlog + stdlib integration with two file handlers + console.
 
     Args:
         component: Identifies the process (e.g. "cli", "mcp", "daemon").
                    Used in log filenames and as a context field.
+        force: Reconfigure even if already set up (e.g. daemon subprocess
+               that was pre-configured as "cli" by the Click entry point).
     """
     global _configured
-    if _configured:
+    if _configured and not force:
         return
     _configured = True
 

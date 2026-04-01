@@ -34,7 +34,7 @@ class TmuxBackend(DaemonBackend):
             raise RuntimeError(f"Daemon '{name}' is already running")
         self._ensure_session()
         from pathlib import Path
-        log_file = Path.home() / ".cortex" / "logs" / "cortex-cli.log"
+        log_file = Path.home() / ".cortex" / "logs" / "cortex-daemon.log"
         shell_cmd = " ".join(command) + f" & tail -f {log_file}"
         self._tmux.new_window(
             target_session=self.SESSION,
