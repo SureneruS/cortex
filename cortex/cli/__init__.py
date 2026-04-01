@@ -77,3 +77,11 @@ cli.add_command(session)
 cli.add_command(cron)
 cli.add_command(pr)
 register_misc_commands(cli)
+
+
+@cli.command("dashboard")
+def dashboard_cmd() -> None:
+    """Launch the Textual TUI dashboard."""
+    from cortex.tui_dashboard import main
+
+    main()
