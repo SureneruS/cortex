@@ -2,10 +2,11 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone, timedelta
-from textual import work
+from textual import on, work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
+from textual.message import Message
 from textual.reactive import reactive
 from textual.screen import ModalScreen
 from textual.widget import Widget
@@ -200,7 +201,9 @@ def _merge_timeline(messages: list[dict], events: list[dict]) -> list[dict]:
 
 # ── Rich Renderables ────────────────────────────────────────────
 
-def _render_session_row(s: dict, selected: bool = False) -> RenderableType:
+def _render_session_row(
+    s: dict, selected: bool = False, filtered: bool = False,
+) -> RenderableType:
     name = s.get("name", s.get("_id", "?"))
     status = s.get("status", "unknown")
     runtime = s.get("runtime", "unknown")
@@ -218,9 +221,10 @@ def _render_session_row(s: dict, selected: bool = False) -> RenderableType:
     repo_short = ", ".join(r.split("/")[-1] if "/" in r else r for r in repos[:2])
 
     sel_marker = "▸ " if selected else "  "
+    filter_marker = "[#d29922]*[/] " if filtered else ""
     rt_part = f"  [{rt_color}]{rt_char}[/]" if rt_char else ""
     line1 = Text.from_markup(
-        f"{sel_marker}[{dot_color}]{dot_char}[/] [{name_color} bold]{_truncate(name, 18)}[/]"
+        f"{sel_marker}[{dot_color}]{dot_char}[/] {filter_marker}[{name_color} bold]{_truncate(name, 18)}[/]"
         f"{rt_part}"
     )
     line2 = Text.from_markup(
@@ -325,13 +329,21 @@ def _render_stream_card(stream: dict, entries: list[dict]) -> RenderableType:
 
 # ── Widgets ─────────────────────────────────────────────────────
 
+class SessionClicked(Message):
+    def __init__(self, session_name: str) -> None:
+        super().__init__()
+        self.session_name = session_name
+
+
 class SessionListWidget(VerticalScroll):
     selected_index: reactive[int] = reactive(0)
     sessions: reactive[list[dict]] = reactive(list, init=False)
+    filtered_names: reactive[frozenset] = reactive(frozenset, init=False)
 
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
         self.sessions = []
+        self.filtered_names = frozenset()
 
     def set_sessions(self, sessions: list[dict]) -> None:
         self.sessions = sessions
@@ -339,16 +351,40 @@ class SessionListWidget(VerticalScroll):
             self.selected_index = max(0, len(sessions) - 1)
         self._rebuild()
 
+    def set_filtered(self, names: set[str]) -> None:
+        self.filtered_names = frozenset(names)
+        self._rebuild()
+
     def _rebuild(self) -> None:
         self.remove_children()
         for i, s in enumerate(self.sessions):
+            name = s.get("name", s.get("_id", ""))
             widget = Static(
-                _render_session_row(s, selected=(i == self.selected_index)),
+                _render_session_row(
+                    s,
+                    selected=(i == self.selected_index),
+                    filtered=(name in self.filtered_names),
+                ),
                 classes="session-item",
+                id=f"sess-{i}",
             )
             if i == self.selected_index:
                 widget.add_class("-selected")
             self.mount(widget)
+
+    def on_click(self, event) -> None:
+        target = event.widget
+        if not isinstance(target, Static):
+            return
+        wid = target.id or ""
+        if not wid.startswith("sess-"):
+            return
+        idx = int(wid.split("-")[1])
+        self.selected_index = idx
+        self._rebuild()
+        if idx < len(self.sessions):
+            name = self.sessions[idx].get("name", "")
+            self.post_message(SessionClicked(name))
 
     def move_selection(self, delta: int) -> None:
         if not self.sessions:
@@ -417,6 +453,7 @@ class SessionDetailScreen(ModalScreen[None]):
     BINDINGS = [
         Binding("escape", "dismiss_modal", "Back", show=True),
         Binding("q", "dismiss_modal", "Back", show=False),
+        Binding("d", "dismiss_modal", "Close", show=False),
     ]
 
     def __init__(self, session_id: str) -> None:
@@ -565,7 +602,7 @@ class CortexDashboard(App):
 
     show_all: reactive[bool] = reactive(False)
     filter_text: reactive[str] = reactive("")
-    filter_session: reactive[str] = reactive("")
+    _filter_sessions: set[str] = set()
     _msg_sparkline: list[float] = []
     _refresh_count: int = 0
     _all_sessions: list[dict] = []
@@ -652,6 +689,7 @@ class CortexDashboard(App):
 
         # Sessions
         sess_list = self.query_one("#sessions-list", SessionListWidget)
+        sess_list.set_filtered(self._filter_sessions)
         sess_list.set_sessions(sessions)
 
         active_count = sum(1 for s in sessions if s.get("status") not in ("completed", "dead"))
@@ -674,8 +712,9 @@ class CortexDashboard(App):
 
         msg_count = sum(1 for t in filtered_timeline if t["kind"] == "msg")
         filter_label = ""
-        if self.filter_session:
-            filter_label = f"  [#d29922]filter: {self.filter_session}[/]"
+        if self._filter_sessions:
+            names = ", ".join(sorted(self._filter_sessions))
+            filter_label = f"  [#d29922]filter: {_truncate(names, 30)}[/]"
         self.query_one("#timeline-title", Static).update(
             Text.from_markup(
                 f"[bold #bc8cff]▸ Timeline[/]  [dim]{msg_count} messages (24h)[/]{filter_label}"
@@ -730,34 +769,46 @@ class CortexDashboard(App):
     # ── Timeline filtering ────────────────────────────────────────
 
     def _filter_timeline(self, timeline: list[dict]) -> list[dict]:
-        if not self.filter_session:
+        if not self._filter_sessions:
             return timeline
-        name = self.filter_session
+        names = self._filter_sessions
         filtered = []
         for item in timeline:
             if item["kind"] == "msg":
                 msg = item["data"]
-                if msg.get("from") == name or msg.get("to") == name:
+                if msg.get("from") in names or msg.get("to") in names:
                     filtered.append(item)
             elif item["kind"] == "event":
                 ev = item["data"]
-                if ev.get("session_name") == name:
+                if ev.get("session_name") in names:
                     filtered.append(item)
         return filtered
 
     def _apply_session_filter(self) -> None:
+        sess_list = self.query_one("#sessions-list", SessionListWidget)
+        sess_list.set_filtered(self._filter_sessions)
+        sess_list._rebuild()
+
         filtered = self._filter_timeline(self._all_timeline)
         tl = self.query_one("#timeline-scroll", TimelineScroll)
         tl.populate(filtered)
         msg_count = sum(1 for t in filtered if t["kind"] == "msg")
         filter_label = ""
-        if self.filter_session:
-            filter_label = f"  [#d29922]filter: {self.filter_session}[/]"
+        if self._filter_sessions:
+            names = ", ".join(sorted(self._filter_sessions))
+            filter_label = f"  [#d29922]filter: {_truncate(names, 30)}[/]"
         self.query_one("#timeline-title", Static).update(
             Text.from_markup(
                 f"[bold #bc8cff]▸ Timeline[/]  [dim]{msg_count} messages (24h)[/]{filter_label}"
             )
         )
+
+    def _toggle_session_filter(self, name: str) -> None:
+        if name in self._filter_sessions:
+            self._filter_sessions.discard(name)
+        else:
+            self._filter_sessions.add(name)
+        self._apply_session_filter()
 
     # ── Actions ─────────────────────────────────────────────────
 
@@ -767,32 +818,20 @@ class CortexDashboard(App):
     def action_move_down(self) -> None:
         sess_list = self.query_one("#sessions-list", SessionListWidget)
         sess_list.move_selection(1)
-        self._sync_session_filter()
 
     def action_move_up(self) -> None:
         sess_list = self.query_one("#sessions-list", SessionListWidget)
         sess_list.move_selection(-1)
-        self._sync_session_filter()
-
-    def _sync_session_filter(self) -> None:
-        if not self.filter_session:
-            return
-        sess = self.query_one("#sessions-list", SessionListWidget).get_selected()
-        if sess:
-            self.filter_session = sess.get("name", "")
-            self._apply_session_filter()
 
     def action_drill_down(self) -> None:
         sess = self.query_one("#sessions-list", SessionListWidget).get_selected()
         if not sess:
             return
-        name = sess.get("name", "")
-        if self.filter_session == name:
-            self.filter_session = ""
-            self._apply_session_filter()
-        else:
-            self.filter_session = name
-            self._apply_session_filter()
+        self._toggle_session_filter(sess.get("name", ""))
+
+    @on(SessionClicked)
+    def on_session_clicked(self, event: SessionClicked) -> None:
+        self._toggle_session_filter(event.session_name)
 
     def action_show_detail(self) -> None:
         sess = self.query_one("#sessions-list", SessionListWidget).get_selected()
@@ -816,8 +855,8 @@ class CortexDashboard(App):
             self.filter_text = ""
             self.query_one("#sessions-list", SessionListWidget).focus()
             self._refresh_data()
-        elif self.filter_session:
-            self.filter_session = ""
+        elif self._filter_sessions:
+            self._filter_sessions.clear()
             self._apply_session_filter()
 
     def action_toggle_all(self) -> None:
