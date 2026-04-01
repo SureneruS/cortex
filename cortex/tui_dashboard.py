@@ -57,20 +57,20 @@ STATUS_DOTS = {
 }
 
 RUNTIME_INDICATORS = {
-    "working": ("⟳", "#58a6ff"),
-    "waiting_input": ("⏎", "#d29922"),
-    "waiting_permission": ("🔒", "#d29922"),
+    "working": ("~", "#58a6ff"),
+    "waiting_input": ("<", "#d29922"),
+    "waiting_permission": ("!", "#d29922"),
     "error": ("!", "#f85149"),
-    "unknown": ("?", "#484f58"),
+    "unknown": ("", ""),
 }
 
 EVENT_GLYPHS = {
-    "spawn": ("＋", "#3fb950"),
-    "close": ("✕", "#f85149"),
-    "stale_sweep": ("⌧", "#d29922"),
-    "stale-sweep": ("⌧", "#d29922"),
-    "health-check": ("♡", "#484f58"),
-    "update": ("△", "#58a6ff"),
+    "spawn": ("+", "#3fb950"),
+    "close": ("x", "#f85149"),
+    "stale_sweep": ("X", "#d29922"),
+    "stale-sweep": ("X", "#d29922"),
+    "health-check": ("-", "#484f58"),
+    "update": ("^", "#58a6ff"),
 }
 
 
@@ -205,7 +205,7 @@ def _render_session_row(s: dict, selected: bool = False) -> RenderableType:
     status = s.get("status", "unknown")
     runtime = s.get("runtime", "unknown")
     dot_char, dot_color = STATUS_DOTS.get(status, ("?", "#484f58"))
-    rt_char, rt_color = RUNTIME_INDICATORS.get(runtime, ("?", "#484f58"))
+    rt_char, rt_color = RUNTIME_INDICATORS.get(runtime, ("", ""))
 
     cc_color = s.get("color", "")
     if cc_color and cc_color in SESSION_COLORS:
@@ -218,9 +218,10 @@ def _render_session_row(s: dict, selected: bool = False) -> RenderableType:
     repo_short = ", ".join(r.split("/")[-1] if "/" in r else r for r in repos[:2])
 
     sel_marker = "▸ " if selected else "  "
+    rt_part = f"  [{rt_color}]{rt_char}[/]" if rt_char else ""
     line1 = Text.from_markup(
         f"{sel_marker}[{dot_color}]{dot_char}[/] [{name_color} bold]{_truncate(name, 18)}[/]"
-        f"  [{rt_color}]{rt_char}[/]"
+        f"{rt_part}"
     )
     line2 = Text.from_markup(
         f"    [dim]{repo_short}[/]" if repo_short else f"    [dim]{_fmt_ago(s.get('created_at', ''))} ago[/]"
@@ -549,21 +550,26 @@ class CortexDashboard(App):
         Binding("r", "refresh", "Refresh", show=True),
         Binding("j", "move_down", "↓", show=False),
         Binding("k", "move_up", "↑", show=False),
-        Binding("enter", "drill_down", "Detail", show=True),
+        Binding("enter", "drill_down", "Select", show=True),
+        Binding("d", "show_detail", "Detail", show=True),
         Binding("slash", "toggle_filter", "Filter", show=True),
-        Binding("escape", "close_filter", "Back", show=False),
+        Binding("escape", "close_filter_or_session", "Back", show=False),
         Binding("tab", "focus_next", "Next Panel", show=True),
         Binding("shift+tab", "focus_previous", "Prev Panel", show=False),
         Binding("a", "toggle_all", "All sessions", show=True),
         Binding("g", "scroll_top", "Top", show=False),
         Binding("G", "scroll_bottom", "Bottom", show=False),
+        Binding("left_square_bracket", "toggle_left_panel", "[  Sessions", show=True),
+        Binding("right_square_bracket", "toggle_right_panel", "]  Streams", show=True),
     ]
 
     show_all: reactive[bool] = reactive(False)
     filter_text: reactive[str] = reactive("")
+    filter_session: reactive[str] = reactive("")
     _msg_sparkline: list[float] = []
     _refresh_count: int = 0
     _all_sessions: list[dict] = []
+    _all_timeline: list[dict] = []
 
     def compose(self) -> ComposeResult:
         # Header
@@ -659,14 +665,20 @@ class CortexDashboard(App):
             )
         )
 
-        # Timeline
-        tl = self.query_one("#timeline-scroll", TimelineScroll)
-        tl.populate(timeline)
+        # Timeline — store full set, apply session filter
+        self._all_timeline = timeline
+        filtered_timeline = self._filter_timeline(timeline)
 
-        msg_count = sum(1 for t in timeline if t["kind"] == "msg")
+        tl = self.query_one("#timeline-scroll", TimelineScroll)
+        tl.populate(filtered_timeline)
+
+        msg_count = sum(1 for t in filtered_timeline if t["kind"] == "msg")
+        filter_label = ""
+        if self.filter_session:
+            filter_label = f"  [#d29922]filter: {self.filter_session}[/]"
         self.query_one("#timeline-title", Static).update(
             Text.from_markup(
-                f"[bold #bc8cff]▸ Timeline[/]  [dim]{msg_count} messages (24h)[/]"
+                f"[bold #bc8cff]▸ Timeline[/]  [dim]{msg_count} messages (24h)[/]{filter_label}"
             )
         )
 
@@ -715,18 +727,74 @@ class CortexDashboard(App):
         if len(self._msg_sparkline) > 30:
             self._msg_sparkline = self._msg_sparkline[-30:]
 
+    # ── Timeline filtering ────────────────────────────────────────
+
+    def _filter_timeline(self, timeline: list[dict]) -> list[dict]:
+        if not self.filter_session:
+            return timeline
+        name = self.filter_session
+        filtered = []
+        for item in timeline:
+            if item["kind"] == "msg":
+                msg = item["data"]
+                if msg.get("from") == name or msg.get("to") == name:
+                    filtered.append(item)
+            elif item["kind"] == "event":
+                ev = item["data"]
+                if ev.get("session_name") == name:
+                    filtered.append(item)
+        return filtered
+
+    def _apply_session_filter(self) -> None:
+        filtered = self._filter_timeline(self._all_timeline)
+        tl = self.query_one("#timeline-scroll", TimelineScroll)
+        tl.populate(filtered)
+        msg_count = sum(1 for t in filtered if t["kind"] == "msg")
+        filter_label = ""
+        if self.filter_session:
+            filter_label = f"  [#d29922]filter: {self.filter_session}[/]"
+        self.query_one("#timeline-title", Static).update(
+            Text.from_markup(
+                f"[bold #bc8cff]▸ Timeline[/]  [dim]{msg_count} messages (24h)[/]{filter_label}"
+            )
+        )
+
     # ── Actions ─────────────────────────────────────────────────
 
     def action_refresh(self) -> None:
         self._refresh_data()
 
     def action_move_down(self) -> None:
-        self.query_one("#sessions-list", SessionListWidget).move_selection(1)
+        sess_list = self.query_one("#sessions-list", SessionListWidget)
+        sess_list.move_selection(1)
+        self._sync_session_filter()
 
     def action_move_up(self) -> None:
-        self.query_one("#sessions-list", SessionListWidget).move_selection(-1)
+        sess_list = self.query_one("#sessions-list", SessionListWidget)
+        sess_list.move_selection(-1)
+        self._sync_session_filter()
+
+    def _sync_session_filter(self) -> None:
+        if not self.filter_session:
+            return
+        sess = self.query_one("#sessions-list", SessionListWidget).get_selected()
+        if sess:
+            self.filter_session = sess.get("name", "")
+            self._apply_session_filter()
 
     def action_drill_down(self) -> None:
+        sess = self.query_one("#sessions-list", SessionListWidget).get_selected()
+        if not sess:
+            return
+        name = sess.get("name", "")
+        if self.filter_session == name:
+            self.filter_session = ""
+            self._apply_session_filter()
+        else:
+            self.filter_session = name
+            self._apply_session_filter()
+
+    def action_show_detail(self) -> None:
         sess = self.query_one("#sessions-list", SessionListWidget).get_selected()
         if sess:
             self.push_screen(SessionDetailScreen(sess["_id"]))
@@ -740,7 +808,7 @@ class CortexDashboard(App):
             fbar.add_class("-visible")
             fbar.focus()
 
-    def action_close_filter(self) -> None:
+    def action_close_filter_or_session(self) -> None:
         fbar = self.query_one("#filter-bar", Input)
         if fbar.has_class("-visible"):
             fbar.remove_class("-visible")
@@ -748,6 +816,9 @@ class CortexDashboard(App):
             self.filter_text = ""
             self.query_one("#sessions-list", SessionListWidget).focus()
             self._refresh_data()
+        elif self.filter_session:
+            self.filter_session = ""
+            self._apply_session_filter()
 
     def action_toggle_all(self) -> None:
         self.show_all = not self.show_all
@@ -760,6 +831,14 @@ class CortexDashboard(App):
     def action_scroll_bottom(self) -> None:
         tl = self.query_one("#timeline-scroll", TimelineScroll)
         tl.scroll_end(animate=False)
+
+    def action_toggle_left_panel(self) -> None:
+        panel = self.query_one("#sessions-panel")
+        panel.toggle_class("-collapsed")
+
+    def action_toggle_right_panel(self) -> None:
+        panel = self.query_one("#right-panel")
+        panel.toggle_class("-collapsed")
 
     def on_input_changed(self, event: Input.Changed) -> None:
         if event.input.id == "filter-bar":

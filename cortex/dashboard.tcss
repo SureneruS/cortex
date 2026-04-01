@@ -101,6 +101,10 @@ Screen {
     border-left: thick $blue;
 }
 
+#sessions-panel.-collapsed {
+    display: none;
+}
+
 /* ── Center panel: Timeline ─────────────────────────────────── */
 
 #timeline-panel {
@@ -197,6 +201,10 @@ Screen {
     height: 1;
     padding: 0 1;
     background: $bg-surface;
+}
+
+#right-panel.-collapsed {
+    display: none;
 }
 
 /* ── Status bar (bottom) ────────────────────────────────────── */
