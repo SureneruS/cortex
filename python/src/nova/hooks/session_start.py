@@ -2,7 +2,6 @@ import json
 import os
 import subprocess
 import sys
-from datetime import datetime, timezone
 from pathlib import Path
 
 NOVA_DIR = Path.home() / ".nova"
@@ -16,29 +15,6 @@ def _cortex_cli(*args: str) -> str | None:
         return result.stdout if result.returncode == 0 else None
     except Exception:
         return None
-
-
-def _get_knowledge_summaries(cwd: str) -> list[str]:
-    knowledge_dir = NOVA_DIR / "memory" / "knowledge"
-    repo_name = Path(cwd).name if cwd else ""
-    summaries: list[str] = []
-
-    for subdir in [f"repo-{repo_name}", "global"]:
-        d = knowledge_dir / subdir
-        if not d.is_dir():
-            continue
-        for md in sorted(d.glob("*.md")):
-            try:
-                from nova.lib.frontmatter import read_frontmatter
-
-                meta, _ = read_frontmatter(md)
-                title = meta.get("title", md.stem)
-                summary = meta.get("summary", "")
-                if summary:
-                    summaries.append(f"- **{title}**: {summary}")
-            except Exception:
-                continue
-    return summaries
 
 
 def handle_session_start(hook_input: dict) -> dict:
@@ -128,15 +104,7 @@ def handle_session_start(hook_input: dict) -> dict:
     # Also write to Nova state.json for backward compatibility
     _legacy_nova_register(session_id, transcript_path, repo_name)
 
-    # Inject knowledge context
-    summaries = _get_knowledge_summaries(cwd)
-    if not summaries:
-        return {}
-
-    context = "[Cortex] Relevant knowledge from previous sessions:\n\n" + "\n".join(
-        summaries
-    )
-    return _wrap_context(context, "SessionStart")
+    return {}
 
 
 def _legacy_nova_register(session_id: str, transcript_path: str, repo_name: str) -> None:
@@ -153,16 +121,6 @@ def _legacy_nova_register(session_id: str, transcript_path: str, repo_name: str)
         state.save()
     except Exception:
         pass
-
-
-def _wrap_context(context: str, event_name: str) -> dict:
-    return {
-        "additionalContext": context,
-        "hookSpecificOutput": {
-            "hookEventName": event_name,
-            "additionalContext": context,
-        },
-    }
 
 
 def main():
