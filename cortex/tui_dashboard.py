@@ -257,18 +257,11 @@ def _render_msg_bubble(msg: dict) -> Panel:
     )
 
     content = (msg.get("content") or "").strip()
-    truncated = len(content) > 800
-    if truncated:
-        content = content[:800]
 
     try:
         body: RenderableType = Markdown(content)
     except Exception:
         body = Text(content)
-
-    if truncated:
-        from rich.console import Group
-        body = Group(body, Text("...(truncated)", style="dim"))
 
     return Panel(
         body,
