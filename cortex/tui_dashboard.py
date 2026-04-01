@@ -353,7 +353,6 @@ class SessionListWidget(VerticalScroll):
 
     def set_filtered(self, names: set[str]) -> None:
         self.filtered_names = frozenset(names)
-        self._rebuild()
 
     def _rebuild(self) -> None:
         self.remove_children()
@@ -381,7 +380,6 @@ class SessionListWidget(VerticalScroll):
             return
         idx = int(wid.split("-")[1])
         self.selected_index = idx
-        self._rebuild()
         if idx < len(self.sessions):
             name = self.sessions[idx].get("name", "")
             self.post_message(SessionClicked(name))
