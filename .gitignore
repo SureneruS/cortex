@@ -17,6 +17,10 @@ node_modules/
 
 # Worktrees
 .worktrees/
+.claude/worktrees/
+
+# Superpowers
+.superpowers/
 
 # Legacy venvs
 python/.venv/
