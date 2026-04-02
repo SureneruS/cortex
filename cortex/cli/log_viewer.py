@@ -40,9 +40,15 @@ def _format_entry(entry: dict) -> Text:
 
     text = Text()
 
-    # Timestamp (dimmed, just time portion)
+    # Timestamp (dimmed, converted to local timezone)
     if timestamp and "T" in timestamp:
-        time_part = timestamp.split("T")[1][:8]
+        from datetime import datetime, timezone
+        try:
+            dt = datetime.fromisoformat(timestamp.rstrip("Z") + "+00:00" if timestamp.endswith("Z") else timestamp)
+            local_dt = dt.astimezone()
+            time_part = local_dt.strftime("%H:%M:%S")
+        except (ValueError, OSError):
+            time_part = timestamp.split("T")[1][:8]
         text.append(time_part, style="dim")
     else:
         text.append(timestamp[:8] if timestamp else "??:??:??", style="dim")
