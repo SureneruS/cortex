@@ -9,7 +9,11 @@ from cortex.mongo import get_db
 from cortex.mongo_state import MongoStateManager
 
 
+from cortex._version import __version__
+
+
 @click.group()
+@click.version_option(version=__version__, prog_name="cortex")
 def cli() -> None:
     """Cortex — persistent context brain for Claude Code."""
     from cortex.observability import bind_correlation, setup_logging

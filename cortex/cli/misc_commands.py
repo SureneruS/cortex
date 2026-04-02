@@ -338,12 +338,11 @@ def daemon() -> None:
 
 @daemon.command("start")
 def daemon_start() -> None:
-    """Start the daemon in a tmux window."""
-    from cortex.daemon import TmuxBackend
-    backend = TmuxBackend()
+    """Start the daemon as a launchd service (auto-restarts on crash, starts on login)."""
+    from cortex import daemon as daemon_mod
     try:
-        identifier = backend.start("cron-executor", ["cortex", "daemon", "run"])
-        _json_out({"ok": True, "identifier": identifier})
+        daemon_mod.start()
+        _json_out({"ok": True, "plist": str(daemon_mod.PLIST_PATH), "label": daemon_mod.PLIST_LABEL})
     except RuntimeError as e:
         _error_exit(str(e))
 
@@ -351,11 +350,10 @@ def daemon_start() -> None:
 @daemon.command("stop")
 def daemon_stop() -> None:
     """Stop the daemon."""
-    from cortex.daemon import TmuxBackend
-    backend = TmuxBackend()
+    from cortex import daemon as daemon_mod
     try:
-        backend.stop("cron-executor")
-        _json_out({"ok": True, "stopped": "cron-executor"})
+        daemon_mod.stop()
+        _json_out({"ok": True, "stopped": daemon_mod.PLIST_LABEL})
     except RuntimeError as e:
         _error_exit(str(e))
 
@@ -363,9 +361,8 @@ def daemon_stop() -> None:
 @daemon.command("status")
 def daemon_status() -> None:
     """Check if the daemon is running."""
-    from cortex.daemon import TmuxBackend
-    backend = TmuxBackend()
-    _json_out({"status": backend.status("cron-executor")})
+    from cortex import daemon as daemon_mod
+    _json_out({"status": daemon_mod.status(), "plist": str(daemon_mod.PLIST_PATH)})
 
 
 @daemon.command("run")
@@ -373,6 +370,79 @@ def daemon_run() -> None:
     """Run the daemon loop (used internally by start)."""
     from cortex.cron_executor import run
     run()
+
+
+@daemon.command("logs")
+@click.option("-n", "--lines", default=50, help="Number of recent lines to show")
+@click.option("-f", "--follow", is_flag=True, help="Follow log output (like tail -f)")
+@click.option("--level", default=None, type=click.Choice(["debug", "info", "warning", "error"]), help="Filter by log level")
+@click.option("--debug", "show_debug", is_flag=True, help="Show debug log instead of info log")
+def daemon_logs(lines: int, follow: bool, level: str | None, show_debug: bool) -> None:
+    """View daemon logs in a human-readable format."""
+    from cortex.cli.log_viewer import tail_logs
+
+    log_name = "cortex-daemon-debug.log" if show_debug else "cortex-daemon.log"
+    log_file = CORTEX_DIR / "logs" / log_name
+    if not log_file.exists():
+        _error_exit(f"No daemon log file at {log_file}")
+
+    tail_logs(log_file, lines=lines, follow=follow, level_filter=level)
+
+
+@daemon.command("cleanup")
+@click.option("--dry-run", is_flag=True, help="Show what would be cleaned without deleting")
+def daemon_cleanup(dry_run: bool) -> None:
+    """Clean up stale daemon data: legacy logs, debug log bloat, orphan registry entries."""
+    from pathlib import Path
+    log_dir = CORTEX_DIR / "logs"
+
+    # Legacy log files
+    legacy_files = ["daemon.log", "session.log"]
+    # Oversized debug logs (rotated backups from old TimedRotating config)
+    # Include the current debug logs too — they're bloated from before the size cap fix
+    debug_patterns = [
+        "cortex-cli-debug.log", "cortex-cli-debug.log.*",
+        "cortex-daemon-debug.log.*",
+        "cortex-mcp-debug.log", "cortex-mcp-debug.log.*",
+    ]
+
+    cleaned_files = []
+    freed_bytes = 0
+
+    for name in legacy_files:
+        path = log_dir / name
+        if path.exists():
+            size = path.stat().st_size
+            cleaned_files.append({"file": str(path), "size_mb": round(size / 1024 / 1024, 1)})
+            freed_bytes += size
+            if not dry_run:
+                path.unlink()
+
+    import glob
+    for pattern in debug_patterns:
+        for path_str in glob.glob(str(log_dir / pattern)):
+            path = Path(path_str)
+            size = path.stat().st_size
+            cleaned_files.append({"file": str(path), "size_mb": round(size / 1024 / 1024, 1)})
+            freed_bytes += size
+            if not dry_run:
+                path.unlink()
+
+    # Stale daemon entries in MongoDB
+    db = get_db()
+    from cortex.repositories.session_repo import MongoSessionRepository
+    repo = MongoSessionRepository(db)
+    stale = repo.list({"role": "daemon", "status": {"$in": ["active", "dead"]}})
+    stale_ids = [s["_id"] for s in stale]
+    if stale_ids and not dry_run:
+        db["session_registry"].delete_many({"_id": {"$in": stale_ids}})
+
+    _json_out({
+        "dry_run": dry_run,
+        "files_cleaned": cleaned_files,
+        "freed_mb": round(freed_bytes / 1024 / 1024, 1),
+        "stale_daemon_entries": len(stale_ids),
+    })
 
 
 # ── Dashboard / UI ───────────────────────────────────────────

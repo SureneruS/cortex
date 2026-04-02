@@ -36,7 +36,7 @@ complete -c cortex -n "not __fish_seen_subcommand_from $__cortex_cmds" -a checkp
 complete -c cortex -n "not __fish_seen_subcommand_from $__cortex_cmds" -a control -d "Open the control session"
 complete -c cortex -n "not __fish_seen_subcommand_from $__cortex_cmds" -a cron -d "Manage persistent cron jobs"
 complete -c cortex -n "not __fish_seen_subcommand_from $__cortex_cmds" -a daemon -d "Manage the Cortex background daemon"
-complete -c cortex -n "not __fish_seen_subcommand_from $__cortex_cmds" -a dashboard -d "Open the interactive TUI dashboard"
+complete -c cortex -n "not __fish_seen_subcommand_from $__cortex_cmds" -a dashboard -d "Launch the Textual TUI dashboard"
 complete -c cortex -n "not __fish_seen_subcommand_from $__cortex_cmds" -a init -d "Initialize Cortex: create config, DB, and scan repos for context"
 complete -c cortex -n "not __fish_seen_subcommand_from $__cortex_cmds" -a link -d "Link a session to a stream"
 complete -c cortex -n "not __fish_seen_subcommand_from $__cortex_cmds" -a pr -d "GitHub PR operations"
@@ -88,15 +88,22 @@ for cmd in delete pause resume
 end
 
 # ── daemon ──────────────────────────────────────────────
-set -l __daemon_cmds run start status stop
+set -l __daemon_cmds cleanup logs run start status stop
+complete -c cortex -n "__fish_seen_subcommand_from daemon; and not __fish_seen_subcommand_from $__daemon_cmds" -a cleanup -d "Clean up stale daemon data: legacy lo..."
+complete -c cortex -n "__fish_seen_subcommand_from daemon; and not __fish_seen_subcommand_from $__daemon_cmds" -a logs -d "View daemon logs in a human-readable ..."
 complete -c cortex -n "__fish_seen_subcommand_from daemon; and not __fish_seen_subcommand_from $__daemon_cmds" -a run -d "Run the daemon loop (used internally ..."
-complete -c cortex -n "__fish_seen_subcommand_from daemon; and not __fish_seen_subcommand_from $__daemon_cmds" -a start -d "Start the daemon in a tmux window"
+complete -c cortex -n "__fish_seen_subcommand_from daemon; and not __fish_seen_subcommand_from $__daemon_cmds" -a start -d "Start the daemon as a launchd service..."
 complete -c cortex -n "__fish_seen_subcommand_from daemon; and not __fish_seen_subcommand_from $__daemon_cmds" -a status -d "Check if the daemon is running"
 complete -c cortex -n "__fish_seen_subcommand_from daemon; and not __fish_seen_subcommand_from $__daemon_cmds" -a stop -d "Stop the daemon"
 
+complete -c cortex -n "__fish_seen_subcommand_from daemon; and __fish_seen_subcommand_from cleanup" -l dry-run -d "Show what would be cleaned without de..."
+complete -c cortex -n "__fish_seen_subcommand_from daemon; and __fish_seen_subcommand_from logs" -l lines -r -d "Number of recent lines to show"
+complete -c cortex -n "__fish_seen_subcommand_from daemon; and __fish_seen_subcommand_from logs" -l follow -d "Follow log output (like tail -f)"
+complete -c cortex -n "__fish_seen_subcommand_from daemon; and __fish_seen_subcommand_from logs" -l level -r -d "Filter by log level"
+complete -c cortex -n "__fish_seen_subcommand_from daemon; and __fish_seen_subcommand_from logs" -l debug -d "Show debug log instead of info log"
 
 # ── pr ──────────────────────────────────────────────
-set -l __pr_cmds batch-resolve checks react reply resolve state threads watch
+set -l __pr_cmds batch-resolve checks react reply resolve state threads watch watches
 complete -c cortex -n "__fish_seen_subcommand_from pr; and not __fish_seen_subcommand_from $__pr_cmds" -a batch-resolve -d "React to and resolve multiple PR threads"
 complete -c cortex -n "__fish_seen_subcommand_from pr; and not __fish_seen_subcommand_from $__pr_cmds" -a checks -d "Get CI check details for a PR"
 complete -c cortex -n "__fish_seen_subcommand_from pr; and not __fish_seen_subcommand_from $__pr_cmds" -a react -d "React to a PR review comment (+1 or -1)"
@@ -105,6 +112,7 @@ complete -c cortex -n "__fish_seen_subcommand_from pr; and not __fish_seen_subco
 complete -c cortex -n "__fish_seen_subcommand_from pr; and not __fish_seen_subcommand_from $__pr_cmds" -a state -d "Get PR state summary"
 complete -c cortex -n "__fish_seen_subcommand_from pr; and not __fish_seen_subcommand_from $__pr_cmds" -a threads -d "List PR review threads"
 complete -c cortex -n "__fish_seen_subcommand_from pr; and not __fish_seen_subcommand_from $__pr_cmds" -a watch -d "Register a session to watch a PR for ..."
+complete -c cortex -n "__fish_seen_subcommand_from pr; and not __fish_seen_subcommand_from $__pr_cmds" -a watches -d "List all active PR watches"
 
 complete -c cortex -n "__fish_seen_subcommand_from pr; and __fish_seen_subcommand_from batch-resolve" -l items -r -d "JSON array of {comment_id, thread_id,..."
 complete -c cortex -n "__fish_seen_subcommand_from pr; and __fish_seen_subcommand_from batch-resolve" -l repo -x -a "(__cortex_github_repos)" -d "Repository in owner/repo format"
@@ -114,14 +122,14 @@ complete -c cortex -n "__fish_seen_subcommand_from pr; and __fish_seen_subcomman
 complete -c cortex -n "__fish_seen_subcommand_from pr; and __fish_seen_subcommand_from reply" -l repo -x -a "(__cortex_github_repos)" -d "Repository in owner/repo format"
 complete -c cortex -n "__fish_seen_subcommand_from pr; and __fish_seen_subcommand_from state" -l repo -x -a "(__cortex_github_repos)" -d "Repository in owner/repo format"
 complete -c cortex -n "__fish_seen_subcommand_from pr; and __fish_seen_subcommand_from threads" -l repo -x -a "(__cortex_github_repos)" -d "Repository in owner/repo format"
-complete -c cortex -n "__fish_seen_subcommand_from pr; and __fish_seen_subcommand_from watch" -l repo -x -a "(__cortex_github_repos)" -d "Repository in owner/repo format"
 complete -c cortex -n "__fish_seen_subcommand_from pr; and __fish_seen_subcommand_from watch" -l message -r -d "Custom message for when changes detected"
 
 # ── session ──────────────────────────────────────────────
-set -l __session_cmds attach auto-close capture cleanup close gather get health hide layout list message messages move paint pause register restart resume scatter show spawn update
+set -l __session_cmds attach auto-close capture children cleanup close gather get health hide layout link-cc list message messages move paint pause register restart resume scatter show spawn tree update watch
 complete -c cortex -n "__fish_seen_subcommand_from session; and not __fish_seen_subcommand_from $__session_cmds" -a attach -d "Jump to a session's tmux pane"
 complete -c cortex -n "__fish_seen_subcommand_from session; and not __fish_seen_subcommand_from $__session_cmds" -a auto-close -d "Close a session by its tmux pane_id (..."
 complete -c cortex -n "__fish_seen_subcommand_from session; and not __fish_seen_subcommand_from $__session_cmds" -a capture -d "Capture terminal output from a sessio..."
+complete -c cortex -n "__fish_seen_subcommand_from session; and not __fish_seen_subcommand_from $__session_cmds" -a children -d "List direct child sessions spawned by..."
 complete -c cortex -n "__fish_seen_subcommand_from session; and not __fish_seen_subcommand_from $__session_cmds" -a cleanup -d "Close all active sessions with dead t..."
 complete -c cortex -n "__fish_seen_subcommand_from session; and not __fish_seen_subcommand_from $__session_cmds" -a close -d "Close a session with channels-first w..."
 complete -c cortex -n "__fish_seen_subcommand_from session; and not __fish_seen_subcommand_from $__session_cmds" -a gather -d "Gather sessions into a single window ..."
@@ -129,6 +137,7 @@ complete -c cortex -n "__fish_seen_subcommand_from session; and not __fish_seen_
 complete -c cortex -n "__fish_seen_subcommand_from session; and not __fish_seen_subcommand_from $__session_cmds" -a health -d "Comprehensive health check"
 complete -c cortex -n "__fish_seen_subcommand_from session; and not __fish_seen_subcommand_from $__session_cmds" -a hide -d "Move a session to the background work..."
 complete -c cortex -n "__fish_seen_subcommand_from session; and not __fish_seen_subcommand_from $__session_cmds" -a layout -d "Show spatial layout of all panes with..."
+complete -c cortex -n "__fish_seen_subcommand_from session; and not __fish_seen_subcommand_from $__session_cmds" -a link-cc -d "Link a new CC session ID (appends to ..."
 complete -c cortex -n "__fish_seen_subcommand_from session; and not __fish_seen_subcommand_from $__session_cmds" -a list -d "List registered sessions. Shows activ..."
 complete -c cortex -n "__fish_seen_subcommand_from session; and not __fish_seen_subcommand_from $__session_cmds" -a message -d "Send a message to a session via channels"
 complete -c cortex -n "__fish_seen_subcommand_from session; and not __fish_seen_subcommand_from $__session_cmds" -a messages -d "View recent inter-session messages"
@@ -141,17 +150,23 @@ complete -c cortex -n "__fish_seen_subcommand_from session; and not __fish_seen_
 complete -c cortex -n "__fish_seen_subcommand_from session; and not __fish_seen_subcommand_from $__session_cmds" -a scatter -d "Break sessions into separate windows ..."
 complete -c cortex -n "__fish_seen_subcommand_from session; and not __fish_seen_subcommand_from $__session_cmds" -a show -d "Bring a hidden session back from back..."
 complete -c cortex -n "__fish_seen_subcommand_from session; and not __fish_seen_subcommand_from $__session_cmds" -a spawn -d "Spawn a new Claude Code session in a ..."
+complete -c cortex -n "__fish_seen_subcommand_from session; and not __fish_seen_subcommand_from $__session_cmds" -a tree -d "Show session hierarchy as a tree"
 complete -c cortex -n "__fish_seen_subcommand_from session; and not __fish_seen_subcommand_from $__session_cmds" -a update -d "Update a session's fields"
+complete -c cortex -n "__fish_seen_subcommand_from session; and not __fish_seen_subcommand_from $__session_cmds" -a watch -d "Live-tail messages between sessions i..."
 
 complete -c cortex -n "__fish_seen_subcommand_from session; and __fish_seen_subcommand_from capture" -l lines -r -d "Number of scrollback lines to capture"
+complete -c cortex -n "__fish_seen_subcommand_from session; and __fish_seen_subcommand_from children" -l all -d "Include completed/dead children"
 complete -c cortex -n "__fish_seen_subcommand_from session; and __fish_seen_subcommand_from close" -l force -d "Skip wrapup and close immediately"
+complete -c cortex -n "__fish_seen_subcommand_from session; and __fish_seen_subcommand_from close" -l cascade -d "Also close all descendant sessions"
 complete -c cortex -n "__fish_seen_subcommand_from session; and __fish_seen_subcommand_from gather" -l layout -x -a "tiled even-horizontal even-vertical main-horizontal main-vertical" -d "Layout: tiled, even-horizontal, etc."
 complete -c cortex -n "__fish_seen_subcommand_from session; and __fish_seen_subcommand_from layout" -l window -r -d "Filter to a specific window name or i..."
+complete -c cortex -n "__fish_seen_subcommand_from session; and __fish_seen_subcommand_from link-cc" -l data -r -d "JSON object of extra fields for the c..."
 complete -c cortex -n "__fish_seen_subcommand_from session; and __fish_seen_subcommand_from list" -l status -x -a "active paused hidden dead completed" -d "Filter by status"
 complete -c cortex -n "__fish_seen_subcommand_from session; and __fish_seen_subcommand_from list" -l runtime -r -d "Filter by runtime state"
 complete -c cortex -n "__fish_seen_subcommand_from session; and __fish_seen_subcommand_from list" -l brief -d "Omit events and watch details"
 complete -c cortex -n "__fish_seen_subcommand_from session; and __fish_seen_subcommand_from list" -l limit -r -d "Max sessions to return"
 complete -c cortex -n "__fish_seen_subcommand_from session; and __fish_seen_subcommand_from message" -l thread-id -r -d "Thread ID for conversation linking"
+complete -c cortex -n "__fish_seen_subcommand_from session; and __fish_seen_subcommand_from message" -l meta -r -d "JSON object of extra meta fields"
 complete -c cortex -n "__fish_seen_subcommand_from session; and __fish_seen_subcommand_from messages" -l to -r -d "Filter by recipient"
 complete -c cortex -n "__fish_seen_subcommand_from session; and __fish_seen_subcommand_from messages" -l limit -r -d "Max messages"
 complete -c cortex -n "__fish_seen_subcommand_from session; and __fish_seen_subcommand_from move" -l beside -x -a "(__cortex_session_names)" -d "Move beside this session (horizontal)"
@@ -177,9 +192,14 @@ complete -c cortex -n "__fish_seen_subcommand_from session; and __fish_seen_subc
 complete -c cortex -n "__fish_seen_subcommand_from session; and __fish_seen_subcommand_from spawn" -l color -x -a "blue green yellow purple orange pink cyan red" -d "CC session color"
 complete -c cortex -n "__fish_seen_subcommand_from session; and __fish_seen_subcommand_from update" -l data -r -d "JSON object of fields to merge"
 complete -c cortex -n "__fish_seen_subcommand_from session; and __fish_seen_subcommand_from update" -l trigger -r -d "What triggered this update"
+complete -c cortex -n "__fish_seen_subcommand_from session; and __fish_seen_subcommand_from update" -l increment -r -d "Field name to atomically increment by 1"
+complete -c cortex -n "__fish_seen_subcommand_from session; and __fish_seen_subcommand_from watch" -l limit -r -d "Max initial messages (within last 24h)"
+complete -c cortex -n "__fish_seen_subcommand_from session; and __fish_seen_subcommand_from watch" -l poll -r -d "Poll interval in seconds"
+complete -c cortex -n "__fish_seen_subcommand_from session; and __fish_seen_subcommand_from watch" -l no-live -d "Show history and exit"
+complete -c cortex -n "__fish_seen_subcommand_from session; and __fish_seen_subcommand_from watch" -l mode -r -d "messages: channel messages only (defa..."
 
 # session commands that take session name as positional arg
-for cmd in get close pause resume hide show restart capture move paint auto-close update attach message messages
+for cmd in get close pause resume hide show restart capture move paint auto-close update attach message messages children link-cc watch
     complete -c cortex -n "__fish_seen_subcommand_from session; and __fish_seen_subcommand_from $cmd" -x -a "(__cortex_session_names)"
 end
 

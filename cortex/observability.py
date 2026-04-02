@@ -84,10 +84,10 @@ def setup_logging(component: str = "cortex", *, force: bool = False) -> None:
     info_handler.setLevel(logging.INFO)
     info_handler.setFormatter(json_formatter)
 
-    # Debug file — step tracing, 3-day retention
-    debug_handler = logging.handlers.TimedRotatingFileHandler(
+    # Debug file — step tracing, 50MB cap with 3 backups (~200MB max)
+    debug_handler = logging.handlers.RotatingFileHandler(
         LOG_DIR / f"cortex-{component}-debug.log",
-        when="midnight",
+        maxBytes=50 * 1024 * 1024,
         backupCount=3,
         encoding="utf-8",
     )
@@ -107,7 +107,7 @@ def setup_logging(component: str = "cortex", *, force: bool = False) -> None:
     root.setLevel(min(log_level, logging.DEBUG))
 
     # Quiet noisy libraries
-    for name in ("httpx", "httpcore", "pymongo", "uvicorn", "asyncio"):
+    for name in ("httpx", "httpcore", "pymongo", "uvicorn", "asyncio", "markdown_it"):
         logging.getLogger(name).setLevel(logging.WARNING)
 
 

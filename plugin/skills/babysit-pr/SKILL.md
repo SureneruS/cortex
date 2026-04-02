@@ -9,9 +9,9 @@ Monitor an open PR, handle feedback autonomously, and merge when all checks pass
 
 ## Setup
 
-**Watcher mode (preferred):** Register for watching using the MCP tool. The cron watcher will wake you up when something changes:
-```
-cortex_pr_watch(number=<N>, session_id="<your session ID>", repo="cercli/<repo>")
+**Watcher mode (preferred):** Register for watching via CLI. The cron watcher will wake you up when something changes:
+```bash
+cortex pr watch cercli/<repo>#<number> <your-session-id>
 ```
 When woken up, handle the change using this skill's workflow below.
 
@@ -86,7 +86,7 @@ gh pr merge <number> --squash
 ### 6. Re-register for watching (if PR still open)
 
 If the PR is still open after handling, re-register so the watcher picks up the next change:
-```
-cortex_pr_watch(number, session_id="<your session ID>", repo="cercli/<repo>")
+```bash
+cortex pr watch cercli/<repo>#<number> <your-session-id>
 ```
 This fetches current state as baseline and registers in one call.

@@ -34,7 +34,8 @@ PR_REPO_VALUES = "(__cortex_github_repos)"
 # Commands that take a session ref as positional arg
 SESSION_REF_CMDS = {
     "session": ["get", "close", "pause", "resume", "hide", "show", "restart",
-                 "capture", "move", "paint", "auto-close", "update", "attach", "message", "messages"],
+                 "capture", "move", "paint", "auto-close", "update", "attach",
+                 "message", "messages", "children", "link-cc", "watch"],
 }
 
 # Commands that take a stream ID as positional arg
