@@ -49,6 +49,7 @@ Companion brain for Claude Code — persistent context, session orchestration, m
 - TypeScript/Bun for channels MCP (`src/channels-mcp/`). See `.claude/rules/team-channels.md` for detailed rules.
 - `@trace` decorator on all public methods for observability
 - All MongoDB IDs as strings (not ObjectIds) in shared collections
+- Always display timestamps in the user's local timezone (not UTC)
 
 ## Testing
 - Tests use real MongoDB (`cortex_test` / `cortex_state_test` databases), not mocks
