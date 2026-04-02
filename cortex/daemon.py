@@ -35,7 +35,7 @@ def _build_plist(cortex_bin: str) -> dict:
         "StandardOutPath": str(LOG_DIR / "cortex-daemon-stdout.log"),
         "StandardErrorPath": str(LOG_DIR / "cortex-daemon-stderr.log"),
         "EnvironmentVariables": {
-            "PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin",
+            "PATH": f"{Path.home()}/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin",
         },
     }
 

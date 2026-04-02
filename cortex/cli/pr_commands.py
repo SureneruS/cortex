@@ -161,3 +161,31 @@ def pr_watch(pr_ref: str, session_id: str, message: str | None) -> None:
         actor=os.environ.get("CORTEX_SESSION_NAME"),
     )
     _json_out({"ok": True, "session_id": session_id, "pr": pr_ref, "repo": repo, "number": number, "baseline": state})
+
+
+@pr.command("watches")
+def pr_watches() -> None:
+    """List all active PR watches."""
+    session_repo = get_container().sessions
+    watching = session_repo.list({"status": "watching"})
+    if not watching:
+        _json_out([])
+        return
+
+    results = []
+    for s in watching:
+        watch = s.get("watch", {})
+        entry: dict = {
+            "session": s.get("name", s["_id"]),
+            "session_id": s["_id"],
+            "type": watch.get("type"),
+        }
+        if watch.get("type") == "pr":
+            entry["pr"] = f"{watch.get('repo')}#{watch.get('number')}"
+            entry["repo"] = watch.get("repo")
+            entry["number"] = watch.get("number")
+        elif watch.get("type") == "alarm":
+            entry["wake_at"] = watch.get("wake_at")
+            entry["message"] = watch.get("message")
+        results.append(entry)
+    _json_out(results)
