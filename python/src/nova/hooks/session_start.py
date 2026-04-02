@@ -17,6 +17,22 @@ def _cortex_cli(*args: str) -> str | None:
         return None
 
 
+def _load_workflow_context() -> str | None:
+    """Load workflow context for injection into all sessions."""
+    # Find the workflow-context.md relative to the plugin
+    plugin_root = os.environ.get("CLAUDE_PLUGIN_ROOT", "")
+    if plugin_root:
+        ctx_path = Path(plugin_root) / "hooks" / "workflow-context.md"
+    else:
+        # Fallback: search from cortex repo
+        ctx_path = Path(__file__).parents[4] / "plugin" / "hooks" / "workflow-context.md"
+
+    try:
+        return ctx_path.read_text()
+    except (FileNotFoundError, PermissionError):
+        return None
+
+
 def handle_session_start(hook_input: dict) -> dict:
     session_id = hook_input.get("session_id", "")
     transcript_path = hook_input.get("transcript_path", "")
@@ -104,7 +120,14 @@ def handle_session_start(hook_input: dict) -> dict:
     # Also write to Nova state.json for backward compatibility
     _legacy_nova_register(session_id, transcript_path, repo_name)
 
-    return {}
+    result: dict = {}
+    workflow_ctx = _load_workflow_context()
+    if workflow_ctx:
+        result["hookSpecificOutput"] = {
+            "hookEventName": "SessionStart",
+            "additionalContext": workflow_ctx,
+        }
+    return result
 
 
 def _legacy_nova_register(session_id: str, transcript_path: str, repo_name: str) -> None:
