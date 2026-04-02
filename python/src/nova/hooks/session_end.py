@@ -1,13 +1,9 @@
 """SessionEnd hook — fires when a CC session terminates.
 
-Maps the termination reason to the appropriate registry action:
-- exit → completed (session done)
-- clear → keep active (new CC session starts via SessionStart)
-- resume → keep active (resuming existing session)
-- logout, prompt_input_exit → completed
-- other → completed
+Delegates to `cortex session close --from-hook` for terminal reasons,
+which handles message expiry, registry update, and avoids close loops.
 
-Also records ended_at, notifies, and expires pending messages.
+Non-terminal reasons (clear, resume) just record the event.
 """
 
 import json
@@ -20,7 +16,7 @@ from datetime import datetime, timezone
 def _cortex_cli(*args: str) -> str | None:
     try:
         result = subprocess.run(
-            ["cortex", *args], capture_output=True, text=True, timeout=5
+            ["cortex", *args], capture_output=True, text=True, timeout=10
         )
         return result.stdout if result.returncode == 0 else None
     except Exception:
@@ -54,11 +50,7 @@ def _notify(subtitle: str, message: str) -> None:
         pass
 
 
-# Reasons that mean the session is still alive (new CC session will start)
 KEEP_ACTIVE_REASONS = {"clear", "resume"}
-
-# Reasons that mean the session is done
-TERMINAL_REASONS = {"exit", "logout", "prompt_input_exit", "bypass_permissions_disabled", "other"}
 
 
 def handle_session_end(hook_input: dict) -> dict:
@@ -71,7 +63,6 @@ def handle_session_end(hook_input: dict) -> dict:
     now = datetime.now(timezone.utc).isoformat()
 
     if reason in KEEP_ACTIVE_REASONS:
-        # Session continues — just record the event
         _cortex_cli(
             "session", "update", cortex_session_id,
             "--data", json.dumps({
@@ -83,17 +74,8 @@ def handle_session_end(hook_input: dict) -> dict:
             _notify(name, "Session cleared")
         return {}
 
-    # Terminal reason — close the session
-    _cortex_cli(
-        "session", "update", cortex_session_id,
-        "--data", json.dumps({
-            "status": "completed",
-            "ended_at": now,
-            "end_reason": reason,
-        }),
-        "--trigger", f"session_end_{reason}",
-    )
-
+    # Terminal reason — delegate to unified close path
+    _cortex_cli("session", "close", cortex_session_id, "--from-hook")
     _notify("Session Ended", f"{name} finished ({reason})")
 
     return {}

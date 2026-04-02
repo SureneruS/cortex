@@ -505,20 +505,18 @@ class TestCLIClose:
         send.assert_not_called()
         kill.assert_called_once_with("%42")
 
-    def test_close_lifecycle_with_pane(self, _patch_cli_db, _seed_session_with_pane):
+    def test_close_sends_exit_with_pane(self, _patch_cli_db, _seed_session_with_pane):
         with (
             _no_session_env(),
             patch("cortex.adapters.tmux.TmuxAdapter.pane_exists", return_value=True),
             patch("cortex.adapters.tmux.TmuxAdapter.send_text", return_value=True) as send,
-            patch("cortex.adapters.tmux.TmuxAdapter.wait_for_idle", return_value=True) as wait,
             patch("cortex.adapters.tmux.TmuxAdapter.destroy_pane", return_value=True) as kill,
-            patch("time.sleep"),
         ):
             code, output = _run_cli(["session", "close", "cli-pane-1"])
         assert code == 0
         assert output["status"] == "completed"
-        send.assert_any_call("%42", "/session-wrapup")
-        kill.assert_called_once_with("%42")
+        send.assert_called_once_with("%42", "/exit")
+        kill.assert_not_called()
 
     def test_close_pane_gone_skips_terminal(
         self, _patch_cli_db, _seed_session_with_pane
@@ -535,21 +533,32 @@ class TestCLIClose:
         send.assert_not_called()
         kill.assert_not_called()
 
-    def test_close_wrapup_timeout_continues(
+    def test_close_from_hook_skips_pane_action(
         self, _patch_cli_db, _seed_session_with_pane
     ):
         with (
             _no_session_env(),
             patch("cortex.adapters.tmux.TmuxAdapter.pane_exists", return_value=True),
-            patch("cortex.adapters.tmux.TmuxAdapter.send_text", return_value=True),
-            patch("cortex.adapters.tmux.TmuxAdapter.wait_for_idle", return_value=False),
-            patch("cortex.adapters.tmux.TmuxAdapter.destroy_pane", return_value=True) as kill,
-            patch("time.sleep"),
+            patch("cortex.adapters.tmux.TmuxAdapter.send_text") as send,
+            patch("cortex.adapters.tmux.TmuxAdapter.destroy_pane") as kill,
         ):
-            code, output = _run_cli(["session", "close", "cli-pane-1"])
+            code, output = _run_cli(["session", "close", "cli-pane-1", "--from-hook"])
         assert code == 0
         assert output["status"] == "completed"
-        kill.assert_called_once_with("%42")
+        send.assert_not_called()
+        kill.assert_not_called()
+
+    def test_close_already_completed_is_noop(
+        self, _patch_cli_db, _seed_session_with_pane, cli_db
+    ):
+        # First close
+        with _no_session_env(), patch("cortex.adapters.tmux.TmuxAdapter.pane_exists", return_value=False):
+            _run_cli(["session", "close", "cli-pane-1"])
+        # Second close (already completed) — should early return
+        with _no_session_env(), patch("cortex.adapters.tmux.TmuxAdapter.pane_exists", return_value=False):
+            code, output = _run_cli(["session", "close", "cli-pane-1", "--from-hook"])
+        assert code == 0
+        assert output["status"] == "completed"
 
 
 class TestCLIUpdateEvents:

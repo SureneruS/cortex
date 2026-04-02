@@ -182,32 +182,31 @@ class SessionService:
 
     # ── Close ────────────────────────────────────────────────
 
-    def close(self, ref: str, *, force: bool = False, cascade: bool = False) -> dict:
+    def close(self, ref: str, *, force: bool = False, cascade: bool = False, from_hook: bool = False) -> dict:
         doc = self.resolve(ref)
         session_id = doc["_id"]
 
-        self._check_close_permission(session_id)
+        # Already completed — early return to prevent close loops
+        # (SessionEnd hook calls close --from-hook after /exit triggers it)
+        if doc.get("status") in ("completed", "dead"):
+            log.info("Session already closed", session_id=session_id, status=doc["status"])
+            return doc
+
+        if not from_hook:
+            self._check_close_permission(session_id)
 
         if cascade:
             self._close_descendants(session_id, force=force)
 
-        return self._close_single(doc, force=force)
+        return self._close_single(doc, force=force, from_hook=from_hook)
 
-    def _close_single(self, doc: dict, *, force: bool = False) -> dict:
+    def _close_single(self, doc: dict, *, force: bool = False, from_hook: bool = False) -> dict:
         session_id = doc["_id"]
         session_name = doc.get("name", session_id)
         pane_id = doc.get("pane_id")
-        self_close = os.environ.get("CORTEX_SESSION_ID") == session_id
-        pane_alive = pane_id is not None and self._terminal.pane_exists(pane_id)
-        wrapup_ok = False
 
-        if not force and pane_alive:
-            wrapup_ok = self._wrapup_via_channels(session_name, session_id, pane_id)
-
-            if not wrapup_ok and self._terminal.pane_exists(pane_id):
-                log.warning("Channels wrapup timed out, falling back to terminal send")
-                if self._terminal.send_text(pane_id, "/session-wrapup"):
-                    wrapup_ok = self._terminal.wait_for_idle(pane_id, timeout=30)
+        if doc.get("status") in ("completed", "dead"):
+            return doc
 
         # Expire pending messages
         expired = self._messages.expire_for_session(session_name)
@@ -217,16 +216,39 @@ class SessionService:
         # Close registry
         doc = self._sessions.close(session_id, actor=self._caller())
 
-        # Kill pane
-        pane_still_alive = pane_id is not None and self._terminal.pane_exists(pane_id)
-        if pane_still_alive:
-            if self_close:
-                self._terminal.send_text(pane_id, "/exit")
-            else:
-                self._terminal.destroy_pane(pane_id)
+        # Signal exit — only if not called from the SessionEnd hook
+        # (from_hook means CC is already exiting, no need to send /exit)
+        if not from_hook:
+            pane_alive = pane_id is not None and self._terminal.pane_exists(pane_id)
+            if pane_alive:
+                if force:
+                    self._terminal.destroy_pane(pane_id)
+                else:
+                    self._terminal.send_text(pane_id, "/exit")
 
-        log.info("Session closed", session_id=session_id, wrapup=wrapup_ok)
+        log.info("Session closed", session_id=session_id, from_hook=from_hook)
         return doc
+
+    def wrapup(self, ref: str) -> bool:
+        """Run wrapup routine on a session (separate from close)."""
+        doc = self.resolve(ref)
+        session_id = doc["_id"]
+        session_name = doc.get("name", session_id)
+        pane_id = doc.get("pane_id")
+        pane_alive = pane_id is not None and self._terminal.pane_exists(pane_id)
+
+        if not pane_alive:
+            log.warning("Cannot wrapup — no live pane", session=session_name)
+            return False
+
+        ok = self._wrapup_via_channels(session_name, session_id, pane_id)
+        if not ok and self._terminal.pane_exists(pane_id):
+            log.warning("Channels wrapup timed out, falling back to terminal send")
+            if self._terminal.send_text(pane_id, "/session-wrapup"):
+                ok = self._terminal.wait_for_idle(pane_id, timeout=30)
+
+        log.info("Wrapup completed", session=session_name, ok=ok)
+        return ok
 
     def _close_descendants(self, session_id: str, *, force: bool = False) -> list[dict]:
         children = self._sessions.list({
