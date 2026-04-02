@@ -5,7 +5,6 @@ import json
 import click
 
 from cortex.cli import _error_exit, _json_out, get_container
-from cortex.mongo import get_db
 
 
 @click.group()
@@ -118,22 +117,47 @@ def pr_reply(number: int, comment_id: int, body: str, repo: str | None) -> None:
         _error_exit(str(e))
 
 
+def _parse_pr_ref(pr_ref: str) -> tuple[str, int]:
+    """Parse 'owner/repo#123' into (repo, number). Raises click.BadParameter on invalid format."""
+    import re
+    match = re.match(r"^([^/]+/[^#]+)#(\d+)$", pr_ref)
+    if not match:
+        raise click.BadParameter(
+            f"Invalid PR reference: {pr_ref!r}. Expected format: owner/repo#number (e.g. cercli/recruitment-backend#123)"
+        )
+    return match.group(1), int(match.group(2))
+
+
 @pr.command("watch")
-@click.argument("number", type=int)
+@click.argument("pr_ref")
 @click.argument("session_id")
-@click.option("--repo", default=None, help="Repository in owner/repo format")
 @click.option("--message", default=None, help="Custom message for when changes detected")
-def pr_watch(number: int, session_id: str, repo: str | None, message: str | None) -> None:
-    """Register a session to watch a PR for changes."""
+def pr_watch(pr_ref: str, session_id: str, message: str | None) -> None:
+    """Register a session to watch a PR for changes.
+
+    \b
+    PR_REF: Full PR reference in owner/repo#number format
+            e.g. cercli/recruitment-backend#123
+    """
+    import os
+
     from cortex import github
+
+    repo, number = _parse_pr_ref(pr_ref)
     try:
         state = github.pr_state(number, repo=repo)
-        watch_config: dict = {"type": "pr", "repo": repo, "number": number, "last_state": state}
-        if message:
-            watch_config["message"] = message
-        session_repo = get_container().sessions
-        import os
-        session_repo.update(session_id, {"status": "watching", "runtime": "waiting_input", "watch": watch_config}, trigger="pr-watch", actor=os.environ.get("CORTEX_SESSION_NAME"))
-        _json_out({"ok": True, "session_id": session_id, "pr": number, "baseline": state})
     except Exception as e:
-        _error_exit(str(e))
+        _error_exit(f"Failed to fetch PR state for {pr_ref}: {e}")
+
+    watch_config: dict = {"type": "pr", "repo": repo, "number": number, "last_state": state}
+    if message:
+        watch_config["message"] = message
+
+    session_repo = get_container().sessions
+    session_repo.update(
+        session_id,
+        {"status": "watching", "runtime": "waiting_input", "watch": watch_config},
+        trigger="pr-watch",
+        actor=os.environ.get("CORTEX_SESSION_NAME"),
+    )
+    _json_out({"ok": True, "session_id": session_id, "pr": pr_ref, "repo": repo, "number": number, "baseline": state})
