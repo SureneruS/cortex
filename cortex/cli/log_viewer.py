@@ -49,9 +49,9 @@ def _format_entry(entry: dict) -> Text:
             time_part = local_dt.strftime("%H:%M:%S")
         except (ValueError, OSError):
             time_part = timestamp.split("T")[1][:8]
-        text.append(time_part, style="bright_black")
+        text.append(time_part, style="grey70")
     else:
-        text.append(timestamp[:8] if timestamp else "??:??:??", style="bright_black")
+        text.append(timestamp[:8] if timestamp else "??:??:??", style="grey70")
 
     text.append(" ")
 
@@ -85,12 +85,12 @@ def _format_entry(entry: dict) -> Text:
         # Short extras go inline, long ones go on next line
         inline = "  " + "  ".join(parts)
         if len(inline) < 100 and "\n" not in inline:
-            text.append(inline, style="bright_black")
+            text.append(inline, style="grey70")
         else:
             for part in parts:
                 text.append("\n")
                 text.append(" " * 20, style="")
-                text.append(part, style="bright_black")
+                text.append(part, style="grey70")
 
     text.append("\n")
     return text
