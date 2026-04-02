@@ -318,15 +318,27 @@ def capture(session_id: str, lines: int) -> None:
 @click.argument("session_id")
 @click.option("--force", is_flag=True, help="Skip wrapup and close immediately")
 @click.option("--cascade", is_flag=True, help="Also close all descendant sessions")
-def close(session_id: str, force: bool, cascade: bool) -> None:
-    """Close a session with channels-first wrapup."""
+@click.option("--from-hook", is_flag=True, hidden=True, help="Called from SessionEnd hook (skip /exit signal)")
+def close(session_id: str, force: bool, cascade: bool, from_hook: bool) -> None:
+    """Close a session — expire messages, update registry, signal exit."""
     log = _cli_log()
-    log.info("CLI session close called", session_id=session_id, force=force, cascade=cascade)
+    log.info("CLI session close called", session_id=session_id, force=force, cascade=cascade, from_hook=from_hook)
     try:
-        doc = _svc().close(session_id, force=force, cascade=cascade)
+        doc = _svc().close(session_id, force=force, cascade=cascade, from_hook=from_hook)
     except (SessionNotFound, ValueError, ClosePermissionDenied) as e:
         _error_exit(str(e))
     _json_out(doc)
+
+
+@session.command()
+@click.argument("session_id")
+def wrapup(session_id: str) -> None:
+    """Run wrapup routine on a session (memorize, save tasks, etc.)."""
+    try:
+        ok = _svc().wrapup(session_id)
+    except (SessionNotFound, ValueError) as e:
+        _error_exit(str(e))
+    _json_out({"ok": ok, "session_id": session_id})
 
 
 @session.command("auto-close")
