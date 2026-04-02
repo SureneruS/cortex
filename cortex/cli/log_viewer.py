@@ -11,11 +11,11 @@ from rich.console import Console
 from rich.text import Text
 
 LEVEL_STYLES = {
-    "debug": "dim",
-    "info": "green",
-    "warning": "yellow bold",
-    "error": "red bold",
-    "critical": "red bold reverse",
+    "debug": "bright_black",
+    "info": "bright_green",
+    "warning": "bright_yellow bold",
+    "error": "bright_red bold",
+    "critical": "bright_red bold reverse",
 }
 
 # Keys handled specially — not dumped as extra fields
@@ -49,9 +49,9 @@ def _format_entry(entry: dict) -> Text:
             time_part = local_dt.strftime("%H:%M:%S")
         except (ValueError, OSError):
             time_part = timestamp.split("T")[1][:8]
-        text.append(time_part, style="dim")
+        text.append(time_part, style="bright_black")
     else:
-        text.append(timestamp[:8] if timestamp else "??:??:??", style="dim")
+        text.append(timestamp[:8] if timestamp else "??:??:??", style="bright_black")
 
     text.append(" ")
 
@@ -63,7 +63,7 @@ def _format_entry(entry: dict) -> Text:
     # Logger (shortened)
     short_logger = logger.replace("cortex.", "") if logger.startswith("cortex.") else logger
     if short_logger:
-        text.append(f"{short_logger}", style="dim cyan")
+        text.append(f"{short_logger}", style="cyan")
         text.append("  ")
 
     # Event name
@@ -85,12 +85,12 @@ def _format_entry(entry: dict) -> Text:
         # Short extras go inline, long ones go on next line
         inline = "  " + "  ".join(parts)
         if len(inline) < 100 and "\n" not in inline:
-            text.append(inline, style="dim")
+            text.append(inline, style="bright_black")
         else:
             for part in parts:
                 text.append("\n")
                 text.append(" " * 20, style="")
-                text.append(part, style="dim")
+                text.append(part, style="bright_black")
 
     text.append("\n")
     return text
