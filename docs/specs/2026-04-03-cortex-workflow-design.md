@@ -187,7 +187,6 @@ Update the repo with learnings from this work — for future sessions, not corte
 ### Step 2: Ship
 - Commit with conventional format, linked to Linear ticket (`type(ATS-XXX): description`)
 - Create PR (title format matches commit convention)
-- Never mention team member names in PR body
 
 ### Step 3: Capture to Cortex Memory
 Structured capture (separate from repo health):
@@ -312,17 +311,17 @@ User-approved decisions: [decisions made during align/plan]
 
 ## Implementation Approach
 
-### Phase 0: State Management Spike
-Test file-first vs cortex-direct. Decision informs all subsequent implementation.
-
-### Phase 1: SessionStart Hook
-Build the lightweight hook that replaces superpowers' hook. Fires on startup + compact.
-
-### Phase 2: Phase Skills
+### Phase 1: Phase Skills
 Build one skill at a time: align → plan → execute → close. Each ~100-200 lines.
 
-### Phase 3: Verification Hook
+### Phase 2: SessionStart Hook
+Build the lightweight hook that replaces superpowers' hook. Fires on startup + compact.
+
+### Phase 3: State Management Spike
+Test file-first vs cortex-direct. Decision informs state layer implementation.
+
+### Phase 4: Verification Hook
 Implement the external agent gate for medium+ phases.
 
-### Phase 4: Integration Testing
+### Phase 5: Integration Testing
 End-to-end test with a real feature task across the full workflow.
