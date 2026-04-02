@@ -45,36 +45,39 @@ def execute_check_watches(job: dict) -> None:
 
         repo = watch.get("repo")
         number = watch.get("number")
+        pr_ref = f"{repo}#{number}"
         last_state = watch.get("last_state", {})
 
         if not repo or not number:
             log.error("incomplete_watch_data", session=session_name, repo=repo, number=number)
             continue
 
+        log.info("pr_check_start", session=session_name, pr=pr_ref)
+
         try:
             current_state = github.pr_state(number, repo)
         except Exception as e:
-            log.error("pr_state_fetch_failed", session=session_name, pr=f"{repo}#{number}", error=str(e))
+            log.error("pr_state_fetch_failed", session=session_name, pr=pr_ref, error=str(e))
             continue
 
         if current_state == last_state:
-            log.debug("pr_no_changes", session=session_name, pr=f"{repo}#{number}")
+            log.info("pr_no_changes", session=session_name, pr=pr_ref)
             continue
 
         changes = _detect_pr_changes(last_state, current_state)
 
         if not changes:
-            log.info("pr_minor_state_diff", session=session_name, pr=f"{repo}#{number}")
+            log.info("pr_baseline_updated", session=session_name, pr=pr_ref)
             session_repo.update(
                 session["_id"], {"watch": {**watch, "last_state": current_state}}, trigger="cron", actor="daemon"
             )
             continue
 
         change_summary = "; ".join(changes)
-        log.info("pr_changes_detected", session=session_name, pr=f"{repo}#{number}", changes=change_summary)
+        log.info("pr_changes_detected", session=session_name, pr=pr_ref, changes=change_summary)
 
         message = _compose_wake_message(repo, number, change_summary, watch.get("message"), last_state, current_state)
-        log.info("waking_session", session=session_name, message=message[:100])
+        log.info("pr_waking_session", session=session_name, pr=pr_ref, message=message[:200])
 
         result = subprocess.run(
             ["cortex", "session", "send", session["_id"], message],
@@ -82,7 +85,9 @@ def execute_check_watches(job: dict) -> None:
             text=True,
         )
         if result.returncode != 0:
-            log.error("wake_send_failed", session=session_name, stderr=result.stderr.strip())
+            log.error("pr_wake_send_failed", session=session_name, pr=pr_ref, stderr=result.stderr.strip())
+        else:
+            log.info("pr_wake_sent", session=session_name, pr=pr_ref)
 
         session_repo.update(
             session["_id"],
@@ -94,6 +99,8 @@ def execute_check_watches(job: dict) -> None:
             trigger="cron",
             actor="daemon",
         )
+
+    log.info("check_watches_done", count=len(sessions))
 
 
 def _handle_alarm(session: dict, watch: dict, session_repo) -> None:
