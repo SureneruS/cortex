@@ -18,6 +18,8 @@ Scope-adaptive feature-building workflow. Four phases, each with its own skill l
 
 Load the skill for your current phase. Each phase skill has full instructions.
 
+**Do NOT advance to the next phase without user approval.** Each phase ends with a user checkpoint — present your output, wait for the user to confirm or adjust, then move on. The user drives phase transitions, not you.
+
 Phases are independent — each self-assesses its depth (lightweight/standard/deep) using the global scope from contracts as input. The user can override scope at any time.
 
 ## Scope Levels

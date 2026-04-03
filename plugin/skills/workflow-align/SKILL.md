@@ -15,6 +15,10 @@ Gather from whatever is available:
 - User's task description
 - Cortex memory — query by component/module/tags for relevant past decisions and gotchas
 
+## Critical: This is an interactive process
+
+Each step below requires user input before moving to the next. Present your findings, then STOP and wait for the user to respond. Do NOT chain steps together autonomously. Do NOT propose designs or plans — that is a different phase.
+
 ## Process
 
 ### 1. Understand the Task
@@ -26,19 +30,23 @@ Read the inputs. Explore the relevant codebase areas. Then present:
 
 Do not propose solutions or approaches yet. The user needs the facts first.
 
+**STOP here. Present findings and wait for user response.**
+
 ### 2. Clarify
 
 Ask questions to fill gaps in understanding. Use AskUserQuestion tool.
 
 - Open-ended by default
 - Multiple choice only when options are deterministic (e.g., "which repo?" not "what approach?")
-- One question at a time
+- One question at a time — wait for the answer before asking the next
 - When the user asks for options: present neutrally with tradeoffs. No recommendations.
 - Push back with evidence when something won't work. Correct the user when they're wrong.
 
+**STOP after each question. Wait for the answer.**
+
 ### 3. Scope Assessment
 
-Suggest a scope level for the overall task. The user can override.
+Once the user confirms understanding is solid, suggest a scope level. The user can override.
 
 | Level | Signal | Ceremony |
 |-------|--------|----------|
@@ -50,7 +58,9 @@ This is a global signal. Each subsequent phase independently assesses its own de
 
 ### 4. Write Contracts
 
-Once understanding is solid, write a contracts file to disk. This becomes the source of truth for the workflow.
+Only after the user has confirmed alignment on intent, scope, and success criteria. Do NOT write contracts based on your own assumptions.
+
+Write a contracts file to disk. This becomes the source of truth for the workflow.
 
 ```
 # Contracts: <task title>
