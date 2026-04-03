@@ -33,6 +33,7 @@ def register_misc_commands(cli: click.Group) -> None:
     cli.add_command(checkpoint)
     cli.add_command(control)
     cli.add_command(daemon)
+    cli.add_command(logs)
     cli.add_command(dashboard)
     cli.add_command(ui)
     cli.add_command(test_group, "test")
@@ -325,6 +326,24 @@ def control() -> None:
         _error_exit("Failed to launch control pane")
 
     _json_out({"action": "spawned", "session_id": session_id, "name": name, "pane_id": pane_id})
+
+
+# ── Logs (aggregated) ───────────────────────────────────────
+
+
+@click.command()
+@click.option("-n", "--lines", default=50, help="Number of recent lines to show")
+@click.option("-f", "--follow", is_flag=True, help="Follow log output (like tail -f)")
+@click.option("--level", default=None, type=click.Choice(["debug", "info", "warning", "error"]), help="Filter by log level")
+def logs(lines: int, follow: bool, level: str | None) -> None:
+    """View aggregated logs from all Cortex components."""
+    from cortex.cli.log_viewer import aggregate_tail_logs
+
+    log_dir = CORTEX_DIR / "logs"
+    if not log_dir.exists():
+        _error_exit(f"No log directory at {log_dir}")
+
+    aggregate_tail_logs(log_dir, lines=lines, follow=follow, level_filter=level)
 
 
 # ── Daemon ───────────────────────────────────────────────────

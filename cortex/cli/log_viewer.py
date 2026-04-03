@@ -22,7 +22,7 @@ LEVEL_STYLES = {
 _META_KEYS = {"event", "level", "logger", "timestamp", "correlation_id", "positional_args"}
 
 
-def _format_entry(entry: dict) -> Text:
+def _format_entry(entry: dict, *, source: str | None = None) -> Text:
     """Format a single JSON log entry as a rich Text object."""
     level = entry.get("level", "info")
     timestamp = entry.get("timestamp", "")
@@ -54,6 +54,11 @@ def _format_entry(entry: dict) -> Text:
         text.append(timestamp[:8] if timestamp else "??:??:??", style="grey70")
 
     text.append(" ")
+
+    # Source badge (for aggregated view)
+    if source:
+        text.append(f"[{source}]", style="magenta")
+        text.append(" ")
 
     # Level badge
     level_style = LEVEL_STYLES.get(level, "")
@@ -204,3 +209,105 @@ def tail_logs(
                     time.sleep(0.5)
     except KeyboardInterrupt:
         console.print("\n[dim]stopped[/]")
+
+
+# ── Aggregated multi-file log viewer ────────────────────────
+
+
+def _derive_source(filename: str) -> str:
+    """Derive a short source label from a log filename."""
+    name = filename.removesuffix(".log")
+    if name.startswith("cortex-"):
+        name = name[7:]
+    elif name.startswith("channels-mcp-"):
+        name = "ch:" + name[13:]
+    return name
+
+
+def _collect_log_files(log_dir: Path) -> list[Path]:
+    """Collect current (non-rotated) log files from the log directory."""
+    return sorted(
+        f for f in log_dir.iterdir()
+        if f.is_file() and f.name.endswith(".log")
+    )
+
+
+def aggregate_tail_logs(
+    log_dir: Path,
+    *,
+    lines: int = 50,
+    follow: bool = False,
+    level_filter: str | None = None,
+) -> None:
+    """Aggregate and display log entries from all current log files."""
+    console = Console(highlight=False)
+
+    log_files = _collect_log_files(log_dir)
+    if not log_files:
+        console.print("[dim]No log files found.[/]")
+        return
+
+    level_priority = {"debug": 0, "info": 1, "warning": 2, "error": 3, "critical": 4}
+    min_level = level_priority.get(level_filter, 0) if level_filter else 0
+
+    # Collect recent entries from all files
+    all_entries: list[tuple[str, dict]] = []
+    for log_file in log_files:
+        source = _derive_source(log_file.name)
+        recent = _read_last_n_lines(log_file, lines * 3)
+        for raw_line in recent:
+            entry = _parse_line(raw_line)
+            if not entry:
+                continue
+            entry_level = level_priority.get(entry.get("level", "info"), 1)
+            if entry_level < min_level:
+                continue
+            all_entries.append((source, entry))
+
+    # Sort by timestamp across all files, show last N
+    all_entries.sort(key=lambda x: x[1].get("timestamp", ""))
+    for source, entry in all_entries[-lines:]:
+        console.print(_format_entry(entry, source=source), end="")
+
+    if not all_entries:
+        console.print("[dim]No log entries found.[/]")
+
+    if not follow:
+        return
+
+    # Follow mode — tail all files simultaneously
+    console.print("[dim]--- following (Ctrl+C to stop) ---[/]")
+
+    handles: list[tuple[str, object]] = []
+    try:
+        for log_file in log_files:
+            f = open(log_file)
+            f.seek(0, 2)
+            handles.append((_derive_source(log_file.name), f))
+
+        while True:
+            new_entries: list[tuple[str, dict]] = []
+            for source, f in handles:
+                while True:
+                    line = f.readline()
+                    if not line:
+                        break
+                    entry = _parse_line(line)
+                    if not entry:
+                        continue
+                    entry_level = level_priority.get(entry.get("level", "info"), 1)
+                    if entry_level < min_level:
+                        continue
+                    new_entries.append((source, entry))
+
+            if new_entries:
+                new_entries.sort(key=lambda x: x[1].get("timestamp", ""))
+                for source, entry in new_entries:
+                    console.print(_format_entry(entry, source=source), end="")
+            else:
+                time.sleep(0.5)
+    except KeyboardInterrupt:
+        console.print("\n[dim]stopped[/]")
+    finally:
+        for _, f in handles:
+            f.close()
