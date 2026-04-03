@@ -211,6 +211,22 @@ _slack_poster = None
 _slack_channel = None
 
 
+def _read_arc_slack_config() -> tuple[str | None, str | None]:
+    """Read Slack credentials from ~/.claude.json arc MCP config."""
+    import json
+    from pathlib import Path
+
+    claude_json = Path.home() / ".claude.json"
+    if not claude_json.exists():
+        return None, None
+    try:
+        data = json.loads(claude_json.read_text())
+        arc_env = data.get("mcpServers", {}).get("arc", {}).get("env", {})
+        return arc_env.get("SLACK_BOT_TOKEN"), arc_env.get("SLACK_TARGET_USER_ID")
+    except Exception:
+        return None, None
+
+
 def _get_slack():
     import os
 
@@ -220,6 +236,8 @@ def _get_slack():
 
     token = os.environ.get("SLACK_BOT_TOKEN")
     user_id = os.environ.get("SLACK_TARGET_USER_ID")
+    if not token or not user_id:
+        token, user_id = _read_arc_slack_config()
     if not token or not user_id:
         return None, None
 
