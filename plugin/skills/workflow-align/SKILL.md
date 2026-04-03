@@ -81,6 +81,19 @@ Bad: "New send_batch method on ResendGateway using resend.Batch.send()"
 - [ ] Requirement-based condition 1
 - [ ] Requirement-based condition 2
 
+## Quality Gates
+Always include these universal gates, plus generate task-specific ones
+based on context (e.g., accessibility for UI, backward compat for APIs).
+
+- [ ] Test coverage ≥80% on changed code, core scenarios always tested
+- [ ] Lint passes, formatter passes
+- [ ] Any lint escapes are warranted and explained
+- [ ] YAGNI — no speculative features or unused abstractions
+- [ ] DRY — no copy-paste duplication
+- [ ] SOLID — single responsibility, clean interfaces
+- [ ] CLAUDE.md and .claude/rules/ respected
+- [ ] (add task-specific quality gates here)
+
 ## Verification
 Commands or steps to prove it works:
 - `pytest tests/path/test_file.py -v`
