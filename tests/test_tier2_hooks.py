@@ -55,7 +55,8 @@ class TestNoContextInjection:
 
     def test_post_compact_returns_empty(self):
         with patch("nova.hooks.post_compact.subprocess.run", return_value=_mock_cli_success()):
-            result = handle_post_compact({})
+            with patch("nova.hooks.post_compact._load_workflow_context", return_value=None):
+                result = handle_post_compact({})
         assert result == {}
 
 
@@ -93,7 +94,8 @@ class TestSessionIdGuard:
     def test_post_compact_skips_without_session_id(self, monkeypatch: pytest.MonkeyPatch):
         monkeypatch.delenv("CORTEX_SESSION_ID")
         with patch("nova.hooks.post_compact.subprocess.run") as mock_run:
-            result = handle_post_compact({})
+            with patch("nova.hooks.post_compact._load_workflow_context", return_value=None):
+                result = handle_post_compact({})
         assert result == {}
         mock_run.assert_not_called()
 

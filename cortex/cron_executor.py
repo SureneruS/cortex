@@ -209,35 +209,50 @@ EXECUTORS = {
 
 _slack_poster = None
 _slack_channel = None
+_bot_user_id: str | None = None
+
+# In-memory cache: slack_thread_ts → session_name
+# Populated on outbound delivery, queried on inbound reply, DB fallback on miss
+_thread_session_map: dict[str, str] = {}
 
 
-def _read_arc_slack_config() -> tuple[str | None, str | None]:
+def _read_arc_slack_config() -> tuple[str | None, str | None, str | None]:
     """Read Slack credentials from ~/.claude.json arc MCP config."""
     import json
     from pathlib import Path
 
     claude_json = Path.home() / ".claude.json"
     if not claude_json.exists():
-        return None, None
+        return None, None, None
     try:
         data = json.loads(claude_json.read_text())
         arc_env = data.get("mcpServers", {}).get("arc", {}).get("env", {})
-        return arc_env.get("SLACK_BOT_TOKEN"), arc_env.get("SLACK_TARGET_USER_ID")
+        return (
+            arc_env.get("SLACK_BOT_TOKEN"),
+            arc_env.get("SLACK_TARGET_USER_ID"),
+            arc_env.get("SLACK_APP_TOKEN"),
+        )
     except Exception:
-        return None, None
+        return None, None, None
+
+
+_slack_app_token: str | None = None
 
 
 def _get_slack():
     import os
 
-    global _slack_poster, _slack_channel
+    global _slack_poster, _slack_channel, _slack_app_token, _bot_user_id
     if _slack_poster and _slack_channel:
         return _slack_poster, _slack_channel
 
     token = os.environ.get("SLACK_BOT_TOKEN")
     user_id = os.environ.get("SLACK_TARGET_USER_ID")
+    app_token = os.environ.get("SLACK_APP_TOKEN")
     if not token or not user_id:
-        token, user_id = _read_arc_slack_config()
+        token, user_id, app_token_cfg = _read_arc_slack_config()
+        if not app_token:
+            app_token = app_token_cfg
     if not token or not user_id:
         return None, None
 
@@ -245,11 +260,44 @@ def _get_slack():
 
     _slack_poster = SlackPoster(bot_token=token, target_user_id=user_id)
     _slack_channel = _slack_poster.get_dm_channel()
+    _slack_app_token = app_token
+
+    try:
+        from slack_sdk import WebClient
+        client = WebClient(token=token)
+        resp = client.auth_test()
+        _bot_user_id = resp["user_id"]
+    except Exception as e:
+        log.warning("bot_user_id_fetch_failed", error=str(e))
+
     return _slack_poster, _slack_channel
 
 
+def _get_bot_user_id() -> str | None:
+    return _bot_user_id
+
+
+def _get_session_thread(db, session_name: str) -> tuple[str | None, str | None]:
+    """Get existing Slack thread for a session. Cache first, DB fallback."""
+    for ts, name in _thread_session_map.items():
+        if name == session_name:
+            return ts, None
+    session = db["session_registry"].find_one(
+        {"name": session_name, "status": {"$nin": ["completed", "dead"]}},
+        {"slack_thread_ts": 1, "slack_channel": 1},
+    )
+    if session and session.get("slack_thread_ts"):
+        _thread_session_map[session["slack_thread_ts"]] = session_name
+        return session["slack_thread_ts"], session.get("slack_channel")
+    return None, None
+
+
 def deliver_human_messages(db) -> None:
-    """Poll for to='human' pending messages and deliver via Arc Slack."""
+    """Poll for to='human' pending messages and deliver via Arc Slack.
+
+    Groups messages into one Slack thread per session — first message from a session
+    creates a new thread, subsequent messages reply in it.
+    """
     from datetime import datetime, timezone
 
     messages_col = db["messages"]
@@ -279,10 +327,19 @@ def deliver_human_messages(db) -> None:
         poster, channel = _get_slack()
         if poster and channel:
             try:
-                poster.post_notification(
-                    channel=channel, text=slack_text, username="Arc"
+                thread_ts, _ = _get_session_thread(db, sender)
+                slack_ts = poster.post_notification(
+                    channel=channel, text=slack_text, username="Arc",
+                    thread_ts=thread_ts,
                 )
-                log.info("human_msg_delivered", msg_id=msg["_id"], sender=sender)
+                if not thread_ts:
+                    # First message from this session — store thread anchor
+                    db["session_registry"].update_one(
+                        {"name": sender, "status": {"$nin": ["completed", "dead"]}},
+                        {"$set": {"slack_thread_ts": slack_ts, "slack_channel": channel}},
+                    )
+                    _thread_session_map[slack_ts] = sender
+                log.info("human_msg_delivered", msg_id=msg["_id"], sender=sender, thread_ts=thread_ts or slack_ts)
             except Exception as e:
                 log.error("human_msg_slack_failed", msg_id=msg["_id"], error=str(e))
                 _write_human_message_fallback(msg)
@@ -306,6 +363,115 @@ def _write_human_message_fallback(msg: dict) -> None:
         f"{msg.get('content', '')}\n"
     )
     log.info("human_msg_fallback_written", path=str(fallback_file))
+
+
+# ── Inbound: Slack replies → session messages ──────────────────
+
+
+def _resolve_thread_session(db, thread_ts: str) -> str | None:
+    """Resolve a Slack thread_ts to a session name. Cache first, DB fallback."""
+    if thread_ts in _thread_session_map:
+        return _thread_session_map[thread_ts]
+    session = db["session_registry"].find_one(
+        {"slack_thread_ts": thread_ts, "status": {"$nin": ["completed", "dead"]}},
+        {"name": 1},
+    )
+    if session:
+        _thread_session_map[thread_ts] = session["name"]
+        return session["name"]
+    return None
+
+
+def handle_slack_message_event(
+    db,
+    *,
+    user: str,
+    text: str,
+    thread_ts: str | None,
+    ts: str,
+    channel: str,
+    bot_user_id: str | None,
+) -> None:
+    """Handle an inbound Slack message event. Creates a from='human' message if it's
+    a threaded reply to a known session thread."""
+    if not thread_ts:
+        return
+    if bot_user_id and user == bot_user_id:
+        return
+
+    session_name = _resolve_thread_session(db, thread_ts)
+    if not session_name:
+        log.debug("slack_reply_unknown_thread", thread_ts=thread_ts)
+        return
+
+    from datetime import datetime, timezone
+    import uuid
+
+    msg_id = "msg_" + uuid.uuid4().hex[:16]
+    now = datetime.now(timezone.utc).isoformat()
+
+    db["messages"].insert_one({
+        "_id": msg_id,
+        "from": "human",
+        "to": session_name,
+        "content": text,
+        "meta": {
+            "type": "reply",
+            "sender_type": "human",
+            "priority": "high",
+            "slack_ts": ts,
+        },
+        "status": "pending",
+        "created_at": now,
+        "delivered_at": None,
+    })
+    log.info("slack_reply_routed", msg_id=msg_id, session=session_name, slack_ts=ts)
+
+
+def start_socket_listener(db) -> None:
+    """Start Slack Socket Mode listener in a background thread."""
+    poster, channel = _get_slack()
+    if not poster or not _slack_app_token:
+        log.warning("socket_listener_skipped", reason="no slack config or app token")
+        return
+
+    from slack_sdk.socket_mode import SocketModeClient
+    from slack_sdk.socket_mode.request import SocketModeRequest
+    from slack_sdk.socket_mode.response import SocketModeResponse
+
+    global _socket_mode_client
+    _socket_mode_client = SocketModeClient(
+        app_token=_slack_app_token,
+        web_client=poster._client,
+    )
+
+    def _handle_event(client: SocketModeClient, req: SocketModeRequest):
+        client.send_socket_mode_response(SocketModeResponse(envelope_id=req.envelope_id))
+
+        if req.type != "events_api":
+            return
+        event = req.payload.get("event", {})
+        if event.get("type") != "message":
+            return
+        if event.get("subtype"):
+            return
+
+        handle_slack_message_event(
+            db,
+            user=event.get("user", ""),
+            text=event.get("text", ""),
+            thread_ts=event.get("thread_ts"),
+            ts=event.get("ts", ""),
+            channel=event.get("channel", ""),
+            bot_user_id=_bot_user_id,
+        )
+
+    _socket_mode_client.socket_mode_request_listeners.append(_handle_event)
+    _socket_mode_client.connect()
+    log.info("socket_listener_started")
+
+
+_socket_mode_client = None
 
 
 # Daemon ID stored at module level for signal handler access
@@ -376,6 +542,11 @@ def run() -> None:
     )
     log.info("daemon_registered", daemon_id=_daemon_id)
 
+    try:
+        start_socket_listener(db)
+    except Exception as e:
+        log.error("socket_listener_start_failed", error=str(e))
+
     cron_counter = 0
 
     try:
@@ -411,6 +582,12 @@ def run() -> None:
             time.sleep(HUMAN_MSG_POLL_INTERVAL)
     finally:
         log.info("daemon_shutting_down")
+        if _socket_mode_client:
+            try:
+                _socket_mode_client.close()
+                log.info("socket_listener_stopped")
+            except Exception as e:
+                log.error("socket_listener_stop_failed", error=str(e))
         _cleanup_registry()
         log.info("daemon_stopped")
         sys.exit(0)
