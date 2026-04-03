@@ -66,6 +66,17 @@
         ]
       }
     ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cortex-hook-workflow-file"
+          }
+        ]
+      }
+    ],
     "PostCompact": [
       {
         "hooks": [
