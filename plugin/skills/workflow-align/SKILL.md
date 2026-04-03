@@ -103,7 +103,7 @@ Commands or steps to prove it works:
 Overall: lightweight | standard | deep
 ```
 
-Path: in the worktree root or a shared location readable by handoff sessions.
+Path: `.claude/docs/work/contracts-<task-slug>.md` — use ticket ID (e.g., `ats-1011`) or a short descriptive slug. Names must be unique since multiple workflows can coexist.
 
 ### 5. Linear Integration
 

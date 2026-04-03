@@ -36,6 +36,10 @@ For each implementation step:
 
 The plan must show this ordering explicitly. Tests come before implementation in every step.
 
+## Plan File
+
+Save to `.claude/docs/work/plan-<task-slug>.md` — use the same slug as the contracts file. Names must be unique since multiple workflows can coexist.
+
 ## Plan Structure
 
 ```markdown
