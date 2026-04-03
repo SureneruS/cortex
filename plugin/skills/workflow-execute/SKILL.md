@@ -72,14 +72,54 @@ Merge worktrees after all units complete and pass verification.
 - Update workflow state at phase transitions
 - Workers report completion/blockers via channels
 
-## Verification Gate (medium+ scope)
+## Post-Implementation: Review + QA
 
-After each implementation unit, an external verification agent checks against contracts:
-- Do the tests cover the success criteria?
-- Does the implementation match the intent?
-- Any contract items missed?
+After implementation is complete and tests pass, spawn two independent sessions before moving to close:
 
-For lightweight scope, self-verification is sufficient — run the verification commands from the contracts and confirm they pass.
+### Code Review Session
+
+Spawn a fresh session to review the implementation. It must have NO context from the implementation — only the contracts, the diff, and the plan.
+
+```
+cortex session spawn \
+  --name <task>-review \
+  --repo <repo> \
+  --worktree <task>-review \
+  --goal "Code review for <task>"
+```
+
+Send the reviewer:
+- Path to contracts file (success criteria + quality gates)
+- The git diff or branch to review
+- Path to plan file
+- Instruction: "Review this implementation against the contracts. Check success criteria, quality gates, and code quality. Report findings."
+
+The reviewer must be independent — do not review your own work.
+
+### QA / Verification Session
+
+Spawn a fresh session to verify the implementation against contracts. This is manual/integration verification, not just running tests.
+
+```
+cortex session spawn \
+  --name <task>-qa \
+  --repo <repo> \
+  --worktree <task>-qa \
+  --goal "QA verification for <task>"
+```
+
+Send the QA session:
+- Path to contracts file
+- The branch with implementation
+- Instruction: "Verify each success criterion and quality gate in the contracts. Run verification commands. Check edge cases. Report pass/fail per criterion with evidence."
+
+### Scope gating
+
+- **Lightweight:** Self-review + run verification commands. No separate sessions needed.
+- **Standard:** Spawn review session. QA can be self-verified or spawned based on complexity.
+- **Deep:** Always spawn both review and QA sessions. They run in parallel.
+
+Wait for review + QA results before moving to close. Fix any findings before shipping.
 
 ## Handling Blockers
 
