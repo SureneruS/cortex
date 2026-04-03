@@ -71,8 +71,15 @@ Constraints.
 What is explicitly out of scope.
 
 ## Success Criteria
-- [ ] Concrete, verifiable condition 1
-- [ ] Concrete, verifiable condition 2
+Success criteria describe WHAT the system should do, not HOW it's implemented.
+Write from the user/stakeholder perspective — observable behaviors and requirements.
+Implementation details (class names, method names, file structure) belong in the plan, not here.
+
+Good: "Scheduling an interview sends an email to each interviewer with interview details"
+Bad: "New send_batch method on ResendGateway using resend.Batch.send()"
+
+- [ ] Requirement-based condition 1
+- [ ] Requirement-based condition 2
 
 ## Verification
 Commands or steps to prove it works:
