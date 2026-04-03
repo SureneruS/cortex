@@ -3,10 +3,14 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
+import structlog
 from pymongo import ReturnDocument
 from pymongo.database import Database
 
 from cortex.domain.models import SessionStatus, RuntimeStatus
+from cortex.domain.session_states import TRANSITIONS
+
+log = structlog.get_logger("cortex.session_repo")
 
 VALID_STATUS = {s.value for s in SessionStatus}
 VALID_RUNTIME = {r.value for r in RuntimeStatus}
@@ -65,7 +69,7 @@ class MongoSessionRepository:
             # Atomic find-or-create: if an active session with this cc_session_id
             # already exists, return it instead of creating a duplicate.
             result = self._col.find_one_and_update(
-                {"cc_session_id": cc_session_id, "status": {"$nin": ["completed", "dead"]}},
+                {"cc_session_id": cc_session_id, "status": {"$nin": ["completed", "closed"]}},
                 {"$setOnInsert": doc},
                 upsert=True,
                 return_document=ReturnDocument.AFTER,
@@ -98,6 +102,20 @@ class MongoSessionRepository:
                     raise ValueError(
                         f"Invalid {field}: {data[field]!r}. Must be one of {sorted(valid_set)}"
                     )
+                if field == "status":
+                    current_status = SessionStatus(current.get(field, "active"))
+                    target_status = SessionStatus(data[field])
+                    allowed = TRANSITIONS.get(current_status, set())
+                    if target_status not in allowed:
+                        log.warning(
+                            "Invalid transition ignored",
+                            current=current_status.value,
+                            target=target_status.value,
+                            trigger=trigger,
+                            session_id=session_id,
+                        )
+                        del data[field]
+                        continue
                 events.append(_make_event(field, current.get(field), data[field], trigger, actor=actor))
 
         ops: dict = {"$set": data}
@@ -166,7 +184,7 @@ class MongoSessionRepository:
         if doc is not None:
             return doc
 
-        active_filter = {"status": {"$nin": ["completed", "dead"]}}
+        active_filter = {"status": {"$nin": ["completed", "closed"]}}
         by_name = list(self._col.find({"name": ref, **active_filter}).sort("created_at", -1))
         if len(by_name) == 1:
             return by_name[0]

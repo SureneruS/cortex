@@ -50,10 +50,9 @@ STATUS_DOTS = {
     "idle": ("◐", "#d29922"),
     "paused": ("◼", "#6e7681"),
     "blocked": ("◆", "#f85149"),
-    "watching": ("◉", "#39c5cf"),
-    "hidden": ("○", "#484f58"),
     "completed": ("✓", "#484f58"),
-    "dead": ("✕", "#f85149"),
+    "archived": ("○", "#484f58"),
+    "closed": ("✕", "#f85149"),
 }
 
 RUNTIME_INDICATORS = {
@@ -116,7 +115,7 @@ def _truncate(s: str, n: int) -> str:
 
 def _fetch_sessions(include_done: bool = False) -> list[dict]:
     db = get_db()
-    filt = {} if include_done else {"status": {"$nin": ["completed", "dead"]}}
+    filt = {} if include_done else {"status": {"$nin": ["completed", "closed"]}}
     return list(db.session_registry.find(filt).sort("created_at", -1))
 
 
@@ -646,7 +645,7 @@ class CortexDashboard(App):
         sess_list = self.query_one("#sessions-list", SessionListWidget)
         sess_list.set_sessions(sessions)
 
-        active_count = sum(1 for s in sessions if s.get("status") not in ("completed", "dead"))
+        active_count = sum(1 for s in sessions if s.get("status") not in ("completed", "closed"))
         working_count = sum(1 for s in sessions if s.get("runtime") == "working")
         total_label = "all" if self.show_all else "active"
         self.query_one("#sessions-title", Static).update(

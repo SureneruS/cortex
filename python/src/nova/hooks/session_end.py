@@ -1,9 +1,10 @@
 """SessionEnd hook — fires when a CC session terminates.
 
-Delegates to `cortex session close --from-hook` for terminal reasons,
-which handles message expiry, registry update, and avoids close loops.
-
-Non-terminal reasons (clear, resume) just record the event.
+Transitions:
+- clear: keep active (new CC session about to start)
+- resume: pause (switching to different conversation)
+- exit/logout/other: pause (CC exited, session recoverable)
+- If status is already completed/closed: no-op (cortex close set it first)
 """
 
 import json
@@ -13,44 +14,20 @@ import sys
 from datetime import datetime, timezone
 
 
-def _cortex_cli(*args: str) -> str | None:
+def _cortex_update(session_id: str, data: dict, trigger: str) -> None:
+    """Single fast CLI call to update session. Fire-and-forget."""
     try:
-        result = subprocess.run(
-            ["cortex", *args], capture_output=True, text=True, timeout=10
-        )
-        return result.stdout if result.returncode == 0 else None
-    except Exception:
-        return None
-
-
-def _session_name(cortex_id: str) -> str:
-    raw = _cortex_cli("session", "get", cortex_id)
-    if raw:
-        try:
-            return json.loads(raw).get("name", cortex_id[:8])
-        except (json.JSONDecodeError, TypeError):
-            pass
-    return cortex_id[:8]
-
-
-def _notify(subtitle: str, message: str) -> None:
-    try:
-        subprocess.run(
-            [
-                "terminal-notifier",
-                "-title", "Cortex",
-                "-subtitle", subtitle,
-                "-message", message,
-                "-group", "cortex-session-end",
-            ],
-            capture_output=True,
-            timeout=5,
+        subprocess.Popen(
+            ["cortex", "session", "update", session_id,
+             "--data", json.dumps(data),
+             "--trigger", trigger],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         )
     except Exception:
         pass
 
 
-KEEP_ACTIVE_REASONS = {"clear", "resume"}
+KEEP_ACTIVE_REASONS = {"clear"}
 
 
 def handle_session_end(hook_input: dict) -> dict:
@@ -59,24 +36,26 @@ def handle_session_end(hook_input: dict) -> dict:
         return {}
 
     reason = hook_input.get("reason", "other")
-    name = _session_name(cortex_session_id)
     now = datetime.now(timezone.utc).isoformat()
+    name = os.environ.get("CORTEX_SESSION_NAME", cortex_session_id[:8])
 
     if reason in KEEP_ACTIVE_REASONS:
-        _cortex_cli(
-            "session", "update", cortex_session_id,
-            "--data", json.dumps({
-                "last_session_end": {"reason": reason, "at": now},
-            }),
-            "--trigger", f"session_end_{reason}",
+        _cortex_update(
+            cortex_session_id,
+            {"last_session_end": {"reason": reason, "at": now}},
+            f"session_end_{reason}",
         )
-        if reason == "clear":
-            _notify(name, "Session cleared")
         return {}
 
-    # Terminal reason — delegate to unified close path
-    _cortex_cli("session", "close", cortex_session_id, "--from-hook")
-    _notify("Session Ended", f"{name} finished ({reason})")
+    # All other reasons (exit, resume, logout, etc.) → paused
+    # Uses Popen (fire-and-forget) so CC doesn't have to wait.
+    # If cortex close already set completed/closed, the update will be
+    # rejected by the state machine validator (completed/closed → paused is invalid).
+    _cortex_update(
+        cortex_session_id,
+        {"status": "paused", "last_session_end": {"reason": reason, "at": now}},
+        f"session_end_{reason}",
+    )
 
     return {}
 

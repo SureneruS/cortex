@@ -154,7 +154,8 @@ def test_list_brief_excludes_watch_last_state(session_repo):
     session_repo.update(
         "s1",
         {
-            "status": "watching",
+            "status": "idle",
+            "watch_active": True,
             "watch": {
                 "type": "pr",
                 "repo": "owner/repo",
@@ -177,11 +178,11 @@ def test_watch_lifecycle_updates_runtime(session_repo):
     # Enter watch — runtime should update to waiting_input
     session_repo.update(
         "s1",
-        {"status": "watching", "runtime": "waiting_input", "watch": {"type": "pr"}},
+        {"status": "idle", "runtime": "waiting_input", "watch_active": True, "watch": {"type": "pr"}},
         trigger="pr-watch",
     )
     doc = session_repo.get("s1")
-    assert doc["status"] == "watching"
+    assert doc["status"] == "idle"
     assert doc["runtime"] == "waiting_input"
 
     # Wake from watch — runtime should update to working
@@ -501,7 +502,7 @@ class TestCLIClose:
         ):
             code, output = _run_cli(["session", "close", "cli-pane-1", "--force"])
         assert code == 0
-        assert output["status"] == "completed"
+        assert output["status"] == "closed"
         send.assert_not_called()
         kill.assert_called_once_with("%42")
 
@@ -533,19 +534,19 @@ class TestCLIClose:
         send.assert_not_called()
         kill.assert_not_called()
 
-    def test_close_from_hook_skips_pane_action(
+    def test_close_from_hook_skips_permission_check(
         self, _patch_cli_db, _seed_session_with_pane
     ):
         with (
             _no_session_env(),
             patch("cortex.adapters.tmux.TmuxAdapter.pane_exists", return_value=True),
-            patch("cortex.adapters.tmux.TmuxAdapter.send_text") as send,
+            patch("cortex.adapters.tmux.TmuxAdapter.send_text", return_value=True) as send,
             patch("cortex.adapters.tmux.TmuxAdapter.destroy_pane") as kill,
         ):
             code, output = _run_cli(["session", "close", "cli-pane-1", "--from-hook"])
         assert code == 0
         assert output["status"] == "completed"
-        send.assert_not_called()
+        send.assert_called_once_with("%42", "/exit")
         kill.assert_not_called()
 
     def test_close_already_completed_is_noop(
@@ -608,14 +609,14 @@ class TestCLIHealth:
         with patch("cortex.adapters.tmux.TmuxAdapter.list_pane_ids", return_value=set()):
             code, output = _run_cli(["session", "health"])
         assert code == 0
-        dead_findings = [f for f in output["findings"] if f.get("check") == "dead_pane"]
-        assert len(dead_findings) == 1
-        assert dead_findings[0]["session_id"] == "cli-pane-1"
-        assert output["summary"]["critical"] == 1
+        pane_findings = [f for f in output["findings"] if f.get("check") == "pane_gone"]
+        assert len(pane_findings) == 1
+        assert pane_findings[0]["session_id"] == "cli-pane-1"
+        assert output["summary"]["warning"] >= 1
         doc = MongoSessionRepo(cli_db).get("cli-pane-1")
-        assert doc["status"] == "dead"
+        assert doc["status"] == "paused"
         status_events = [e for e in doc["events"] if e["field"] == "status"]
-        assert status_events[-1]["to"] == "dead"
+        assert status_events[-1]["to"] == "paused"
         assert status_events[-1]["trigger"] == "health-check"
 
     def test_health_detects_stale_session(self, _patch_cli_db, cli_db):
@@ -719,7 +720,7 @@ class TestSessionStartHookClearLifecycle:
         """If session was dead, hook reactivates it before linking new CC session."""
         from nova.hooks.session_start import handle_session_start
 
-        existing = json.dumps({"status": "dead", "name": "worker", "repos": ["cortex"]})
+        existing = json.dumps({"status": "closed", "name": "worker", "repos": ["cortex"]})
         calls = []
 
         def fake_cortex_cli(*args):
@@ -749,7 +750,7 @@ class TestSessionStartHookClearLifecycle:
         reactivate = update_calls[0]
         reactivate_data = json.loads(reactivate[4])  # --data value
         assert reactivate_data["status"] == "active"
-        assert reactivate[6] == "clear_reactivate"  # --trigger value
+        assert reactivate[6] == "session_reactivate"  # --trigger value
 
         # link-cc was called
         assert ("session", "link-cc") in cmds

@@ -70,7 +70,7 @@ export function buildHandlers(db: Db, sessionName: string, sessionId?: string) {
     if (to !== "human") {
       const target = await sessions.findOne({
         name: to,
-        status: { $nin: ["completed", "dead"] },
+        status: { $nin: ["completed", "closed"] },
       });
       if (!target) {
         return err(`Session '${to}' not found among active sessions`);
@@ -144,7 +144,7 @@ export function buildHandlers(db: Db, sessionName: string, sessionId?: string) {
   async function getStatus(): Promise<ToolResult> {
     const STALE_THRESHOLD_MS = 5 * 60 * 1000;
     const allSessions = await sessions
-      .find({ status: { $nin: ["completed", "dead"] } })
+      .find({ status: { $nin: ["completed", "closed"] } })
       .project({ _id: 1, name: 1, goal: 1, task: 1, status: 1, last_seen: 1 })
       .toArray();
 

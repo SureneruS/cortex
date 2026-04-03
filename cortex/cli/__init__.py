@@ -41,32 +41,8 @@ def _error_exit(msg: str) -> None:
 
 
 def _sweep_stale_sessions(repo) -> int:
-    from datetime import datetime, timedelta, timezone
-
-    db = repo._col.database
-    messages_col = db["messages"]
-    threshold = datetime.now(timezone.utc).isoformat()
-    stale_cutoff = (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat()
-    boot_grace = (datetime.now(timezone.utc) - timedelta(minutes=2)).isoformat()
-
-    stale = list(repo._col.find({
-        "status": {"$nin": ["completed", "dead"]},
-        "$or": [
-            {"last_seen": None, "created_at": {"$lt": boot_grace}},
-            {"last_seen": {"$exists": False}, "created_at": {"$lt": boot_grace}},
-            {"last_seen": {"$lt": stale_cutoff}},
-        ],
-    }))
-
-    count = 0
-    for s in stale:
-        repo.update(s["_id"], {"status": "dead"}, trigger="stale-sweep", actor="system")
-        messages_col.update_many(
-            {"to": s["name"], "status": "pending"},
-            {"$set": {"status": "expired", "delivered_at": threshold}},
-        )
-        count += 1
-    return count
+    """Backward-compat shim — deprecated. Health check now runs in daemon."""
+    return 0
 
 
 # Register command groups

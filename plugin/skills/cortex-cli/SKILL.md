@@ -107,7 +107,7 @@ cortex session spawn --name <name> [--goal "..."] [--prompt "..."] [--repo <name
   [--worktree <name>] [--resume <cc-uuid>] [--workspace default|background]
 
 # List (default: active, brief)
-cortex session list [--status active|watching|all] [--limit 20] [--brief]
+cortex session list [--status active|paused|blocked|archived|all] [--limit 20] [--brief]
 
 # Get details
 cortex session get <session_id_or_name>
@@ -152,11 +152,8 @@ cortex session scatter <name1> <name2> [<name3>...]
 cortex session move <name> --beside <other>
 cortex session move <name> --below <other>
 
-# Health check (stale sessions, dead panes)
+# Health check (runtime status, pane liveness)
 cortex session health
-
-# Cleanup dead sessions
-cortex session cleanup
 ```
 
 ### Session spawn notes
