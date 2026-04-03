@@ -80,15 +80,18 @@ def execute_check_watches(job: dict) -> None:
         log.info("pr_waking_session", session=session_name, pr=pr_ref, message=message[:200])
 
         result = subprocess.run(
-            ["cortex", "session", "send", session["_id"], message],
+            ["cortex", "session", "message", session_name, message],
             capture_output=True,
             text=True,
         )
         if result.returncode != 0:
             log.error("pr_wake_send_failed", session=session_name, pr=pr_ref, stderr=result.stderr.strip())
-        else:
-            log.info("pr_wake_sent", session=session_name, pr=pr_ref)
+            # Keep watching so we retry next cycle
+            continue
 
+        log.info("pr_wake_sent", session=session_name, pr=pr_ref)
+
+        # Wake the session — babysit skill will re-register watch after handling
         session_repo.update(
             session["_id"],
             {
@@ -113,7 +116,7 @@ def _handle_alarm(session: dict, watch: dict, session_repo) -> None:
 
     log.info("alarm_triggered", session=session_name)
     result = subprocess.run(
-        ["cortex", "session", "send", session["_id"], watch.get("message", "Alarm triggered")],
+        ["cortex", "session", "message", session_name, watch.get("message", "Alarm triggered")],
         capture_output=True,
         text=True,
     )

@@ -105,7 +105,7 @@ def handle_session_start(hook_input: dict) -> dict:
             )
     elif session_id:
         # Manual session: register new entry in Cortex registry
-        _cortex_cli(
+        register_output = _cortex_cli(
             "session", "register",
             "--data", json.dumps({
                 "cc_session_id": session_id,
@@ -116,6 +116,17 @@ def handle_session_start(hook_input: dict) -> dict:
                 "repos": [repo_name] if repo_name else [],
             }),
         )
+
+        # Write CORTEX_SESSION_ID/NAME so cortex CLI commands work within this session
+        env_file = os.environ.get("CLAUDE_ENV_FILE")
+        if register_output and env_file:
+            try:
+                doc = json.loads(register_output)
+                with open(env_file, "a") as f:
+                    f.write(f"CORTEX_SESSION_ID={doc['_id']}\n")
+                    f.write(f"CORTEX_SESSION_NAME={doc.get('name', repo_name or 'manual')}\n")
+            except (json.JSONDecodeError, KeyError, OSError):
+                pass
 
     # Also write to Nova state.json for backward compatibility
     _legacy_nova_register(session_id, transcript_path, repo_name)

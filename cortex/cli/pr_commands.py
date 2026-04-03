@@ -130,16 +130,23 @@ def _parse_pr_ref(pr_ref: str) -> tuple[str, int]:
 
 @pr.command("watch")
 @click.argument("pr_ref")
-@click.argument("session_id")
+@click.argument("session_id", required=False, default=None)
 @click.option("--message", default=None, help="Custom message for when changes detected")
-def pr_watch(pr_ref: str, session_id: str, message: str | None) -> None:
+def pr_watch(pr_ref: str, session_id: str | None, message: str | None) -> None:
     """Register a session to watch a PR for changes.
 
     \b
     PR_REF: Full PR reference in owner/repo#number format
             e.g. cercli/recruitment-backend#123
+
+    SESSION_ID: Cortex session ID (defaults to current session via CORTEX_SESSION_ID)
     """
     import os
+
+    if not session_id:
+        session_id = os.environ.get("CORTEX_SESSION_ID")
+        if not session_id:
+            _error_exit("No session_id provided and CORTEX_SESSION_ID not set")
 
     from cortex import github
 
