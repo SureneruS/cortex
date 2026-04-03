@@ -120,13 +120,25 @@ def _format_value(value) -> str:
     return str(value)
 
 
+def _normalize_entry(entry: dict) -> dict:
+    """Normalize different JSON log formats to a common shape."""
+    # TS channels format: ts → timestamp, msg → event
+    if "ts" in entry and "timestamp" not in entry:
+        entry["timestamp"] = entry.pop("ts")
+    if "msg" in entry and "event" not in entry:
+        entry["event"] = entry.pop("msg")
+    if "component" in entry and "logger" not in entry:
+        entry["logger"] = entry.pop("component")
+    return entry
+
+
 def _parse_line(line: str) -> dict | None:
     """Parse a JSON log line, returning None for non-JSON lines."""
     line = line.strip()
     if not line:
         return None
     try:
-        return json.loads(line)
+        return _normalize_entry(json.loads(line))
     except json.JSONDecodeError:
         return None
 
