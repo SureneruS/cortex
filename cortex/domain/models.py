@@ -13,10 +13,9 @@ class SessionStatus(str, Enum):
     IDLE = "idle"
     PAUSED = "paused"
     BLOCKED = "blocked"
-    WATCHING = "watching"
-    HIDDEN = "hidden"
     COMPLETED = "completed"
-    DEAD = "dead"
+    ARCHIVED = "archived"
+    CLOSED = "closed"
 
 
 class RuntimeStatus(str, Enum):

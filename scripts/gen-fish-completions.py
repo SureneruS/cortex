@@ -46,7 +46,7 @@ CRON_NAME_CMDS = ["delete", "pause", "resume"]
 
 # Status values per context
 STATUS_VALUES = {
-    ("session", "list"): ["active", "paused", "hidden", "dead", "completed"],
+    ("session", "list"): ["active", "idle", "paused", "blocked", "completed", "archived", "closed"],
     ("stream", "list"): ["active", "completed", "all"],
     ("stream", "update"): ["active", "completed"],
     ("stream", "delete"): None,  # --type not --status

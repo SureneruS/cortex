@@ -247,7 +247,7 @@ def control() -> None:
     tmux = container.terminal
 
     existing = repo._col.find_one(
-        {"role": "control", "name": {"$regex": "^control-"}, "status": {"$nin": ["completed", "dead"]}},
+        {"role": "control", "name": {"$regex": "^control-"}, "status": {"$nin": ["completed", "closed"]}},
         sort=[("created_at", -1)],
     )
 
@@ -270,20 +270,8 @@ def control() -> None:
                 click.echo(result.stdout)
                 return
 
-        if _status == "hidden":
-            result = subprocess.run(
-                ["cortex", "session", "show", existing["_id"]],
-                capture_output=True, text=True, timeout=15,
-            )
-            if result.returncode == 0:
-                pane_id = existing.get("pane_id")
-                if pane_id and tmux.pane_exists(pane_id):
-                    tmux.focus(pane_id)
-                click.echo(result.stdout)
-                return
-
-        if _status == "active":
-            repo.update(existing["_id"], {"status": "dead"}, trigger="control-stale", actor="human")
+        if _status in ("active", "idle"):
+            repo.update(existing["_id"], {"status": "closed"}, trigger="control-stale", actor="human")
 
     now = datetime.now()
     name = f"control-{now.strftime('%d-%b').lower()}"
@@ -303,26 +291,33 @@ def control() -> None:
 
     mongodb_uri = f"{MONGO_URI}/{MONGO_DB}"
     channels_flag = "--dangerously-load-development-channels server:cortex-team "
-    fish_cmd = (
-        f"set -x CORTEX_SESSION_ROLE control; "
-        f"set -x CORTEX_SESSION_ID {session_id}; "
-        f"set -x CORTEX_SESSION_NAME {name}; "
-        f"set -x CORTEX_MONGODB_URI {mongodb_uri}; "
-        f"claude {channels_flag}--disallowedTools SendMessage "
-        f"--name {name} --append-system-prompt-file {prompt_file}; exit"
-    )
 
     cwd = os.getcwd()
-    pane_id = tmux.create_pane(cwd, fish_cmd)
+    pane_id = tmux.create_interactive_pane(cwd)
 
     if pane_id:
         repo.update(session_id, {"pane_id": pane_id})
+
+        env_cmd = (
+            f"set -x CORTEX_SESSION_ROLE control; "
+            f"set -x CORTEX_SESSION_ID {session_id}; "
+            f"set -x CORTEX_SESSION_NAME {name}; "
+            f"set -x CORTEX_MONGODB_URI {mongodb_uri}"
+        )
+        claude_cmd = (
+            f"claude {channels_flag}--disallowedTools SendMessage "
+            f"--name {name} --append-system-prompt-file {prompt_file}"
+        )
+        tmux.send_text(pane_id, env_cmd)
+        time.sleep(0.3)
+        tmux.send_text(pane_id, claude_cmd)
+
         time.sleep(1)
         tmux.send_keys(pane_id, "Enter")
         tmux.spawn_background_sender(pane_id, "/color red")
         log.info("Control session spawned", name=name, pane_id=pane_id)
     else:
-        repo.update(session_id, {"status": "dead"}, trigger="spawn-fail", actor="human")
+        repo.update(session_id, {"status": "closed"}, trigger="spawn-fail", actor="human")
         _error_exit("Failed to launch control pane")
 
     _json_out({"action": "spawned", "session_id": session_id, "name": name, "pane_id": pane_id})
@@ -451,7 +446,7 @@ def daemon_cleanup(dry_run: bool) -> None:
     db = get_db()
     from cortex.repositories.session_repo import MongoSessionRepository
     repo = MongoSessionRepository(db)
-    stale = repo.list({"role": "daemon", "status": {"$in": ["active", "dead"]}})
+    stale = repo.list({"role": "daemon", "status": {"$in": ["active", "closed"]}})
     stale_ids = [s["_id"] for s in stale]
     if stale_ids and not dry_run:
         db["session_registry"].delete_many({"_id": {"$in": stale_ids}})

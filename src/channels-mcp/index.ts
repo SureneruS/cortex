@@ -64,8 +64,9 @@ if (!SESSION_NAME || !SESSION_ID || !MONGODB_URI) {
 
 // ── Logging ──────────────────────────────────────────────────
 
-import { appendFileSync, mkdirSync } from "fs";
+import { appendFileSync, mkdirSync, writeFileSync, unlinkSync } from "fs";
 import { join } from "path";
+import { createServer, type AddressInfo } from "http";
 
 const LOG_DIR = join(process.env.HOME || "/tmp", ".cortex", "logs");
 try { mkdirSync(LOG_DIR, { recursive: true }); } catch {}
@@ -363,7 +364,7 @@ async function handleSendMessage(args: Record<string, unknown>) {
   if (to !== "human") {
     const target = await sessions.findOne({
       name: to,
-      status: { $nin: ["completed", "dead"] },
+      status: { $nin: ["completed", "closed"] },
     });
     if (!target) {
       return {
@@ -411,7 +412,7 @@ async function handleSendMessage(args: Record<string, unknown>) {
 
 async function handleGetTeamStatus() {
   const teamSessions = await sessions
-    .find({ status: { $nin: ["completed", "dead"] } })
+    .find({ status: { $nin: ["completed", "closed"] } })
     .project({ _id: 1, name: 1, goal: 1, task: 1, status: 1, last_seen: 1 })
     .toArray();
 
@@ -577,6 +578,42 @@ setInterval(() => {
     log("info", "Cleared dedup set (overflow)");
   }
 }, 60_000);
+
+// ── Health HTTP endpoint ─────────────────────────────────────
+
+const HEALTH_DIR = join(process.env.HOME || "/tmp", ".cortex", "health");
+try { mkdirSync(HEALTH_DIR, { recursive: true }); } catch {}
+const HEALTH_FILE = join(HEALTH_DIR, SESSION_ID || "unknown");
+const startTime = Date.now();
+
+const healthServer = createServer((req, res) => {
+  if (req.url === "/health") {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({
+      ok: true,
+      session_id: SESSION_ID,
+      session_name: SESSION_NAME,
+      uptime_s: Math.round((Date.now() - startTime) / 1000),
+    }));
+  } else {
+    res.writeHead(404);
+    res.end();
+  }
+});
+
+healthServer.listen(0, "127.0.0.1", () => {
+  const port = (healthServer.address() as AddressInfo).port;
+  writeFileSync(HEALTH_FILE, String(port));
+  log("info", "Health endpoint started", { port, file: HEALTH_FILE });
+});
+
+// Clean up health file on exit
+function cleanupHealthFile(): void {
+  try { unlinkSync(HEALTH_FILE); } catch {}
+}
+process.on("exit", cleanupHealthFile);
+process.on("SIGTERM", () => { cleanupHealthFile(); process.exit(0); });
+process.on("SIGINT", () => { cleanupHealthFile(); process.exit(0); });
 
 // ── Startup ──────────────────────────────────────────────────
 

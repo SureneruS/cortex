@@ -59,14 +59,13 @@ def handle_session_start(hook_input: dict) -> dict:
                 pass
 
         if existing_data:
-            is_terminal = existing_data.get("status") in ("completed", "dead")
+            needs_reactivation = existing_data.get("status") in ("paused", "blocked", "completed", "closed")
 
-            if is_terminal:
-                # Reactivate — /clear fired after session was marked terminal
+            if needs_reactivation:
                 _cortex_cli(
                     "session", "update", cortex_session_id,
                     "--data", json.dumps({"status": "active"}),
-                    "--trigger", "clear_reactivate",
+                    "--trigger", "session_reactivate",
                 )
 
             # Link new CC session (appends to cc_sessions array)

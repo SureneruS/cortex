@@ -151,7 +151,7 @@ def list_sessions(
     if filter_status and filter_status != "all":
         filters["status"] = filter_status
     elif not filter_status:
-        filters["status"] = {"$nin": ["completed", "dead"]}
+        filters["status"] = {"$nin": ["completed", "closed"]}
     if filter_runtime:
         filters["runtime"] = filter_runtime
     sessions = repo.list(filters, brief=brief, limit=limit)
@@ -348,7 +348,7 @@ def auto_close(pane_id: str) -> None:
     log = _cli_log()
     log.info("CLI auto-close called", pane_id=pane_id)
     repo = _repo()
-    sessions = repo.list({"status": {"$nin": ["completed", "dead"]}, "pane_id": pane_id})
+    sessions = repo.list({"status": {"$nin": ["completed", "closed"]}, "pane_id": pane_id})
     if not sessions:
         _error_exit(f"No active session for pane {pane_id}")
     doc = sessions[0]
@@ -556,7 +556,7 @@ def layout(window: str | None) -> None:
     if not lines:
         _error_exit("tmux not running")
 
-    sessions = repo.list({"status": {"$nin": ["completed", "dead"]}})
+    sessions = repo.list({"status": {"$nin": ["completed", "closed"]}})
     pane_to_session: dict[str, str | None] = {}
     pane_to_color: dict[str, str | None] = {}
     for doc in sessions:
@@ -633,7 +633,7 @@ def paint(ref: str | None, color: str | None) -> None:
         _json_out({"painted": [{"session_id": resolved["_id"], "pane_id": pane_id, "style": style}], "skipped": []})
         return
 
-    sessions = repo.list({"status": {"$nin": ["completed", "dead"]}})
+    sessions = repo.list({"status": {"$nin": ["completed", "closed"]}})
     painted = []
     skipped = []
     for doc in sessions:
@@ -679,7 +679,7 @@ FALLBACK_THEMES = [
 def _build_session_color_map() -> dict[str, dict[str, str]]:
     """Pre-populate color_map from active sessions in the registry."""
     repo = _repo()
-    sessions = repo.list({"status": {"$nin": ["completed", "dead"]}}, brief=True)
+    sessions = repo.list({"status": {"$nin": ["completed", "closed"]}}, brief=True)
     result: dict[str, dict[str, str]] = {}
     for doc in sessions:
         name = doc.get("name")
@@ -772,12 +772,11 @@ EVENT_ICONS = {
 EVENT_COLORS = {
     "active": "green",
     "completed": "dim",
-    "dead": "red",
+    "closed": "red",
     "paused": "yellow",
-    "hidden": "dim",
-    "watching": "cyan",
     "blocked": "red",
     "idle": "yellow",
+    "archived": "dim",
 }
 
 
@@ -888,7 +887,7 @@ class TranscriptTailer:
     def _resolve_paths(self) -> None:
         """Look up transcript_path from session registry for watched sessions."""
         repo = _repo()
-        filters: dict = {"status": {"$nin": ["completed", "dead"]}}
+        filters: dict = {"status": {"$nin": ["completed", "closed"]}}
         if self._names:
             filters["name"] = {"$in": self._names}
         sessions = repo.list(filters, brief=True)

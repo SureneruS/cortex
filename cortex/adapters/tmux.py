@@ -43,6 +43,38 @@ class TmuxAdapter:
             return None
         return result.stdout.strip() or None
 
+    def create_interactive_pane(
+        self,
+        cwd: str,
+        *,
+        target_session: str | None = None,
+    ) -> str | None:
+        args = ["new-window", "-d", "-P", "-F", "#{pane_id}", "-c", cwd]
+        if target_session:
+            args.extend(["-t", target_session])
+        result = self._run(*args)
+        if result.returncode != 0:
+            log.error("create_interactive_pane failed", stderr=result.stderr.strip())
+            return None
+        return result.stdout.strip() or None
+
+    def split_interactive_window(
+        self,
+        cwd: str,
+        *,
+        orientation: str = "h",
+        target_pane: str | None = None,
+    ) -> str | None:
+        args = ["split-window", f"-{orientation}", "-d"]
+        if target_pane:
+            args.extend(["-t", target_pane])
+        args.extend(["-P", "-F", "#{pane_id}", "-c", cwd])
+        result = self._run(*args)
+        if result.returncode != 0:
+            log.error("split_interactive_window failed", stderr=result.stderr.strip())
+            return None
+        return result.stdout.strip() or None
+
     def destroy_pane(self, pane_id: str) -> bool:
         result = self._run("kill-pane", "-t", str(pane_id))
         return result.returncode == 0

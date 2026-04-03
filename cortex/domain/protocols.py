@@ -30,7 +30,16 @@ class TerminalAdapter(Protocol):
         *,
         target_session: str | None = None,
     ) -> str | None:
-        """Create a new pane. Returns pane_id or None on failure."""
+        """Create a new pane running shell_cmd via fish -c. Returns pane_id or None."""
+        ...
+
+    def create_interactive_pane(
+        self,
+        cwd: str,
+        *,
+        target_session: str | None = None,
+    ) -> str | None:
+        """Create a new interactive pane (bare fish shell). Returns pane_id or None."""
         ...
 
     def destroy_pane(self, pane_id: str) -> bool: ...

@@ -163,7 +163,7 @@ def pr_watch(pr_ref: str, session_id: str | None, message: str | None) -> None:
     session_repo = get_container().sessions
     session_repo.update(
         session_id,
-        {"status": "watching", "runtime": "waiting_input", "watch": watch_config},
+        {"status": "idle", "runtime": "waiting_input", "watch": watch_config, "watch_active": True},
         trigger="pr-watch",
         actor=os.environ.get("CORTEX_SESSION_NAME"),
     )
@@ -174,7 +174,7 @@ def pr_watch(pr_ref: str, session_id: str | None, message: str | None) -> None:
 def pr_watches() -> None:
     """List all active PR watches."""
     session_repo = get_container().sessions
-    watching = session_repo.list({"status": "watching"})
+    watching = session_repo.list({"watch_active": True})
     if not watching:
         _json_out([])
         return

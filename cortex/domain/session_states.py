@@ -13,46 +13,42 @@ class InvalidTransition(ValueError):
         )
 
 
-TERMINAL = {SessionStatus.COMPLETED, SessionStatus.DEAD}
+TERMINAL = {SessionStatus.COMPLETED, SessionStatus.CLOSED}
 
 TRANSITIONS: dict[SessionStatus, set[SessionStatus]] = {
     SessionStatus.ACTIVE: {
-        SessionStatus.PAUSED,
-        SessionStatus.HIDDEN,
-        SessionStatus.WATCHING,
-        SessionStatus.BLOCKED,
         SessionStatus.IDLE,
+        SessionStatus.PAUSED,
+        SessionStatus.BLOCKED,
         SessionStatus.COMPLETED,
-        SessionStatus.DEAD,
+        SessionStatus.CLOSED,
     },
     SessionStatus.IDLE: {
         SessionStatus.ACTIVE,
         SessionStatus.PAUSED,
-        SessionStatus.HIDDEN,
         SessionStatus.COMPLETED,
-        SessionStatus.DEAD,
+        SessionStatus.CLOSED,
     },
     SessionStatus.PAUSED: {
         SessionStatus.ACTIVE,
-        SessionStatus.DEAD,
+        SessionStatus.COMPLETED,
+        SessionStatus.ARCHIVED,
+        SessionStatus.CLOSED,
     },
     SessionStatus.BLOCKED: {
         SessionStatus.ACTIVE,
-        SessionStatus.DEAD,
-    },
-    SessionStatus.WATCHING: {
-        SessionStatus.ACTIVE,
-        SessionStatus.HIDDEN,
+        SessionStatus.PAUSED,
         SessionStatus.COMPLETED,
-        SessionStatus.DEAD,
-    },
-    SessionStatus.HIDDEN: {
-        SessionStatus.ACTIVE,
-        SessionStatus.WATCHING,
-        SessionStatus.DEAD,
+        SessionStatus.ARCHIVED,
+        SessionStatus.CLOSED,
     },
     SessionStatus.COMPLETED: set(),
-    SessionStatus.DEAD: set(),
+    SessionStatus.ARCHIVED: {
+        SessionStatus.ACTIVE,
+        SessionStatus.COMPLETED,
+        SessionStatus.CLOSED,
+    },
+    SessionStatus.CLOSED: set(),
 }
 
 

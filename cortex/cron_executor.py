@@ -7,6 +7,9 @@ import signal
 import subprocess
 import sys
 import time
+import urllib.request
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import structlog
 
@@ -14,6 +17,9 @@ log = structlog.get_logger("cortex.daemon")
 
 POLL_INTERVAL = 60
 HUMAN_MSG_POLL_INTERVAL = 10
+HEALTH_CHECK_INTERVAL = 30
+HEALTH_MISS_THRESHOLD = 5
+ARCHIVE_AFTER_DAYS = 7
 
 
 def execute_check_watches(job: dict) -> None:
@@ -24,7 +30,7 @@ def execute_check_watches(job: dict) -> None:
     db = get_db()
     session_repo = MongoSessionRepo(db)
 
-    sessions = session_repo.list({"status": "watching"})
+    sessions = session_repo.list({"watch_active": True})
     if not sessions:
         log.info("check_watches_empty")
         return
@@ -91,13 +97,11 @@ def execute_check_watches(job: dict) -> None:
 
         log.info("pr_wake_sent", session=session_name, pr=pr_ref)
 
-        # Wake the session — babysit skill will re-register watch after handling
         session_repo.update(
             session["_id"],
             {
-                "status": "active",
-                "runtime": "working",
                 "watch": {**watch, "last_state": current_state},
+                "watch_active": False,
             },
             trigger="cron",
             actor="daemon",
@@ -501,11 +505,74 @@ def _cleanup_registry() -> None:
 
 
 def _sweep_stale_daemons(session_repo) -> None:
-    """Mark any previously active daemon entries as dead."""
+    """Mark any previously active daemon entries as closed."""
     stale = session_repo.list({"role": "daemon", "status": "active"})
     for s in stale:
-        session_repo.update(s["_id"], {"status": "dead"}, trigger="stale-sweep", actor="daemon")
+        session_repo.update(s["_id"], {"status": "closed"}, trigger="stale-sweep", actor="daemon")
         log.info("stale_daemon_swept", daemon_id=s["_id"])
+
+
+def _ping_health(session_id: str) -> bool:
+    """Ping the channels MCP health endpoint for a session."""
+    health_file = Path.home() / ".cortex" / "health" / session_id
+    if not health_file.exists():
+        return False
+    try:
+        port = int(health_file.read_text().strip())
+        req = urllib.request.Request(f"http://127.0.0.1:{port}/health", method="GET")
+        with urllib.request.urlopen(req, timeout=3) as resp:
+            return resp.status == 200
+    except Exception:
+        return False
+
+
+def run_health_check(session_repo) -> int:
+    """Check health of active/idle sessions via channels MCP health endpoint.
+
+    Miss-count based: increment heartbeat_miss_count when health check fails,
+    reset when it succeeds. 5 consecutive misses → paused.
+    Also archives sessions paused/blocked for 7+ days.
+    """
+    sessions = session_repo.list({"status": {"$in": ["active", "idle"]}})
+    actions = 0
+
+    for doc in sessions:
+        session_id = doc["_id"]
+        miss_count = doc.get("heartbeat_miss_count", 0)
+
+        if _ping_health(session_id):
+            if miss_count > 0:
+                session_repo.update(session_id, {"heartbeat_miss_count": 0}, trigger="health-check", actor="daemon")
+        else:
+            miss_count += 1
+            if miss_count >= HEALTH_MISS_THRESHOLD:
+                session_repo.update(
+                    session_id,
+                    {"status": "paused", "heartbeat_miss_count": miss_count},
+                    trigger="health-check-miss",
+                    actor="daemon",
+                )
+                log.info("session_paused_by_health_check", session_id=session_id, miss_count=miss_count)
+                actions += 1
+            else:
+                session_repo.update(
+                    session_id, {"heartbeat_miss_count": miss_count}, trigger="health-check", actor="daemon",
+                )
+
+    # Archive stale paused/blocked sessions
+    archive_cutoff = (datetime.now(timezone.utc) - timedelta(days=ARCHIVE_AFTER_DAYS)).isoformat()
+    stale = session_repo.list({
+        "status": {"$in": ["paused", "blocked"]},
+        "events": {"$not": {"$elemMatch": {"at": {"$gte": archive_cutoff}}}},
+    })
+    for doc in stale:
+        last_event_at = doc.get("events", [{}])[-1].get("at", "") if doc.get("events") else ""
+        if last_event_at and last_event_at < archive_cutoff:
+            session_repo.update(doc["_id"], {"status": "archived"}, trigger="archive-sweep", actor="daemon")
+            log.info("session_archived", session_id=doc["_id"])
+            actions += 1
+
+    return actions
 
 
 def run() -> None:
@@ -548,6 +615,7 @@ def run() -> None:
         log.error("socket_listener_start_failed", error=str(e))
 
     cron_counter = 0
+    health_counter = 0
 
     try:
         while not _shutdown_requested:
@@ -555,6 +623,17 @@ def run() -> None:
                 deliver_human_messages(db)
             except Exception as e:
                 log.error("human_msg_delivery_error", error=str(e))
+
+            # Health check every HEALTH_CHECK_INTERVAL seconds
+            health_counter += HUMAN_MSG_POLL_INTERVAL
+            if health_counter >= HEALTH_CHECK_INTERVAL:
+                health_counter = 0
+                try:
+                    actions = run_health_check(session_repo)
+                    if actions:
+                        log.info("health_check_actions", count=actions)
+                except Exception as e:
+                    log.error("health_check_error", error=str(e))
 
             cron_counter += HUMAN_MSG_POLL_INTERVAL
             if cron_counter >= POLL_INTERVAL:

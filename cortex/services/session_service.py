@@ -80,10 +80,6 @@ class SessionService:
         color: str | None = None,
         custom_command: str | None = None,
     ) -> dict:
-        swept = self._sweep_stale()
-        if swept:
-            log.info("Swept stale sessions", count=swept)
-
         self._check_spawn_limit()
 
         name = self._unique_name(name)
@@ -124,50 +120,59 @@ class SessionService:
         log.info("Session registered", session_id=session_id, name=name)
 
         prompt_file = self._write_system_prompt(session_id, name, parent_name=parent_name)
-        fish_cmd = self._build_fish_cmd(
-            session_id=session_id,
-            name=name,
-            model=model,
-            resume_id=resume_id,
-            permission_mode=permission_mode,
-            effort=effort,
-            agent_name=agent_name,
-            allowed_tools=allowed_tools,
-            worktree=worktree,
-            prompt_file=prompt_file,
-            custom_command=custom_command,
-            parent_id=parent_id,
-            parent_name=parent_name,
-        )
 
         # Resolve spatial targets
         target_pane, split_orientation = self._resolve_spatial_target(beside, below)
-
         cwd = str(repo_path) if repo_path else os.getcwd()
-        pane_id = self._create_pane(
-            cwd=cwd,
-            fish_cmd=fish_cmd,
-            workspace=workspace,
-            target_pane=target_pane,
-            split_orientation=split_orientation,
-        )
+
+        if custom_command:
+            # Custom command: use legacy fish -c approach
+            env_cmd = self._build_env_cmd(
+                session_id=session_id, name=name, parent_id=parent_id, parent_name=parent_name,
+            )
+            fish_cmd = f"{env_cmd}; {custom_command}"
+            pane_id = self._create_pane(
+                cwd=cwd, shell_cmd=fish_cmd, workspace=workspace,
+                target_pane=target_pane, split_orientation=split_orientation,
+            )
+        else:
+            # Interactive pane: create shell, then send env + claude command
+            pane_id = self._create_pane(
+                cwd=cwd, workspace=workspace,
+                target_pane=target_pane, split_orientation=split_orientation,
+            )
 
         if pane_id:
             self._sessions.update(session_id, {"pane_id": pane_id})
 
-            if prompt:
-                self._deliver_prompt(spawned_by, name, prompt)
+            if not custom_command:
+                # Send env vars and claude command as separate send-keys
+                env_cmd = self._build_env_cmd(
+                    session_id=session_id, name=name, parent_id=parent_id, parent_name=parent_name,
+                )
+                claude_cmd = self._build_claude_cmd(
+                    name=name, model=model, resume_id=resume_id,
+                    permission_mode=permission_mode, effort=effort,
+                    agent_name=agent_name, allowed_tools=allowed_tools,
+                    worktree=worktree, prompt_file=prompt_file,
+                )
+                self._terminal.send_text(pane_id, env_cmd)
+                time.sleep(0.3)
+                self._terminal.send_text(pane_id, claude_cmd)
 
             # Auto-accept channels confirmation
             time.sleep(1)
             self._terminal.send_keys(pane_id, "Enter")
+
+            if prompt:
+                self._deliver_prompt(spawned_by, name, prompt)
 
             if color:
                 self._terminal.spawn_background_sender(pane_id, f"/color {color}")
 
             log.info("Session spawned", name=name, pane_id=pane_id)
         else:
-            self._sessions.update(session_id, {"status": "dead"}, trigger="spawn-fail", actor=self._caller())
+            self._sessions.update(session_id, {"status": "closed"}, trigger="spawn-fail", actor=self._caller())
             log.error("Spawn failed — no pane_id from terminal")
 
         result = {
@@ -186,9 +191,7 @@ class SessionService:
         doc = self.resolve(ref)
         session_id = doc["_id"]
 
-        # Already completed — early return to prevent close loops
-        # (SessionEnd hook calls close --from-hook after /exit triggers it)
-        if doc.get("status") in ("completed", "dead"):
+        if doc.get("status") in ("completed", "closed"):
             log.info("Session already closed", session_id=session_id, status=doc["status"])
             return doc
 
@@ -198,35 +201,39 @@ class SessionService:
         if cascade:
             self._close_descendants(session_id, force=force)
 
-        return self._close_single(doc, force=force, from_hook=from_hook)
+        return self._close_single(doc, force=force)
 
-    def _close_single(self, doc: dict, *, force: bool = False, from_hook: bool = False) -> dict:
+    def _close_single(self, doc: dict, *, force: bool = False) -> dict:
         session_id = doc["_id"]
         session_name = doc.get("name", session_id)
         pane_id = doc.get("pane_id")
 
-        if doc.get("status") in ("completed", "dead"):
+        if doc.get("status") in ("completed", "closed"):
             return doc
 
-        # Expire pending messages
         expired = self._messages.expire_for_session(session_name)
         if expired:
             log.info("Expired pending messages", count=expired, session=session_name)
 
-        # Close registry
-        doc = self._sessions.close(session_id, actor=self._caller())
+        pane_alive = pane_id is not None and self._terminal.pane_exists(pane_id)
 
-        # Signal exit — only if not called from the SessionEnd hook
-        # (from_hook means CC is already exiting, no need to send /exit)
-        if not from_hook:
-            pane_alive = pane_id is not None and self._terminal.pane_exists(pane_id)
+        if force:
+            # Force close: status=closed, destroy pane
+            self._sessions.update(
+                session_id, {"status": "closed", "closed_at": datetime.now(timezone.utc).isoformat()},
+                trigger="close-force", actor=self._caller(),
+            )
             if pane_alive:
-                if force:
-                    self._terminal.destroy_pane(pane_id)
-                else:
-                    self._terminal.send_text(pane_id, "/exit")
+                self._terminal.destroy_pane(pane_id)
+        else:
+            # Graceful close: status=completed first, then signal CC to exit
+            # SessionEnd hook will see completed → no-op
+            self._sessions.close(session_id, actor=self._caller())
+            if pane_alive:
+                self._terminal.send_text(pane_id, "/exit")
 
-        log.info("Session closed", session_id=session_id, from_hook=from_hook)
+        doc = self._sessions.get(session_id)
+        log.info("Session closed", session_id=session_id, force=force)
         return doc
 
     def wrapup(self, ref: str) -> bool:
@@ -253,7 +260,7 @@ class SessionService:
     def _close_descendants(self, session_id: str, *, force: bool = False) -> list[dict]:
         children = self._sessions.list({
             "parent_id": session_id,
-            "status": {"$nin": ["completed", "dead"]},
+            "status": {"$nin": ["completed", "closed"]},
         })
         closed = []
         for child in children:
@@ -313,7 +320,7 @@ class SessionService:
         doc = self.resolve(ref)
         session_id = doc["_id"]
 
-        if doc.get("status") not in ("paused", "completed", "dead"):
+        if doc.get("status") not in ("paused", "completed", "closed"):
             raise ValueError(f"Session is {doc.get('status')}, not paused")
 
         cc_session_id = doc.get("cc_session_id")
@@ -370,9 +377,9 @@ class SessionService:
             raise RuntimeError("move-window failed")
 
         self._sessions.update(session_id, {
-            "status": "hidden",
             "pane_id": pane_id,
             "hidden_from": src_session,
+            "workspace": "background",
         }, trigger="hide", actor=self._caller())
 
         doc = self._sessions.get(session_id)
@@ -396,8 +403,7 @@ class SessionService:
         if not self._terminal.move_window(src_target, f"{target_session}:"):
             raise RuntimeError("move-window failed")
 
-        restore_status = "active" if doc.get("status") == "hidden" else doc.get("status")
-        self._sessions.update(session_id, {"status": restore_status, "hidden_from": None}, trigger="show", actor=self._caller())
+        self._sessions.update(session_id, {"hidden_from": None, "workspace": "default"}, trigger="show", actor=self._caller())
         doc = self._sessions.get(session_id)
         log.info("Session shown", session_id=session_id)
         return doc
@@ -406,7 +412,7 @@ class SessionService:
 
     def health_check(self) -> dict:
         live_panes = self._terminal.list_pane_ids()
-        sessions = self._sessions.list({"status": {"$nin": ["completed", "dead"]}})
+        sessions = self._sessions.list({"status": {"$nin": ["completed", "closed"]}})
         registry_panes: set[str] = set()
         findings: list[dict] = []
 
@@ -418,17 +424,18 @@ class SessionService:
                 registry_panes.add(str(pane_id))
 
             if pane_id is None or str(pane_id) not in live_panes:
-                self._sessions.update(
-                    session_id, {"status": "dead", "runtime": "unknown"}, trigger="health-check", actor="system"
-                )
-                findings.append({
-                    "severity": "critical",
-                    "check": "dead_pane",
-                    "session_id": session_id,
-                    "name": name,
-                    "pane_id": pane_id,
-                    "message": f"Session '{name}' has no live pane — marked dead",
-                })
+                if doc.get("status") in ("active", "idle"):
+                    self._sessions.update(
+                        session_id, {"status": "paused", "runtime": "unknown"}, trigger="health-check", actor="system"
+                    )
+                    findings.append({
+                        "severity": "warning",
+                        "check": "pane_gone",
+                        "session_id": session_id,
+                        "name": name,
+                        "pane_id": pane_id,
+                        "message": f"Session '{name}' has no live pane — marked paused",
+                    })
                 continue
 
             output = self._terminal.capture_output(pane_id, lines=10)
@@ -485,7 +492,7 @@ class SessionService:
     # ── Cleanup ──────────────────────────────────────────────
 
     def cleanup(self) -> list[dict]:
-        sessions = self._sessions.list({"status": {"$nin": ["completed", "dead"]}})
+        sessions = self._sessions.list({"status": {"$nin": ["completed", "closed"]}})
         closed = []
         for doc in sessions:
             pane_id = doc.get("pane_id")
@@ -528,7 +535,7 @@ class SessionService:
         import uuid
 
         if recipient != "human":
-            sessions = self._sessions.list({"name": recipient, "status": {"$nin": ["completed", "dead"]}})
+            sessions = self._sessions.list({"name": recipient, "status": {"$nin": ["completed", "closed"]}})
             if not sessions:
                 raise SessionNotFound(recipient)
 
@@ -550,7 +557,7 @@ class SessionService:
         doc = self.resolve(ref)
         filters: dict = {"parent_id": doc["_id"]}
         if not include_dead:
-            filters["status"] = {"$nin": ["completed", "dead"]}
+            filters["status"] = {"$nin": ["completed", "closed"]}
         return self._sessions.list(filters)
 
     def tree(self, ref: str | None = None) -> list[dict]:
@@ -559,7 +566,7 @@ class SessionService:
             return [self._build_tree_node(root)]
 
         roots = self._sessions.list({
-            "status": {"$nin": ["completed", "dead"]},
+            "status": {"$nin": ["completed", "closed"]},
             "$or": [
                 {"parent_id": None},
                 {"parent_id": {"$exists": False}},
@@ -570,7 +577,7 @@ class SessionService:
     def _build_tree_node(self, doc: dict) -> dict:
         children = self._sessions.list({
             "parent_id": doc["_id"],
-            "status": {"$nin": ["completed", "dead"]},
+            "status": {"$nin": ["completed", "closed"]},
         })
         node = {
             "session_id": doc["_id"],
@@ -584,20 +591,20 @@ class SessionService:
     # ── Internal helpers ─────────────────────────────────────
 
     def _check_spawn_limit(self) -> None:
-        active = self._sessions.list({"status": {"$nin": ["completed", "dead"]}})
+        active = self._sessions.list({"status": {"$in": ["active", "idle", "blocked"]}})
         if len(active) >= MAX_ACTIVE_SESSIONS:
             raise SpawnDenied(
                 f"Global session limit reached ({MAX_ACTIVE_SESSIONS} active sessions)"
             )
 
     def _pick_color(self) -> str:
-        active = self._sessions.list({"status": {"$nin": ["completed", "dead"]}})
+        active = self._sessions.list({"status": {"$nin": ["completed", "closed"]}})
         used = {doc.get("color") for doc in active if doc.get("color")}
         return next((c for c in CC_COLORS if c not in used), CC_COLORS[0])
 
     def _unique_name(self, name: str) -> str:
         existing = self._sessions.list(
-            {"name": name, "status": {"$nin": ["completed", "dead", "paused"]}}
+            {"name": name, "status": {"$nin": ["completed", "closed", "paused"]}}
         )
         if not existing:
             return name
@@ -605,7 +612,7 @@ class SessionService:
         while True:
             candidate = f"{name}-{suffix}"
             matches = self._sessions.list(
-                {"name": candidate, "status": {"$nin": ["completed", "dead", "paused"]}}
+                {"name": candidate, "status": {"$nin": ["completed", "closed", "paused"]}}
             )
             if not matches:
                 return candidate
@@ -639,10 +646,32 @@ class SessionService:
         prompt_file.write_text(system_prompt)
         return prompt_file
 
-    def _build_fish_cmd(
+    def _build_env_cmd(
         self,
         *,
         session_id: str,
+        name: str,
+        parent_id: str | None = None,
+        parent_name: str | None = None,
+    ) -> str:
+        from cortex.mongo import MONGO_URI, MONGO_DB
+
+        mongodb_uri = f"{MONGO_URI}/{MONGO_DB}"
+        parts = [
+            f"set -x CORTEX_SESSION_ROLE worker",
+            f"set -x CORTEX_SESSION_ID {session_id}",
+            f"set -x CORTEX_SESSION_NAME {name}",
+            f"set -x CORTEX_MONGODB_URI {mongodb_uri}",
+        ]
+        if parent_id:
+            parts.append(f"set -x CORTEX_PARENT_ID {parent_id}")
+        if parent_name:
+            parts.append(f"set -x CORTEX_PARENT_NAME {parent_name}")
+        return "; ".join(parts)
+
+    def _build_claude_cmd(
+        self,
+        *,
         name: str,
         model: str | None,
         resume_id: str | None,
@@ -652,29 +681,9 @@ class SessionService:
         allowed_tools: str | None,
         worktree: str | None,
         prompt_file: Path,
-        custom_command: str | None,
-        parent_id: str | None = None,
-        parent_name: str | None = None,
     ) -> str:
-        from cortex.mongo import MONGO_URI, MONGO_DB
-
-        mongodb_uri = f"{MONGO_URI}/{MONGO_DB}"
         channels_flag = "--dangerously-load-development-channels server:cortex-team "
-
-        env_setup = (
-            f"set -x CORTEX_SESSION_ROLE worker; "
-            f"set -x CORTEX_SESSION_ID {session_id}; "
-            f"set -x CORTEX_SESSION_NAME {name}; "
-            f"set -x CORTEX_MONGODB_URI {mongodb_uri}; "
-        )
-        if parent_id:
-            env_setup += f"set -x CORTEX_PARENT_ID {parent_id}; "
-        if parent_name:
-            env_setup += f"set -x CORTEX_PARENT_NAME {parent_name}; "
-
-        if custom_command:
-            return f"{env_setup}{custom_command}"
-
+        deny_flag = "--disallowedTools SendMessage "
         model_flag = f"--model {model} " if model else ""
         resume_flag = f"--resume {resume_id} " if resume_id else ""
         pm_flag = f"--permission-mode {permission_mode} " if permission_mode else ""
@@ -683,12 +692,10 @@ class SessionService:
         tools_flag = f"--allowed-tools {allowed_tools} " if allowed_tools else ""
         wt_flag = f"--worktree {worktree} " if worktree else ""
         cc_flags = f"{pm_flag}{effort_flag}{agent_flag}{tools_flag}{wt_flag}"
-        deny_flag = "--disallowedTools SendMessage "
 
         return (
-            f"{env_setup}"
             f"claude {channels_flag}{deny_flag}{model_flag}{resume_flag}{cc_flags}"
-            f"--name {name} --append-system-prompt-file {prompt_file}; exit"
+            f"--name {name} --append-system-prompt-file {prompt_file}"
         )
 
     def _resolve_spatial_target(
@@ -710,29 +717,41 @@ class SessionService:
         self,
         *,
         cwd: str,
-        fish_cmd: str,
+        shell_cmd: str | None = None,
         workspace: str,
         target_pane: str | None,
         split_orientation: str | None,
     ) -> str | None:
         if workspace == "background":
             self._terminal.ensure_session("background")
-            return self._terminal.create_pane(cwd, fish_cmd, target_session="background")
+            if shell_cmd:
+                return self._terminal.create_pane(cwd, shell_cmd, target_session="background")
+            return self._terminal.create_interactive_pane(cwd, target_session="background")
 
         if target_pane and split_orientation:
-            return self._terminal.split_window(
-                cwd, fish_cmd, orientation=split_orientation, target_pane=target_pane
+            if shell_cmd:
+                return self._terminal.split_window(
+                    cwd, shell_cmd, orientation=split_orientation, target_pane=target_pane
+                )
+            return self._terminal.split_interactive_window(
+                cwd, orientation=split_orientation, target_pane=target_pane
             )
 
         caller_pane = self._resolve_caller_pane()
         spawn_mode = os.environ.get("CORTEX_SPAWN_MODE", "tab")
 
         if spawn_mode == "split" and caller_pane:
-            return self._terminal.split_window(
-                cwd, fish_cmd, orientation="h", target_pane=caller_pane
+            if shell_cmd:
+                return self._terminal.split_window(
+                    cwd, shell_cmd, orientation="h", target_pane=caller_pane
+                )
+            return self._terminal.split_interactive_window(
+                cwd, orientation="h", target_pane=caller_pane
             )
 
-        return self._terminal.create_pane(cwd, fish_cmd)
+        if shell_cmd:
+            return self._terminal.create_pane(cwd, shell_cmd)
+        return self._terminal.create_interactive_pane(cwd)
 
     def _resolve_caller_pane(self) -> str | None:
         caller_id = os.environ.get("CORTEX_SESSION_ID")
@@ -762,33 +781,11 @@ class SessionService:
         for _ in range(30):
             time.sleep(1)
             current = self._sessions.get(session_id)
-            if current and current.get("status") in ("completed", "dead"):
+            if current and current.get("status") in ("completed", "closed"):
                 return True
             if not self._terminal.pane_exists(pane_id):
                 return True
         return False
-
-    def _sweep_stale(self) -> int:
-        stale_cutoff = (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat()
-        # Grace period: don't sweep sessions that were just created and haven't
-        # had their first heartbeat yet (channels MCP needs time to start).
-        boot_grace = (datetime.now(timezone.utc) - timedelta(minutes=2)).isoformat()
-
-        stale = self._sessions.list({
-            "status": {"$nin": ["completed", "dead"]},
-            "$or": [
-                {"last_seen": None, "created_at": {"$lt": boot_grace}},
-                {"last_seen": {"$exists": False}, "created_at": {"$lt": boot_grace}},
-                {"last_seen": {"$lt": stale_cutoff}},
-            ],
-        })
-
-        count = 0
-        for s in stale:
-            self._sessions.update(s["_id"], {"status": "dead"}, trigger="stale-sweep", actor="system")
-            self._messages.expire_for_session(s.get("name", ""))
-            count += 1
-        return count
 
     @staticmethod
     def _event_age_hours(doc: dict) -> float | None:
