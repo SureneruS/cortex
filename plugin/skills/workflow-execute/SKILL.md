@@ -13,11 +13,13 @@ Implement the plan. Dispatch strategy scales with scope. TDD at all levels.
 - Contracts file (source of truth for success criteria)
 - Cortex memory (relevant patterns — flagged as potentially stale)
 
-## TDD — Non-negotiable
+## TDD
 
-Every implementation step follows: write test → red → implement → green.
+Every step with business logic follows: write test → red → implement → green.
 
-This applies regardless of scope, dispatch strategy, or who's doing the work (you, a spawned worker, or a subagent).
+Wiring-only steps (enum values, migrations, dependency registration, task schemas) don't need independent red-green cycles — they are verified by the integration tests in the logic steps that use them.
+
+TDD applies regardless of scope, dispatch strategy, or who's doing the work.
 
 ## Dispatch Strategy
 
@@ -133,6 +135,10 @@ When blocked during execution:
 
 - Do not implement without a worktree when working in a repo (per CLAUDE.md rules)
 - Do not try to do deep-scope work inline — spawn workers
-- Do not skip TDD steps even when "the fix is obvious"
+- Do not skip TDD for steps with business logic
 - Do not improvise beyond the plan without flagging to the user
 - Do not send workers raw memory — copy verified content into their prompt
+
+## Transition to Close
+
+After review + QA pass, load `cortex:workflow-close`. Do NOT just summarize and stop — the close phase handles repo health, Linear updates, commit, PR, and learning capture.

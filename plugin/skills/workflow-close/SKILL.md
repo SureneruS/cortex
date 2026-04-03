@@ -48,7 +48,14 @@ Add specific behavioral rules when a gotcha is likely to recur:
 - Link to Linear ticket
 - Never reference cortex in PR content
 
-## Step 3: Capture to Cortex Memory
+## Step 3: Update Linear
+
+- Update the ticket status (in progress → done, or as appropriate)
+- Add implementation notes if noteworthy (approach taken, decisions made)
+- Link the PR to the ticket
+- Never reference cortex in Linear content
+
+## Step 4: Capture to Cortex Memory (internal)
 
 Structured capture — separate from repo health:
 - **What was learned:** Decisions made, patterns discovered, gotchas hit
@@ -57,13 +64,13 @@ Structured capture — separate from repo health:
 
 Use the cortex memory system (auto-memory write). Include enough context that a future session querying by component/module would find this useful.
 
-## Step 4: Clean Up
+## Step 5: Clean Up
 
 - Remove worktree: `git worktree remove <path>` (or ExitWorktree with action: remove)
 - Update workflow state to complete
 - Update cortex stream
 
-## Step 5: Offer Next Steps
+## Step 6: Offer Next Steps
 
 - Babysit PR — invoke existing `babysit-pr` skill if user wants autonomous monitoring
 - Check CI status — `gh pr checks`
