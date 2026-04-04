@@ -77,11 +77,23 @@ Merge worktrees after all units complete and pass verification.
 
 ## Post-Implementation: Review + QA
 
-After implementation is complete and tests pass, spawn two independent sessions before moving to close:
+BLOCKING GATE: Do NOT load cortex:workflow-close or offer to close until review + QA are done. "Tests pass" means implementation is complete — NOT that the work is ready to ship.
 
-### Code Review Session
+This applies whether you implemented inline, via a dispatched worker, or via multiple workers. The implementation method does not change the review requirement.
 
-Spawn a fresh session to review the implementation. It must have NO context from the implementation — only the contracts, the diff, and the plan.
+### Scope gating
+
+| Scope | Review | QA |
+|-------|--------|----|
+| **Lightweight** | Self-review: re-read your diff against contracts | Run verification commands from contracts |
+| **Standard** | REQUIRED: Spawn independent review session | Run verification commands + manual spot-checks |
+| **Deep** | REQUIRED: Spawn independent review session | REQUIRED: Spawn independent QA session |
+
+For standard+ scope, you MUST spawn at least the review session before proceeding. This is not optional.
+
+### Code Review Session (standard+ scope)
+
+Spawn a fresh session with NO context from the implementation — only contracts, diff, and plan.
 
 ```
 cortex session spawn \
@@ -99,9 +111,9 @@ Send the reviewer:
 
 The reviewer must be independent — do not review your own work.
 
-### QA / Verification Session
+### QA / Verification Session (deep scope, optional for standard)
 
-Spawn a fresh session to verify the implementation against contracts. This is manual/integration verification, not just running tests.
+Spawn a fresh session to verify against contracts — integration verification, not just running tests.
 
 ```
 cortex session spawn \
@@ -116,13 +128,9 @@ Send the QA session:
 - The branch with implementation
 - Instruction: "Verify each success criterion and quality gate in the contracts. Run verification commands. Check edge cases. Report pass/fail per criterion with evidence."
 
-### Scope gating
+### After Review + QA
 
-- **Lightweight:** Self-review + run verification commands. No separate sessions needed.
-- **Standard:** Spawn review session. QA can be self-verified or spawned based on complexity.
-- **Deep:** Always spawn both review and QA sessions. They run in parallel.
-
-Wait for review + QA results before moving to close. Fix any findings before shipping.
+Wait for results. Fix any findings. Only then load `cortex:workflow-close`.
 
 ## Handling Blockers
 
