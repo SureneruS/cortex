@@ -32,6 +32,7 @@ Implement directly in the current session using plan mode.
 - Follow the plan steps in order
 - Run tests after each step
 - Commit at logical checkpoints
+- Still requires review + QA (see below) — "tests pass" is not "done"
 
 ### Standard — Dispatch Dev Agent
 

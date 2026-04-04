@@ -76,7 +76,14 @@ Write from the user/stakeholder perspective — observable behaviors and require
 Implementation details (class names, method names, file structure) belong in the plan, not here.
 
 Good: "Scheduling an interview sends an email to each interviewer with interview details"
+Good: "When a tenant has no custom cooldown, the platform default applies"
 Bad: "New send_batch method on ResendGateway using resend.Batch.send()"
+Bad: "Tenant model has `config` JSONB column"
+
+Self-check: could someone verify this criterion without reading the code? If no, rewrite it.
+
+Technical decisions from alignment (JSONB vs separate table, DI strategy, etc.)
+belong in Intent/Constraints, not here.
 
 - [ ] Requirement-based condition 1
 - [ ] Requirement-based condition 2
