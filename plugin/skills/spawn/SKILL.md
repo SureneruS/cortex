@@ -57,7 +57,7 @@ cortex session spawn --name <name> [options]
 
 5. Report: session_id, pane_id, color, and how to interact:
    - Switch to it: click the tmux tab or `Ctrl-b n`
-   - Send text: `cortex session send <name> "text"`
+   - Send message: `cortex session message <name> "text"`
    - Read output: `cortex session capture <name>`
    - Check layout: `cortex session layout`
    - Close: `cortex session close <name>`

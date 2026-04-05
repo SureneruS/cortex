@@ -25,7 +25,7 @@
 | `mcp__cortex__cortex_session_list(...)` | `cortex session list [--status] [--brief]` |
 | `mcp__cortex__cortex_session_get(id)` | `cortex session get <id>` |
 | `mcp__cortex__cortex_session_update(...)` | `cortex session update <id> --data '{...}'` |
-| `mcp__cortex__cortex_session_send(...)` | `cortex session send <id> "<text>"` |
+| `mcp__cortex__cortex_session_send(...)` | `cortex session message <name> "<text>"` |
 | `mcp__cortex__cortex_session_capture(...)` | `cortex session capture <id>` |
 | `mcp__cortex__cortex_session_close(...)` | `cortex session close <id> [--force]` |
 | `mcp__cortex__cortex_session_health` | `cortex session health` |
@@ -37,7 +37,7 @@
 | `mcp__cortex__cortex_pr_resolve(...)` | `cortex pr resolve <thread_id>` |
 | `mcp__cortex__cortex_pr_batch_resolve(...)` | `cortex pr batch-resolve --items '[...]'` |
 | `mcp__cortex__cortex_pr_reply(...)` | `cortex pr reply <n> <cid> --body "..."` |
-| `mcp__cortex__cortex_pr_watch(...)` | `cortex pr watch <n> <sid> [--repo o/r]` |
+| `mcp__cortex__cortex_pr_watch(...)` | `cortex pr watch owner/repo#number [session_id]` |
 | `mcp__cortex__cortex_cron_create(...)` | `cortex cron create --name N --cron "..." --action A` |
 | `mcp__cortex__cortex_cron_list` | `cortex cron list` |
 | `mcp__cortex__cortex_cron_delete(name)` | `cortex cron delete <name>` |

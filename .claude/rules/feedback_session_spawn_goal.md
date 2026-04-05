@@ -11,5 +11,5 @@ After CTX-34 fix: `goal` is registry metadata only (shows in session_list/sessio
 **How to apply:**
 - `goal`: always set for discoverability in session_list
 - `prompt`: use for simple one-shot tasks that don't need follow-up
-- `cortex_session_send`: use for complex multi-part instructions after spawn
-- Never use both `prompt` and `cortex_session_send` — pick one delivery method
+- `cortex session message`: use for complex multi-part instructions after spawn
+- Never use both `--prompt` and `cortex session message` — pick one delivery method
