@@ -92,12 +92,15 @@ from cortex.cli.cron_commands import cron  # noqa: E402
 from cortex.cli.pr_commands import pr  # noqa: E402
 from cortex.cli.misc_commands import register_misc_commands  # noqa: E402
 from cortex.cli.docs_commands import docs  # noqa: E402
+from cortex.cli.knowledge_commands import dream, meditate  # noqa: E402
 
 cli.add_command(stream)
 cli.add_command(session)
 cli.add_command(cron)
 cli.add_command(pr)
 cli.add_command(docs)
+cli.add_command(dream)
+cli.add_command(meditate)
 register_misc_commands(cli)
 
 

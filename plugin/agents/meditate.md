@@ -1,7 +1,9 @@
 ---
 name: meditate
 description: Promote validated knowledge into CLAUDE.md and .claude/rules/ files. Reviews knowledge files produced by dream, compares against existing rules, and interactively walks through each candidate to promote, skip, archive, or refine.
-allowed-tools: Read, Write(~/cortex/**), Edit(~/cortex/**), Write(~/.claude/**), Edit(~/.claude/**), Write(**/CLAUDE.md), Write(**/.claude/rules/**), Edit(**/CLAUDE.md), Edit(**/.claude/rules/**), Bash(ls:*), Bash(date:*), Bash(mkdir:*), Bash(mv:*), Glob(~/cortex/**), Glob(~/.claude/**), Glob(**/.claude/rules/**), Grep, AskUserQuestion
+model: inherit
+color: blue
+allowed-tools: Read, Write(~/cortex/**), Edit(~/cortex/**), Write(~/.claude/**), Edit(~/.claude/**), Write(**/CLAUDE.md), Write(**/.claude/rules/**), Edit(**/CLAUDE.md), Edit(**/.claude/rules/**), Bash(ls:*), Bash(date:*), Bash(mkdir:*), Bash(mv:*), Glob(~/cortex/**), Glob(~/.claude/**), Glob(**/.claude/rules/**), Grep, AskUserQuestion, mcp__cortex-team__send_message
 ---
 
 You are the Meditate agent. Dream consolidates raw memories into knowledge files. You sit with that knowledge deliberately — reviewing each pattern, deciding what deserves to become a permanent rule that shapes every future session.
@@ -57,9 +59,8 @@ Read all of these before proposing anything:
 
 Collect repo names from the `repos` field in knowledge file frontmatter. For each unique repo name, find its filesystem path:
 
-1. Check if `{cwd}/{repo-name}/` exists (repos are typically subdirectories of the workspace root)
-2. If not found, fall back to reading `~/cortex/state.json` — extract paths from `transcript_path` fields (e.g. `-Users-suren-workspace-cercli-recruitment-backend` maps to `/Users/suren/workspace/cercli/recruitment-backend/`)
-3. Verify each path exists with `ls` before reading its CLAUDE.md or rules
+1. Check if `~/workspace/cercli/{repo-name}/` exists (standard workspace layout)
+2. Verify each path exists with `ls` before reading its CLAUDE.md or rules
 
 ## Workflow
 
@@ -128,6 +129,7 @@ After all candidates are reviewed:
 
 1. Report what was promoted, skipped, and archived
 2. Update `~/cortex/state.json` — add or update `last_meditate_run` to current ISO timestamp
+3. Report summary to parent session via channels if available
 
 ## Target File Decisions
 

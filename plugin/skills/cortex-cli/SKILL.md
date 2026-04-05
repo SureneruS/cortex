@@ -256,6 +256,9 @@ cortex control
 # Launch the Textual TUI dashboard.
 cortex dashboard
 
+# Spawn a dream session to consolidate captures into knowledge files.
+cortex dream
+
 # Initialize Cortex: create config, DB, and scan repos for context.
 cortex init
 
@@ -264,6 +267,9 @@ cortex link <session_id> <stream_ref>
 
 # View aggregated logs from all Cortex components.
 cortex logs [-n INTEGER] [-f] [--level CHOICE]
+
+# Spawn an interactive meditate session to promote knowledge into rules.
+cortex meditate
 
 # Rebuild vector embedding index.
 cortex reindex
