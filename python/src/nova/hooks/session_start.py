@@ -104,9 +104,10 @@ def handle_session_start(hook_input: dict) -> dict:
     except Exception:
         pass
 
+    existing_data = None
+
     if cortex_session_id and session_id:
         existing = _cortex_cli("session", "get", cortex_session_id)
-        existing_data = None
         if existing:
             try:
                 existing_data = json.loads(existing)
@@ -182,7 +183,11 @@ def handle_session_start(hook_input: dict) -> dict:
             except (json.JSONDecodeError, KeyError, OSError):
                 pass
 
-    emit_status_event("started", f"Session started in {repo_name or 'unknown repo'}")
+    # Only emit "started" on first start, not re-attaches.
+    # If existing session already has a runtime state set, it's a re-attach.
+    is_reattach = existing_data and existing_data.get("runtime") not in (None, "unknown")
+    if not is_reattach:
+        emit_status_event("started", f"Session started in {repo_name or 'unknown repo'}")
 
     result: dict = {}
     context_parts: list[str] = []

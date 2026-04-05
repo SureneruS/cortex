@@ -45,7 +45,8 @@ def handle_task_completed(hook_input: dict) -> dict:
         "--trigger", "task_completed",
     )
 
-    emit_status_event("progress", f"Task completed ({completed_tasks}/{total_tasks})")
+    if completed_tasks > 0:
+        emit_status_event("progress", f"Task completed ({completed_tasks}/{total_tasks})")
 
     return {}
 
