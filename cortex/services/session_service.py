@@ -9,7 +9,7 @@ import structlog
 
 from cortex.domain.protocols import MessageRepository, SessionRepository, TerminalAdapter
 from cortex.domain.session_states import TERMINAL
-from cortex.repositories.session_repo import _new_id
+from cortex.domain.utils import _new_id
 
 log = structlog.get_logger("cortex.session_service")
 

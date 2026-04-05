@@ -1,27 +1,17 @@
 from __future__ import annotations
 
-import uuid
-from datetime import datetime, timezone
-
 import structlog
 from pymongo import ReturnDocument
 from pymongo.database import Database
 
 from cortex.domain.models import SessionStatus, RuntimeStatus
 from cortex.domain.session_states import TRANSITIONS
+from cortex.domain.utils import _new_id, _now
 
 log = structlog.get_logger("cortex.session_repo")
 
 VALID_STATUS = {s.value for s in SessionStatus}
 VALID_RUNTIME = {r.value for r in RuntimeStatus}
-
-
-def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
-
-
-def _new_id() -> str:
-    return uuid.uuid4().hex[:12]
 
 
 def _make_event(

@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 import sqlite3
-import uuid
 from collections.abc import Callable
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 
 from pymongo.database import Database
@@ -11,18 +10,11 @@ from pymongo.database import Database
 import structlog
 
 from cortex.adapters.vector_store import SIMILARITY_THRESHOLD
+from cortex.domain.utils import _new_id, _now
 from cortex.models import Checkpoint, Decision, Stream, Update
 from cortex.observability import trace
 
 log = structlog.get_logger("cortex.mongo_state")
-
-
-def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
-
-
-def _new_id() -> str:
-    return uuid.uuid4().hex[:12]
 
 
 def _doc_to_stream(doc: dict) -> Stream:

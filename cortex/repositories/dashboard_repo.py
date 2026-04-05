@@ -1,19 +1,9 @@
 from __future__ import annotations
 
-import uuid
-from datetime import datetime, timezone
-
 from pymongo.database import Database
 
+from cortex.domain.utils import _new_id, _now
 from cortex.observability import trace
-
-
-def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
-
-
-def _new_id() -> str:
-    return uuid.uuid4().hex[:12]
 
 
 class MongoDashboardRepository:

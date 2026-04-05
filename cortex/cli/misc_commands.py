@@ -230,7 +230,7 @@ def control() -> None:
     from pathlib import Path
 
     from cortex.mongo import MONGO_URI, MONGO_DB
-    from cortex.repositories.session_repo import _new_id
+    from cortex.domain.utils import _new_id
 
     log = _cli_log()
     container = get_container()
