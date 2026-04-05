@@ -5,7 +5,7 @@ from pymongo import ReturnDocument
 from pymongo.database import Database
 
 from cortex.domain.models import SessionStatus, RuntimeStatus
-from cortex.domain.session_states import TRANSITIONS
+from cortex.domain.session_states import TERMINAL, TRANSITIONS
 from cortex.domain.utils import _new_id, _now
 
 log = structlog.get_logger("cortex.session_repo")
@@ -162,9 +162,13 @@ class MongoSessionRepository:
         *,
         brief: bool = False,
         limit: int | None = None,
+        include_terminal: bool = False,
     ) -> list[dict]:
+        query = dict(filters) if filters else {}
+        if not include_terminal and "status" not in query:
+            query["status"] = {"$nin": [s.value for s in TERMINAL]}
         projection = {"events": 0, "watch.last_state": 0} if brief else None
-        cursor = self._col.find(filters or {}, projection).sort("created_at", -1)
+        cursor = self._col.find(query, projection).sort("created_at", -1)
         if limit:
             cursor = cursor.limit(limit)
         return list(cursor)

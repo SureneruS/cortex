@@ -8,7 +8,7 @@ from pathlib import Path
 import structlog
 
 from cortex.domain.protocols import MessageRepository, SessionRepository, TerminalAdapter
-from cortex.domain.session_states import TERMINAL
+
 from cortex.domain.utils import _new_id
 
 log = structlog.get_logger("cortex.session_service")
@@ -262,10 +262,7 @@ class SessionService:
         return ok
 
     def _close_descendants(self, session_id: str, *, force: bool = False) -> list[dict]:
-        children = self._sessions.list({
-            "parent_id": session_id,
-            "status": {"$nin": ["completed", "closed"]},
-        })
+        children = self._sessions.list({"parent_id": session_id})
         closed = []
         for child in children:
             closed.extend(self._close_descendants(child["_id"], force=force))
@@ -409,7 +406,7 @@ class SessionService:
 
     def health_check(self) -> dict:
         live_panes = self._terminal.list_pane_ids()
-        sessions = self._sessions.list({"status": {"$nin": ["completed", "closed"]}})
+        sessions = self._sessions.list()
         registry_panes: set[str] = set()
         findings: list[dict] = []
 
@@ -489,7 +486,7 @@ class SessionService:
     # ── Cleanup ──────────────────────────────────────────────
 
     def cleanup(self) -> list[dict]:
-        sessions = self._sessions.list({"status": {"$nin": ["completed", "closed"]}})
+        sessions = self._sessions.list()
         closed = []
         for doc in sessions:
             pane_id = doc.get("pane_id")
@@ -532,8 +529,7 @@ class SessionService:
         import uuid
 
         if recipient != "human":
-            terminal_values = [s.value for s in TERMINAL]
-            sessions = self._sessions.list({"name": recipient, "status": {"$nin": terminal_values}})
+            sessions = self._sessions.list({"name": recipient})
             if not sessions:
                 raise SessionNotFound(recipient)
 
@@ -553,10 +549,7 @@ class SessionService:
 
     def children(self, ref: str, *, include_dead: bool = False) -> list[dict]:
         doc = self.resolve(ref)
-        filters: dict = {"parent_id": doc["_id"]}
-        if not include_dead:
-            filters["status"] = {"$nin": ["completed", "closed"]}
-        return self._sessions.list(filters)
+        return self._sessions.list({"parent_id": doc["_id"]}, include_terminal=include_dead)
 
     def tree(self, ref: str | None = None) -> list[dict]:
         if ref:
@@ -564,7 +557,6 @@ class SessionService:
             return [self._build_tree_node(root)]
 
         roots = self._sessions.list({
-            "status": {"$nin": ["completed", "closed"]},
             "$or": [
                 {"parent_id": None},
                 {"parent_id": {"$exists": False}},
@@ -573,10 +565,7 @@ class SessionService:
         return [self._build_tree_node(r) for r in roots]
 
     def _build_tree_node(self, doc: dict) -> dict:
-        children = self._sessions.list({
-            "parent_id": doc["_id"],
-            "status": {"$nin": ["completed", "closed"]},
-        })
+        children = self._sessions.list({"parent_id": doc["_id"]})
         node = {
             "session_id": doc["_id"],
             "name": doc.get("name"),
@@ -596,7 +585,7 @@ class SessionService:
             )
 
     def _pick_color(self) -> str:
-        active = self._sessions.list({"status": {"$nin": ["completed", "closed"]}})
+        active = self._sessions.list()
         used = {doc.get("color") for doc in active if doc.get("color")}
         return next((c for c in CC_COLORS if c not in used), CC_COLORS[0])
 
