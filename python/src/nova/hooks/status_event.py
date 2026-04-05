@@ -1,14 +1,17 @@
 """Structured status event emission for worker observability (CTX-67).
 
 Workers emit events via channels so control sessions know what's happening.
-Events are sent to the parent session (CORTEX_PARENT_NAME) if set.
-Registry is also updated so dashboard/list/health see the state.
+Major events push to parent session; all events update the session registry.
 """
 
 import json
 import os
 import subprocess
 from datetime import datetime, timezone
+
+# Major events push a channel message to the parent session.
+# Minor events only update the registry (no channel spam).
+MAJOR_EVENTS = {"started", "done", "error", "blocked"}
 
 # Map status events to runtime states for the session registry.
 # "done" is omitted — session_end hook handles closing.
@@ -36,33 +39,55 @@ def _update_session_runtime(session_id: str, runtime: str) -> None:
 
 
 def emit_status_event(event: str, detail: str = "") -> None:
-    """Emit a structured status event to the parent session via channels.
+    """Emit a structured status event.
 
-    Also updates the session's own runtime state in the registry so that
-    dashboard, session list, and health checks reflect the current state.
+    All events update the session registry (last_event + runtime).
+    Only major lifecycle events (started, done, error, blocked) push
+    a channel message to the parent.
 
-    No-op if CORTEX_SESSION_NAME or CORTEX_PARENT_NAME is not set.
+    No-op if CORTEX_SESSION_NAME is not set.
     Fire-and-forget — never blocks the hook or raises.
     """
     session_name = os.environ.get("CORTEX_SESSION_NAME")
-    parent_name = os.environ.get("CORTEX_PARENT_NAME")
-    if not session_name or not parent_name:
+    if not session_name:
         return
 
-    # Update registry runtime state (uses CORTEX_SESSION_ID, independent of parent)
+    now = datetime.now(timezone.utc).isoformat()
+
+    # Always update the registry with the latest event
+    registry_data = json.dumps({
+        "last_event": event,
+        "last_event_detail": detail[:200] if detail else "",
+        "last_event_at": now,
+    })
+    try:
+        subprocess.Popen(
+            ["cortex", "--json", "session", "update", session_name,
+             "--data", registry_data, "--trigger", f"hook:{event}"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except Exception:
+        pass
+
+    # Update registry runtime state (independent of parent)
     session_id = os.environ.get("CORTEX_SESSION_ID")
     runtime = _EVENT_TO_RUNTIME.get(event)
     if session_id and runtime:
         _update_session_runtime(session_id, runtime)
+
+    # Only push channel message to parent for major lifecycle events
+    parent_name = os.environ.get("CORTEX_PARENT_NAME")
+    if not parent_name or event not in MAJOR_EVENTS:
+        return
 
     content = json.dumps({
         "type": "status_event",
         "event": event,
         "detail": detail,
         "worker": session_name,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": now,
     })
-
     meta = json.dumps({"type": "status_event", "event": event})
 
     try:
