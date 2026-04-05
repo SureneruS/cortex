@@ -9,8 +9,6 @@ import click
 
 from cortex.cli import _cli_log, _error_exit, _json_out, get_container
 from cortex.config import load_config, save_config, Config, CONFIG_PATH, CORTEX_DIR
-from cortex.mongo import get_db
-from cortex.mongo_state import MongoStateManager
 
 
 def register_misc_commands(cli: click.Group) -> None:
@@ -47,13 +45,13 @@ def init() -> None:
         save_config(config)
         click.echo(f"  Config saved to {CONFIG_PATH}")
 
-    state = MongoStateManager(get_db(), config.resolved_vec_db_path)
-    state.init_db()
-    click.echo("  Database initialized (MongoDB + vec index)")
+    container = get_container()
+    svc = container.stream_service
+    click.echo("  Database initialized (MongoDB indexes created)")
 
     click.echo("  Scanning repos for open PRs...")
     from cortex.bootstrap import scan_repos
-    stats = scan_repos(config, state)
+    stats = scan_repos(config, svc)
 
     click.echo("\nBootstrap complete:")
     click.echo(f"  Repos scanned: {stats['repos_scanned']}")
@@ -62,8 +60,6 @@ def init() -> None:
     click.echo(f"  Streams created: {stats['streams_created']}")
     if stats["streams_skipped"]:
         click.echo(f"  Streams skipped (already exist): {stats['streams_skipped']}")
-
-    state.close()
     _install_fish_completions()
 
 

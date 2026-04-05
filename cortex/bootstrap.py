@@ -5,7 +5,7 @@ import subprocess
 from pathlib import Path
 
 from cortex.config import Config
-from cortex.mongo_state import MongoStateManager
+from cortex.services.stream_service import StreamService
 
 
 def _run(cmd: list[str], cwd: str | None = None) -> str:
@@ -36,10 +36,10 @@ def _get_active_branches(repo_path: str) -> list[str]:
     return [b.strip() for b in raw.splitlines() if b.strip() and b.strip() != "main"]
 
 
-def scan_repos(config: Config, state: MongoStateManager) -> dict:
+def scan_repos(config: Config, stream_service: StreamService) -> dict:
     stats = {"streams_created": 0, "streams_skipped": 0, "prs_found": 0, "branches_found": 0, "repos_scanned": 0}
 
-    existing_titles = {s.title for s in state.list_streams(status="all")}
+    existing_titles = {s.title for s in stream_service.list_streams(status="all")}
     seen_branches: set[str] = set()
 
     for repo_name, repo_path_str in config.repos.items():
@@ -59,7 +59,7 @@ def scan_repos(config: Config, state: MongoStateManager) -> dict:
             if stream_title in existing_titles:
                 stats["streams_skipped"] += 1
                 continue
-            state.create_stream(stream_title, [repo_name])
+            stream_service.create_stream(stream_title, [repo_name])
             existing_titles.add(stream_title)
             stats["streams_created"] += 1
 
