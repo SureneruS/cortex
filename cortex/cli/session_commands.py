@@ -134,18 +134,66 @@ def _resolve_caller_pane() -> str | None:
 # ── List / Get / Register / Update ──────────────────────────
 
 
+def _relative_age(iso_str: str) -> str:
+    from datetime import datetime, timezone
+
+    try:
+        dt = datetime.fromisoformat(str(iso_str))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        delta = datetime.now(timezone.utc) - dt
+        secs = int(delta.total_seconds())
+        if secs < 60:
+            return f"{secs}s"
+        if secs < 3600:
+            return f"{secs // 60}m"
+        if secs < 86400:
+            return f"{secs // 3600}h"
+        return f"{secs // 86400}d"
+    except (ValueError, TypeError):
+        return "?"
+
+
+def _format_sessions_table(sessions: list[dict]) -> str:
+    if not sessions:
+        return "No sessions found."
+
+    headers = ["NAME", "STATUS", "RUNTIME", "ROLE", "AGE", "ID"]
+    rows = []
+    for s in sessions:
+        rows.append([
+            s.get("name", "—"),
+            s.get("status", "—"),
+            s.get("runtime", "—"),
+            s.get("role", "—"),
+            _relative_age(s.get("created_at", "")),
+            s.get("_id", "—")[:12],
+        ])
+
+    widths = [max(len(h), max((len(r[i]) for r in rows), default=0)) for i, h in enumerate(headers)]
+    header_line = "  ".join(h.ljust(w) for h, w in zip(headers, widths))
+    sep = "  ".join("─" * w for w in widths)
+    lines = [header_line, sep]
+    for r in rows:
+        lines.append("  ".join(v.ljust(w) for v, w in zip(r, widths)))
+    lines.append(f"\n{len(sessions)} session(s)")
+    return "\n".join(lines)
+
+
 @session.command("list")
 @click.option("--status", "filter_status", default=None, help="Filter by status")
 @click.option("--runtime", "filter_runtime", default=None, help="Filter by runtime state")
 @click.option("--all", "show_all", is_flag=True, default=False, help="Include completed/closed sessions")
 @click.option("--brief", is_flag=True, default=False, help="Omit events and watch details")
 @click.option("--limit", "limit", type=int, default=None, help="Max sessions to return")
+@click.option("--output", "output_fmt", type=click.Choice(["json", "human"]), default="json", help="Output format")
 def list_sessions(
     filter_status: str | None,
     filter_runtime: str | None,
     show_all: bool,
     brief: bool,
     limit: int | None,
+    output_fmt: str,
 ) -> None:
     """List registered sessions. Shows non-terminal sessions by default."""
     from cortex.domain.session_states import TERMINAL
@@ -159,7 +207,10 @@ def list_sessions(
     if filter_runtime:
         filters["runtime"] = filter_runtime
     sessions = repo.list(filters, brief=brief, limit=limit)
-    _json_out(sessions)
+    if output_fmt == "human":
+        click.echo(_format_sessions_table(sessions))
+    else:
+        _json_out(sessions)
 
 
 @session.command()
