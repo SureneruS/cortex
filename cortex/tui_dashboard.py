@@ -53,6 +53,7 @@ STATUS_DOTS = {
     "completed": ("✓", "#484f58"),
     "archived": ("○", "#484f58"),
     "closed": ("✕", "#f85149"),
+    "dead": ("☠", "#6e7681"),
 }
 
 RUNTIME_INDICATORS = {
@@ -64,12 +65,46 @@ RUNTIME_INDICATORS = {
 }
 
 EVENT_GLYPHS = {
+    # Lifecycle
     "spawn": ("+", "#3fb950"),
     "close": ("x", "#f85149"),
-    "stale_sweep": ("X", "#d29922"),
-    "stale-sweep": ("X", "#d29922"),
+    "close-force": ("x", "#f85149"),
+    "auto-close": ("x", "#d29922"),
+    "manual-close-dead-pane": ("x", "#f85149"),
+    "team-kill": ("x", "#f85149"),
+    "cleanup": ("x", "#6e7681"),
+    "shutdown": ("x", "#6e7681"),
+    # Session end
+    "session_end_exit": ("~", "#6e7681"),
+    "session_end_prompt_input_exit": ("~", "#6e7681"),
+    "session_end_other": ("~", "#6e7681"),
+    "session-wrapup": ("v", "#3fb950"),
+    # Pause / resume
+    "pause": ("=", "#d29922"),
+    "resume": (">", "#3fb950"),
+    "resume-link": (">", "#3fb950"),
+    "stop_hook": ("=", "#d29922"),
+    "stop_failure": ("!", "#f85149"),
+    # Visibility
+    "hide": ("_", "#6e7681"),
+    "show": ("^", "#58a6ff"),
+    "manual-reactivate": ("^", "#3fb950"),
+    # Maintenance
     "health-check": ("-", "#484f58"),
+    "stale-sweep": ("X", "#d29922"),
+    "stale_sweep": ("X", "#d29922"),
+    "control-stale": ("X", "#d29922"),
+    # Operations
     "update": ("^", "#58a6ff"),
+    "cron": ("@", "#bc8cff"),
+    "pr-watch": ("@", "#bc8cff"),
+    "user_prompt": (">", "#58a6ff"),
+    "scatter": ("*", "#58a6ff"),
+    "remove-watch": ("-", "#6e7681"),
+    # Test (dim)
+    "e2e-cleanup": (".", "#484f58"),
+    "e2e-cleanup-sweep": (".", "#484f58"),
+    "test-cleanup": (".", "#484f58"),
 }
 
 
@@ -115,7 +150,7 @@ def _truncate(s: str, n: int) -> str:
 
 def _fetch_sessions(include_done: bool = False) -> list[dict]:
     db = get_db()
-    filt = {} if include_done else {"status": {"$nin": ["completed", "closed"]}}
+    filt = {} if include_done else {"status": {"$nin": ["completed", "closed", "dead"]}}
     return list(db.session_registry.find(filt).sort("created_at", -1))
 
 
