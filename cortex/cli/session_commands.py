@@ -90,7 +90,6 @@ def spawn(
             _error_exit(f"Not a git repo (no .git): {repo_path}")
 
     if split and not beside and not below:
-        import os
         beside_pane = _resolve_caller_pane()
         if beside_pane:
             beside = beside_pane
@@ -510,7 +509,6 @@ def cleanup() -> None:
 def gather(refs: tuple[str, ...], layout_name: str) -> None:
     """Gather sessions into a single window with a layout."""
     log = _cli_log()
-    svc = _svc()
     tmux = get_container().terminal
 
     panes: list[dict] = []

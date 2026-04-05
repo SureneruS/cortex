@@ -2,8 +2,8 @@
 
 ## tmux vs Channels — separation of concerns
 
-- **Channels for communication.** All inter-session messaging goes through the channels MCP (MongoDB → `<channel>` notifications). Never use `tmux send-keys` to pass messages between sessions.
-- **tmux for terminal management.** Spawning panes, moving windows, killing panes, slash commands (/color, /exit, /session-wrapup) — all tmux. tmux does process lifecycle and terminal control; channels does messaging.
+- **Channels for ALL communication.** All inter-session messaging — including spawn prompts — goes through channels (MongoDB → `<channel>` notifications). Never use `tmux send-keys` to deliver messages or prompts.
+- **tmux for internal terminal control ONLY.** Spawning panes, moving windows, killing panes, env setup, slash commands (/color, /exit, /session-wrapup) — all tmux. tmux does process lifecycle and terminal control; channels does messaging. `send_text` and `send_keys` must never carry user-facing content.
 - **All sessions have channels.** Every session spawned via `cortex session spawn` gets the channels MCP. There is no separate "team session" concept — all sessions are peers in the message bus.
 
 ## Architecture
@@ -32,7 +32,7 @@
 
 ## CLI (`cortex session *`)
 
-- **`--name` is the session name, `--goal` is metadata, `--prompt` is the initial task.** Prompt is delivered via channels (pending MongoDB message), not tmux send-keys.
+- **`--name` is the session name, `--goal` is metadata, `--prompt` is the initial task.** Prompt is delivered via channels with a readiness gate: Python waits for `channel_status="ready"` (set by MCP on `oninitialized`), writes the message to MongoDB, waits for a reply to confirm delivery, and auto-resends if no reply within 15s.
 - **Spawn sequence has rollback.** If tmux launch fails after MongoDB registration, mark the session as `dead`.
 - **Stale sweep runs on every spawn.** Catches both null `last_seen` (crashed before first heartbeat) and `last_seen > 5min` (crashed after heartbeat started).
 - **Name uniqueness is find_one, not atomic.** Accepted v1 limitation at low concurrency. Document if this causes issues.

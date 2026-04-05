@@ -3,10 +3,7 @@ from __future__ import annotations
 import click
 import structlog
 
-from cortex.config import load_config, Config, CONFIG_PATH, CORTEX_DIR, save_config
-from cortex.container import get_container
-from cortex.mongo import get_db
-from cortex.mongo_state import MongoStateManager
+from cortex.container import get_container as get_container
 
 
 from cortex._version import __version__

@@ -47,11 +47,12 @@ class TerminalAdapter(Protocol):
     def capture_output(self, pane_id: str, lines: int = 50) -> str | None: ...
 
     def send_text(self, pane_id: str, text: str) -> bool:
-        """Send text + Enter to a pane (reliable, buffered delivery)."""
+        """Send text + Enter to a pane. For internal commands only (env setup, slash commands, /exit).
+        Never use for delivering messages or prompts — use channels for that."""
         ...
 
     def send_keys(self, pane_id: str, keys: str) -> bool:
-        """Send raw keystrokes to a pane."""
+        """Send raw keystrokes to a pane. For internal control only (Enter to confirm dialogs)."""
         ...
 
     def focus(self, pane_id: str) -> None: ...

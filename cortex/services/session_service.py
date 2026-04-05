@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 
 import structlog
@@ -658,7 +658,7 @@ class SessionService:
 
         mongodb_uri = f"{MONGO_URI}/{MONGO_DB}"
         parts = [
-            f"set -x CORTEX_SESSION_ROLE worker",
+            "set -x CORTEX_SESSION_ROLE worker",
             f"set -x CORTEX_SESSION_ID {session_id}",
             f"set -x CORTEX_SESSION_NAME {name}",
             f"set -x CORTEX_MONGODB_URI {mongodb_uri}",

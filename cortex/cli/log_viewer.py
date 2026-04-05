@@ -42,7 +42,7 @@ def _format_entry(entry: dict, *, source: str | None = None) -> Text:
 
     # Timestamp (dimmed, converted to local timezone)
     if timestamp and "T" in timestamp:
-        from datetime import datetime, timezone
+        from datetime import datetime
         try:
             dt = datetime.fromisoformat(timestamp.rstrip("Z") + "+00:00" if timestamp.endswith("Z") else timestamp)
             local_dt = dt.astimezone()
