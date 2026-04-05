@@ -4,7 +4,7 @@ import json
 
 import click
 
-from cortex.cli import _error_exit, _json_out, _output, get_container
+from cortex.cli import JsonGroup, _error_exit, _json_out, _output, get_container
 
 
 def _svc():
@@ -18,7 +18,7 @@ def _resolve_or_exit(ref: str):
     return stream
 
 
-@click.group()
+@click.group(cls=JsonGroup)
 def stream() -> None:
     """Manage work streams, updates, and decisions."""
     pass

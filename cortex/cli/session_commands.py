@@ -6,11 +6,11 @@ from pathlib import Path
 
 import click
 
-from cortex.cli import _cli_log, _error_exit, _json_out, _output, get_container
+from cortex.cli import JsonGroup, _cli_log, _error_exit, _json_out, _output, get_container
 from cortex.services.session_service import ClosePermissionDenied, SessionNotFound, SpawnDenied
 
 
-@click.group()
+@click.group(cls=JsonGroup)
 def session() -> None:
     """Manage Claude Code sessions."""
     pass

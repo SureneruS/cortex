@@ -7,7 +7,7 @@ import subprocess
 
 import click
 
-from cortex.cli import _cli_log, _error_exit, _json_out, _output, get_container
+from cortex.cli import JsonCommand, JsonGroup, _cli_log, _error_exit, _json_out, _output, get_container
 from cortex.config import load_config, save_config, Config, CONFIG_PATH, CORTEX_DIR
 
 
@@ -32,7 +32,7 @@ def register_misc_commands(cli: click.Group) -> None:
 # ── Init ─────────────────────────────────────────────────────
 
 
-@click.command()
+@click.command(cls=JsonCommand)
 def init() -> None:
     """Initialize Cortex: create config, DB, and scan repos for context."""
     click.echo("Initializing Cortex...")
@@ -81,7 +81,7 @@ def _install_fish_completions() -> None:
 # ── Status / Brief / Link / Tasks / Reindex ──────────────────
 
 
-@click.command()
+@click.command(cls=JsonCommand)
 def status() -> None:
     """Show active Cortex streams."""
     svc = get_container().stream_service
@@ -95,7 +95,7 @@ def status() -> None:
             click.echo(f"          {s.summary}")
 
 
-@click.command()
+@click.command(cls=JsonCommand)
 def brief() -> None:
     """Print compact session brief (for hook injection)."""
     svc = get_container().stream_service
@@ -115,7 +115,7 @@ def brief() -> None:
     click.echo("\n".join(lines))
 
 
-@click.command()
+@click.command(cls=JsonCommand)
 @click.argument("session_id")
 @click.argument("stream_ref")
 def link(session_id: str, stream_ref: str) -> None:
@@ -127,7 +127,7 @@ def link(session_id: str, stream_ref: str) -> None:
     svc.link_session(session_id, stream.id)
 
 
-@click.command()
+@click.command(cls=JsonCommand)
 @click.option("--session-id", default=None, help="Claude Code session ID to restore tasks for.")
 def tasks(session_id: str | None) -> None:
     """Print pending task backups for session restore."""
@@ -151,7 +151,7 @@ def tasks(session_id: str | None) -> None:
                 return
 
 
-@click.command()
+@click.command(cls=JsonCommand)
 def reindex() -> None:
     """Rebuild vector embedding index."""
     svc = get_container().stream_service
@@ -165,7 +165,7 @@ def reindex() -> None:
 # ── Checkpoint ───────────────────────────────────────────────
 
 
-@click.group()
+@click.group(cls=JsonGroup)
 def checkpoint() -> None:
     """Manage weekly checkpoints."""
     pass
@@ -243,7 +243,7 @@ def _control_system_prompt(name: str, session_id: str) -> str:
     )
 
 
-@click.command()
+@click.command(cls=JsonCommand)
 def control() -> None:
     """Open the control session — spawns or reattaches to the single control pane."""
     import os
@@ -346,7 +346,7 @@ def control() -> None:
 # ── Logs (aggregated) ───────────────────────────────────────
 
 
-@click.command()
+@click.command(cls=JsonCommand)
 @click.option("-n", "--lines", default=50, help="Number of recent lines to show")
 @click.option("-f", "--follow", is_flag=True, help="Follow log output (like tail -f)")
 @click.option("--level", default=None, type=click.Choice(["debug", "info", "warning", "error"]), help="Filter by log level")
@@ -364,7 +364,7 @@ def logs(lines: int, follow: bool, level: str | None) -> None:
 # ── Daemon ───────────────────────────────────────────────────
 
 
-@click.group()
+@click.group(cls=JsonGroup)
 def daemon() -> None:
     """Manage the Cortex background daemon."""
     pass
@@ -516,14 +516,14 @@ def daemon_cleanup(dry_run: bool) -> None:
 # ── Dashboard / UI ───────────────────────────────────────────
 
 
-@click.command()
+@click.command(cls=JsonCommand)
 def dashboard() -> None:
     """Open the interactive TUI dashboard."""
     from cortex.tui import main as tui_main
     tui_main()
 
 
-@click.command()
+@click.command(cls=JsonCommand)
 @click.option("--dev", is_flag=True, help="Start dev servers with hot reload")
 @click.option("--port", default=9400, help="API server port")
 def ui(dev: bool, port: int) -> None:

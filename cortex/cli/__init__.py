@@ -34,16 +34,32 @@ def _cli_log():
 
 
 def _wants_json() -> bool:
-    """True when output should be JSON: --json flag, or stdout is not a TTY (piped/captured)."""
+    """True when output should be JSON: --json flag at any level, or stdout is not a TTY."""
     ctx = click.get_current_context(silent=True)
-    if ctx:
-        root = ctx.find_root()
-        obj = root.params if not hasattr(root, "obj") or root.obj is None else root.obj
+    while ctx:
+        if ctx.params.get("json_output"):
+            return True
+        obj = getattr(ctx, "obj", None)
         if isinstance(obj, dict) and obj.get("json"):
             return True
-        if root.params.get("json_output"):
-            return True
+        ctx = ctx.parent
     return not sys.stdout.isatty()
+
+
+class JsonCommand(click.Command):
+    """Command subclass that automatically adds --json flag."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.params.append(click.Option(
+            ["--json"], "json_output", is_flag=True, default=False,
+            expose_value=False, help="Force JSON output",
+        ))
+
+
+class JsonGroup(click.Group):
+    """Group subclass that uses JsonCommand for all subcommands."""
+    command_class = JsonCommand
 
 
 def _json_out(data: object) -> None:
@@ -83,7 +99,7 @@ cli.add_command(pr)
 register_misc_commands(cli)
 
 
-@cli.command("dashboard")
+@cli.command("dashboard", cls=JsonCommand)
 def dashboard_cmd() -> None:
     """Launch the Textual TUI dashboard."""
     from cortex.tui_dashboard import main

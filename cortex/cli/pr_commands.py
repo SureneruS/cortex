@@ -5,10 +5,10 @@ import os
 
 import click
 
-from cortex.cli import _error_exit, _json_out, _output, get_container
+from cortex.cli import JsonGroup, _error_exit, _json_out, _output, get_container
 
 
-@click.group()
+@click.group(cls=JsonGroup)
 def pr() -> None:
     """GitHub PR operations."""
     pass

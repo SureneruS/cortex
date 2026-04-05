@@ -4,7 +4,7 @@ import json
 
 import click
 
-from cortex.cli import _error_exit, _json_out, _output
+from cortex.cli import JsonGroup, _error_exit, _json_out, _output
 
 
 def _get_cron_mgr():
@@ -14,7 +14,7 @@ def _get_cron_mgr():
     return CronManager(get_db())
 
 
-@click.group()
+@click.group(cls=JsonGroup)
 def cron() -> None:
     """Manage persistent cron jobs."""
     pass
