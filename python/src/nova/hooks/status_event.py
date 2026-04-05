@@ -13,6 +13,9 @@ from datetime import datetime, timezone
 # Minor events only update the registry (no channel spam).
 MAJOR_EVENTS = {"started", "done", "error", "blocked"}
 
+# Tests set this to True to bypass the PYTEST_CURRENT_TEST guard.
+_TESTING_OVERRIDE = False
+
 # Map status events to runtime states for the session registry.
 # "done" is omitted — session_end hook handles closing.
 _EVENT_TO_RUNTIME: dict[str, str] = {
@@ -50,6 +53,11 @@ def emit_status_event(event: str, detail: str = "") -> None:
     """
     session_name = os.environ.get("CORTEX_SESSION_NAME")
     if not session_name:
+        return
+
+    # Don't emit real events during test runs (pytest sets PYTEST_CURRENT_TEST).
+    # Tests that need to exercise this function patch _TESTING_OVERRIDE.
+    if os.environ.get("PYTEST_CURRENT_TEST") and not _TESTING_OVERRIDE:
         return
 
     now = datetime.now(timezone.utc).isoformat()

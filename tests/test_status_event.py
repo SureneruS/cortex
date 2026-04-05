@@ -7,6 +7,7 @@ from unittest.mock import patch, MagicMock
 
 import pytest
 
+import nova.hooks.status_event as status_event_mod
 from nova.hooks.status_event import emit_status_event, _EVENT_TO_RUNTIME, MAJOR_EVENTS
 
 
@@ -15,6 +16,7 @@ def _set_env(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("CORTEX_SESSION_NAME", "worker-1")
     monkeypatch.setenv("CORTEX_PARENT_NAME", "control-main")
     monkeypatch.setenv("CORTEX_SESSION_ID", "sess-abc-123")
+    monkeypatch.setattr(status_event_mod, "_TESTING_OVERRIDE", True)
 
 
 class TestRegistryUpdate:
