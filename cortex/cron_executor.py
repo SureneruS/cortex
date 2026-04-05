@@ -86,7 +86,7 @@ def execute_check_watches(job: dict) -> None:
         log.info("pr_waking_session", session=session_name, pr=pr_ref, message=message[:200])
 
         result = subprocess.run(
-            ["cortex", "session", "message", session_name, message],
+            ["cortex", "--json", "session", "message", session_name, message],
             capture_output=True,
             text=True,
         )
@@ -120,7 +120,7 @@ def _handle_alarm(session: dict, watch: dict, session_repo) -> None:
 
     log.info("alarm_triggered", session=session_name)
     result = subprocess.run(
-        ["cortex", "session", "message", session_name, watch.get("message", "Alarm triggered")],
+        ["cortex", "--json", "session", "message", session_name, watch.get("message", "Alarm triggered")],
         capture_output=True,
         text=True,
     )

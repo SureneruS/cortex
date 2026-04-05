@@ -251,7 +251,7 @@ def control() -> None:
 
         if _status == "paused":
             result = subprocess.run(
-                ["cortex", "session", "resume", existing["_id"]],
+                ["cortex", "--json", "session", "resume", existing["_id"]],
                 capture_output=True, text=True, timeout=30,
             )
             if result.returncode == 0:
@@ -609,7 +609,7 @@ def team_spawn(ctx, task: str, prompt: str | None, repo: str | None) -> None:
     """[Deprecated] Use 'cortex session spawn' instead."""
     click.echo("Warning: 'cortex team spawn' is deprecated. Use 'cortex session spawn' instead.", err=True)
     name = _slugify(task)
-    args = ["cortex", "session", "spawn", "--name", name, "--goal", task]
+    args = ["cortex", "--json", "session", "spawn", "--name", name, "--goal", task]
     if prompt:
         args.extend(["--prompt", prompt])
     if repo:
@@ -628,7 +628,7 @@ def team_spawn(ctx, task: str, prompt: str | None, repo: str | None) -> None:
 def team_message(ctx, session_name: str, content: str, thread_id: str | None) -> None:
     """[Deprecated] Use 'cortex session message' instead."""
     click.echo("Warning: 'cortex team message' is deprecated. Use 'cortex session message' instead.", err=True)
-    args = ["cortex", "session", "message", session_name, content]
+    args = ["cortex", "--json", "session", "message", session_name, content]
     if thread_id:
         args.extend(["--thread-id", thread_id])
     result = subprocess.run(args, capture_output=True, text=True)
@@ -641,5 +641,5 @@ def team_message(ctx, session_name: str, content: str, thread_id: str | None) ->
 def team_kill(ctx, session_name: str) -> None:
     """[Deprecated] Use 'cortex session close --force' instead."""
     click.echo("Warning: 'cortex team kill' is deprecated. Use 'cortex session close --force' instead.", err=True)
-    result = subprocess.run(["cortex", "session", "close", "--force", session_name], capture_output=True, text=True)
+    result = subprocess.run(["cortex", "--json", "session", "close", "--force", session_name], capture_output=True, text=True)
     click.echo(result.stdout)

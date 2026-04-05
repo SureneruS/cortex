@@ -17,7 +17,7 @@ pytestmark = [pytest.mark.slice3, pytest.mark.e2e]
 
 def _get_session(session_id: str) -> dict:
     result = subprocess.run(
-        ["cortex", "session", "get", session_id],
+        ["cortex", "--json", "session", "get", session_id],
         capture_output=True, text=True, timeout=10,
     )
     return json.loads(result.stdout)

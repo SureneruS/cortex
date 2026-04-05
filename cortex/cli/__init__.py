@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import sys
+from typing import TYPE_CHECKING, Callable
+
 import click
 import structlog
 
@@ -8,19 +11,39 @@ from cortex.container import get_container as get_container
 
 from cortex._version import __version__
 
+if TYPE_CHECKING:
+    pass
+
 
 @click.group()
 @click.version_option(version=__version__, prog_name="cortex")
-def cli() -> None:
+@click.option("--json", "json_output", is_flag=True, default=False, help="Force JSON output")
+@click.pass_context
+def cli(ctx: click.Context, json_output: bool) -> None:
     """Cortex — persistent context brain for Claude Code."""
     from cortex.observability import bind_correlation, setup_logging
 
     setup_logging("cli")
     bind_correlation()
+    ctx.ensure_object(dict)
+    ctx.obj["json"] = json_output
 
 
 def _cli_log():
     return structlog.get_logger("cortex.cli")
+
+
+def _wants_json() -> bool:
+    """True when output should be JSON: --json flag, or stdout is not a TTY (piped/captured)."""
+    ctx = click.get_current_context(silent=True)
+    if ctx:
+        root = ctx.find_root()
+        obj = root.params if not hasattr(root, "obj") or root.obj is None else root.obj
+        if isinstance(obj, dict) and obj.get("json"):
+            return True
+        if root.params.get("json_output"):
+            return True
+    return not sys.stdout.isatty()
 
 
 def _json_out(data: object) -> None:
@@ -28,9 +51,21 @@ def _json_out(data: object) -> None:
     click.echo(json.dumps(data, indent=2, default=str))
 
 
+def _output(data: object, human_fn: Callable | None = None) -> None:
+    """Output data — JSON if --json or piped, human-formatted otherwise."""
+    if _wants_json() or human_fn is None:
+        _json_out(data)
+    else:
+        human_fn(data)
+
+
 def _error_exit(msg: str) -> None:
-    import json
-    click.echo(json.dumps({"error": msg}))
+    if _wants_json():
+        import json
+        click.echo(json.dumps({"error": msg}))
+    else:
+        from cortex.cli.formatters import print_error
+        print_error(msg)
     raise SystemExit(1)
 
 

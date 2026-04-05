@@ -18,7 +18,7 @@ def _cortex_update(session_id: str, data: dict, trigger: str) -> None:
     """Single fast CLI call to update session. Fire-and-forget."""
     try:
         subprocess.Popen(
-            ["cortex", "session", "update", session_id,
+            ["cortex", "--json", "session", "update", session_id,
              "--data", json.dumps(data),
              "--trigger", trigger],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,

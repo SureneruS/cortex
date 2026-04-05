@@ -15,7 +15,7 @@ pytestmark = [pytest.mark.slice4, pytest.mark.e2e]
 
 def _get_layout() -> dict:
     result = subprocess.run(
-        ["cortex", "session", "layout"],
+        ["cortex", "--json", "session", "layout"],
         capture_output=True, text=True, timeout=10,
     )
     assert result.returncode == 0, f"layout failed: {result.stderr}"
@@ -60,7 +60,7 @@ class TestGather:
         assert not _panes_in_same_window(layout, a["pane_id"], b["pane_id"])
 
         result = subprocess.run(
-            ["cortex", "session", "gather", "test-gather-a", "test-gather-b", "test-gather-c"],
+            ["cortex", "--json", "session", "gather", "test-gather-a", "test-gather-b", "test-gather-c"],
             capture_output=True, text=True, timeout=10,
         )
         assert result.returncode == 0, f"Gather failed: {result.stderr}"
@@ -75,7 +75,7 @@ class TestGather:
         time.sleep(1)
 
         result = subprocess.run(
-            ["cortex", "session", "gather", "test-gather-layout-a", "test-gather-layout-b", "--layout", "even-horizontal"],
+            ["cortex", "--json", "session", "gather", "test-gather-layout-a", "test-gather-layout-b", "--layout", "even-horizontal"],
             capture_output=True, text=True, timeout=10,
         )
         assert result.returncode == 0
@@ -87,7 +87,7 @@ class TestGather:
         time.sleep(1)
 
         result = subprocess.run(
-            ["cortex", "session", "gather", "test-gather-solo"],
+            ["cortex", "--json", "session", "gather", "test-gather-solo"],
             capture_output=True, text=True, timeout=10,
         )
         assert result.returncode != 0, "Gather should fail with only 1 session"
@@ -175,7 +175,7 @@ class TestGatherScatterRoundtrip:
         time.sleep(1)
 
         subprocess.run(
-            ["cortex", "session", "gather", "test-rt-a", "test-rt-b"],
+            ["cortex", "--json", "session", "gather", "test-rt-a", "test-rt-b"],
             capture_output=True, text=True, timeout=10,
         )
         layout = _get_layout()

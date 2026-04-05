@@ -463,14 +463,14 @@ def restart(session_id: str) -> None:
 
     log = _cli_log()
     result = subprocess.run(
-        ["cortex", "session", "pause", session_id],
+        ["cortex", "--json", "session", "pause", session_id],
         capture_output=True, text=True, timeout=30,
     )
     if result.returncode != 0:
         _error_exit(f"Pause failed: {result.stdout}")
 
     result = subprocess.run(
-        ["cortex", "session", "resume", session_id],
+        ["cortex", "--json", "session", "resume", session_id],
         capture_output=True, text=True, timeout=15,
     )
     if result.returncode != 0:

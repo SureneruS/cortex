@@ -10,7 +10,7 @@ NOVA_DIR = Path.home() / ".nova"
 def _cortex_cli(*args: str) -> str | None:
     try:
         result = subprocess.run(
-            ["cortex", *args], capture_output=True, text=True, timeout=5
+            ["cortex", "--json", *args], capture_output=True, text=True, timeout=5
         )
         return result.stdout if result.returncode == 0 else None
     except Exception:

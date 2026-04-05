@@ -42,7 +42,7 @@ def spawn_mock_session(e2e_session_repo, e2e_mongo_db):
 
         kwargs.setdefault("command", MOCK_SHELL)
 
-        cmd = ["cortex", "session", "spawn", "--name", name, "--goal", "E2E test session"]
+        cmd = ["cortex", "--json", "session", "spawn", "--name", name, "--goal", "E2E test session"]
         for k, v in kwargs.items():
             flag = f"--{k.replace('_', '-')}"
             cmd.extend([flag, str(v)])
@@ -62,7 +62,7 @@ def spawn_mock_session(e2e_session_repo, e2e_mongo_db):
         session_id = doc.get("session_id")
         if session_id:
             subprocess.run(
-                ["cortex", "session", "close", session_id, "--force"],
+                ["cortex", "--json", "session", "close", session_id, "--force"],
                 capture_output=True, timeout=15,
             )
 
