@@ -11,7 +11,7 @@ import structlog
 
 from cortex.adapters.vector_store import SIMILARITY_THRESHOLD
 from cortex.domain.utils import _new_id, _now
-from cortex.models import Checkpoint, Decision, Stream, Update
+from cortex.domain.models import Checkpoint, Decision, Stream, Update
 from cortex.observability import trace
 
 log = structlog.get_logger("cortex.mongo_state")

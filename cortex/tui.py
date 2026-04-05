@@ -20,7 +20,7 @@ from textual.widgets import (
 from textual.widget import Widget
 
 from cortex.config import load_config
-from cortex.models import Stream
+from cortex.domain.models import Stream
 from cortex.mongo import get_db
 from cortex.mongo_state import MongoStateManager
 

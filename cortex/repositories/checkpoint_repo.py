@@ -7,7 +7,7 @@ from pymongo.database import Database
 import structlog
 
 from cortex.domain.utils import _new_id, _now
-from cortex.models import Checkpoint
+from cortex.domain.models import Checkpoint
 from cortex.observability import trace
 
 log = structlog.get_logger("cortex.checkpoint_repo")

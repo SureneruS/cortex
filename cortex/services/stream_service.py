@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from cortex.adapters.vector_store import SqliteVectorStore
-from cortex.models import Checkpoint, Decision, Stream, Update
+from cortex.domain.models import Checkpoint, Decision, Stream, Update
 from cortex.repositories.checkpoint_repo import MongoCheckpointRepository
 from cortex.repositories.stream_repo import MongoStreamRepository
 

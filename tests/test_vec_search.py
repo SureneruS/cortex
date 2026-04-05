@@ -1,6 +1,6 @@
 import pytest
 
-from cortex.models import Decision, Update
+from cortex.domain.models import Decision, Update
 from cortex.mongo_state import MongoStateManager
 
 

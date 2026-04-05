@@ -164,7 +164,7 @@ def stream_edit(
 @click.argument("query")
 def stream_search(query: str) -> None:
     """Search across updates, decisions, and checkpoints."""
-    from cortex.models import Checkpoint, Decision, Update
+    from cortex.domain.models import Checkpoint, Decision, Update
 
     results = get_container().search_service.search(query)
     items = []

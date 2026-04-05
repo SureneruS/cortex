@@ -7,7 +7,7 @@ from pymongo.database import Database
 import structlog
 
 from cortex.domain.utils import _new_id, _now
-from cortex.models import Checkpoint, Decision, Stream, Update
+from cortex.domain.models import Checkpoint, Decision, Stream, Update
 from cortex.observability import trace
 
 log = structlog.get_logger("cortex.stream_repo")

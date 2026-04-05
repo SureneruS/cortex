@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from cortex.adapters.vector_store import SIMILARITY_THRESHOLD, SqliteVectorStore
-from cortex.models import Checkpoint, Decision, Update
+from cortex.domain.models import Checkpoint, Decision, Update
 from cortex.repositories.checkpoint_repo import MongoCheckpointRepository
 from cortex.repositories.stream_repo import MongoStreamRepository
 

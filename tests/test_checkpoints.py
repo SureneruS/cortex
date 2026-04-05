@@ -1,4 +1,4 @@
-from cortex.models import Checkpoint
+from cortex.domain.models import Checkpoint
 from cortex.mongo_state import MongoStateManager
 
 
