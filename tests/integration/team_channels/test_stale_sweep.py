@@ -280,6 +280,7 @@ class TestSpawnTriggersSweep:
         runner = CliRunner()
         with (
             patch("cortex.adapters.tmux.TmuxAdapter.create_pane", return_value="%42"),
+            patch("cortex.adapters.tmux.TmuxAdapter.send_text"),
             patch("cortex.adapters.tmux.TmuxAdapter.send_keys", return_value=True),
             patch("cortex.adapters.tmux.TmuxAdapter.spawn_background_sender"),
             patch("time.sleep"),

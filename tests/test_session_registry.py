@@ -855,6 +855,7 @@ class TestSpawnLimit:
         repo.register("s1", {"name": "existing", "last_seen": datetime.now(timezone.utc).isoformat()})
         with (
             patch("cortex.adapters.tmux.TmuxAdapter.create_pane", return_value="%99"),
+            patch("cortex.adapters.tmux.TmuxAdapter.send_text"),
             patch("cortex.adapters.tmux.TmuxAdapter.send_keys"),
             patch("cortex.adapters.tmux.TmuxAdapter.spawn_background_sender"),
             patch("cortex.adapters.tmux.TmuxAdapter.pane_exists", return_value=True),
@@ -871,6 +872,7 @@ class TestSpawnLimit:
             repo.register(f"s{i}", {"name": f"session-{i}", "status": "completed"})
         with (
             patch("cortex.adapters.tmux.TmuxAdapter.create_pane", return_value="%99"),
+            patch("cortex.adapters.tmux.TmuxAdapter.send_text"),
             patch("cortex.adapters.tmux.TmuxAdapter.send_keys"),
             patch("cortex.adapters.tmux.TmuxAdapter.spawn_background_sender"),
             patch("cortex.adapters.tmux.TmuxAdapter.pane_exists", return_value=True),
