@@ -226,11 +226,14 @@ class SessionService:
             if pane_alive:
                 self._terminal.destroy_pane(pane_id)
         else:
-            # Graceful close: status=completed first, then signal CC to exit
+            # Graceful close: status=completed first, then signal CC to exit, then kill pane
             # SessionEnd hook will see completed → no-op
             self._sessions.close(session_id, actor=self._caller())
             if pane_alive:
                 self._terminal.send_text(pane_id, "/exit")
+                time.sleep(2)
+                if self._terminal.pane_exists(pane_id):
+                    self._terminal.destroy_pane(pane_id)
 
         doc = self._sessions.get(session_id)
         log.info("Session closed", session_id=session_id, force=force)
@@ -301,14 +304,7 @@ class SessionService:
             raise ValueError("Session is already paused")
 
         self._terminal.send_text(pane_id, "/exit")
-
-        for _ in range(15):
-            time.sleep(1)
-            if not self._terminal.pane_exists(pane_id):
-                break
-        else:
-            self._terminal.destroy_pane(pane_id)
-
+        # Keep pane alive — user can resume or restart CC manually
         self._sessions.update(session_id, {"status": "paused"}, trigger="pause", actor=self._caller())
         doc = self._sessions.get(session_id)
         log.info("Session paused", session_id=session_id)

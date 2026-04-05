@@ -517,7 +517,7 @@ class TestCLIClose:
         assert code == 0
         assert output["status"] == "completed"
         send.assert_called_once_with("%42", "/exit")
-        kill.assert_not_called()
+        kill.assert_called_once_with("%42")
 
     def test_close_pane_gone_skips_terminal(
         self, _patch_cli_db, _seed_session_with_pane
@@ -541,13 +541,13 @@ class TestCLIClose:
             _no_session_env(),
             patch("cortex.adapters.tmux.TmuxAdapter.pane_exists", return_value=True),
             patch("cortex.adapters.tmux.TmuxAdapter.send_text", return_value=True) as send,
-            patch("cortex.adapters.tmux.TmuxAdapter.destroy_pane") as kill,
+            patch("cortex.adapters.tmux.TmuxAdapter.destroy_pane", return_value=True) as kill,
         ):
             code, output = _run_cli(["session", "close", "cli-pane-1", "--from-hook"])
         assert code == 0
         assert output["status"] == "completed"
         send.assert_called_once_with("%42", "/exit")
-        kill.assert_not_called()
+        kill.assert_called_once_with("%42")
 
     def test_close_already_completed_is_noop(
         self, _patch_cli_db, _seed_session_with_pane, cli_db

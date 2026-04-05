@@ -54,7 +54,7 @@ class TestPause:
 
         reg = _get_session(doc["session_id"])
         assert reg["status"] == "paused", f"Expected paused, got {reg['status']}"
-        assert not _pane_exists(doc["pane_id"]), "Pane should be dead after pause"
+        assert _pane_exists(doc["pane_id"]), "Pane should stay alive after pause"
 
     def test_pause_fails_on_dead_pane(self, spawn_mock_session):
         doc = spawn_mock_session("test-pause-dead", repo="cortex")
