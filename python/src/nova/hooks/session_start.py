@@ -4,7 +4,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-NOVA_DIR = Path.home() / ".nova"
+CORTEX_KNOWLEDGE_DIR = Path.home() / "cortex" / "knowledge"
 
 
 def _cortex_cli(*args: str) -> str | None:
@@ -31,6 +31,59 @@ def _load_workflow_context() -> str | None:
         return ctx_path.read_text()
     except (FileNotFoundError, PermissionError):
         return None
+
+
+def _extract_summary(path: Path) -> str | None:
+    """Extract the summary field from YAML frontmatter."""
+    try:
+        text = path.read_text()
+    except (FileNotFoundError, PermissionError):
+        return None
+
+    if not text.startswith("---"):
+        return None
+
+    end = text.find("---", 3)
+    if end == -1:
+        return None
+
+    frontmatter = text[3:end]
+    for line in frontmatter.splitlines():
+        line = line.strip()
+        if line.startswith("summary:"):
+            value = line[len("summary:"):].strip()
+            return value.strip("\"'")
+    return None
+
+
+def _load_knowledge_context(repo_name: str) -> str | None:
+    """Load relevant knowledge summaries for injection."""
+    if not CORTEX_KNOWLEDGE_DIR.is_dir():
+        return None
+
+    entries: list[str] = []
+
+    # Global knowledge
+    global_dir = CORTEX_KNOWLEDGE_DIR / "global"
+    if global_dir.is_dir():
+        for f in sorted(global_dir.glob("*.md")):
+            summary = _extract_summary(f)
+            if summary:
+                entries.append(f"- **{f.stem}**: {summary}")
+
+    # Repo-specific knowledge
+    if repo_name:
+        repo_dir = CORTEX_KNOWLEDGE_DIR / f"repo-{repo_name}"
+        if repo_dir.is_dir():
+            for f in sorted(repo_dir.glob("*.md")):
+                summary = _extract_summary(f)
+                if summary:
+                    entries.append(f"- **{f.stem}**: {summary}")
+
+    if not entries:
+        return None
+
+    return "# Cortex Knowledge\n\n" + "\n".join(entries)
 
 
 def handle_session_start(hook_input: dict) -> dict:
@@ -127,33 +180,23 @@ def handle_session_start(hook_input: dict) -> dict:
             except (json.JSONDecodeError, KeyError, OSError):
                 pass
 
-    # Also write to Nova state.json for backward compatibility
-    _legacy_nova_register(session_id, transcript_path, repo_name)
-
     result: dict = {}
+    context_parts: list[str] = []
+
     workflow_ctx = _load_workflow_context()
     if workflow_ctx:
+        context_parts.append(workflow_ctx)
+
+    knowledge_ctx = _load_knowledge_context(repo_name)
+    if knowledge_ctx:
+        context_parts.append(knowledge_ctx)
+
+    if context_parts:
         result["hookSpecificOutput"] = {
             "hookEventName": "SessionStart",
-            "additionalContext": workflow_ctx,
+            "additionalContext": "\n\n".join(context_parts),
         }
     return result
-
-
-def _legacy_nova_register(session_id: str, transcript_path: str, repo_name: str) -> None:
-    """Write to ~/.nova/state.json for backward compat (until fully migrated)."""
-    try:
-        from nova.lib.state import NovaState
-
-        state_file = NOVA_DIR / "state.json"
-        if not state_file.exists():
-            return
-        state = NovaState(state_file)
-        repos = [repo_name] if repo_name else []
-        state.register_session(session_id, repos=repos, transcript_path=transcript_path)
-        state.save()
-    except Exception:
-        pass
 
 
 def main():

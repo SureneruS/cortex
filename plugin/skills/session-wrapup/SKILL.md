@@ -11,20 +11,20 @@ Automates end-of-session cleanup: memorize insights, update Cortex, clean git, c
 
 ### 1. Memorize
 
-Invoke `/memorize` to capture session insights to Nova memory. Wait for it to complete before continuing.
+Invoke `/memorize` to capture session insights to Cortex memory. Wait for it to complete before continuing.
 
 ### 2. Knowledge effectiveness review
 
 Get the session ID: `echo $CLAUDE_CODE_SESSION_ID` (set by SessionStart hook). If empty, derive from `ls -t ~/.claude/projects/-Users-suren-workspace-cercli/*.jsonl | head -1`.
 
-Read `~/.nova/sessions/{session_id}/injected.json` to see what knowledge entries were injected at session start. If the file doesn't exist, skip this step.
+Read `~/cortex/sessions/{session_id}/injected.json` to see what knowledge entries were injected at session start. If the file doesn't exist, skip this step.
 
 For each entry, rate:
 - **used** — actively influenced a decision or prevented a mistake
 - **relevant** — related to the work but didn't change behavior
 - **irrelevant** — not related to this session's work
 
-Append ratings to `~/.nova/memory/effectiveness.jsonl` (one JSON line per entry):
+Append ratings to `~/cortex/effectiveness.jsonl` (one JSON line per entry):
 
 ```jsonl
 {"session_id": "abc123", "entry": "lazy-raise-testing-pattern.md", "title": "...", "rating": "used", "note": "prevented eager loading issue", "timestamp": "2026-03-15T12:00:00Z"}
