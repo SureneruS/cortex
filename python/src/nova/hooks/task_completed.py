@@ -10,6 +10,8 @@ import subprocess
 import sys
 from datetime import datetime, timezone
 
+from nova.hooks.status_event import emit_status_event
+
 
 def _cortex_cli(*args: str) -> str | None:
     try:
@@ -42,6 +44,8 @@ def handle_task_completed(hook_input: dict) -> dict:
         "--data", json.dumps(update_data),
         "--trigger", "task_completed",
     )
+
+    emit_status_event("progress", f"Task completed ({completed_tasks}/{total_tasks})")
 
     return {}
 

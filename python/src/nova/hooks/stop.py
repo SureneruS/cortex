@@ -10,6 +10,8 @@ import subprocess
 import sys
 from datetime import datetime, timezone
 
+from nova.hooks.status_event import emit_status_event
+
 
 def _cortex_cli(*args: str) -> str | None:
     try:
@@ -44,6 +46,8 @@ def handle_stop(hook_input: dict) -> dict:
         "--trigger", "stop_hook",
         "--increment", "turn_count",
     )
+
+    emit_status_event("turn_completed", snippet[:200] if snippet else "")
 
     return {}
 

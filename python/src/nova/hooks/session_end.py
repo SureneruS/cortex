@@ -13,6 +13,8 @@ import subprocess
 import sys
 from datetime import datetime, timezone
 
+from nova.hooks.status_event import emit_status_event
+
 
 def _cortex_update(session_id: str, data: dict, trigger: str) -> None:
     """Single fast CLI call to update session. Fire-and-forget."""
@@ -56,6 +58,8 @@ def handle_session_end(hook_input: dict) -> dict:
         {"status": "paused", "last_session_end": {"reason": reason, "at": now}},
         f"session_end_{reason}",
     )
+
+    emit_status_event("done", f"Session ended: {reason}")
 
     return {}
 

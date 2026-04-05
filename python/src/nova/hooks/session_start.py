@@ -4,6 +4,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from nova.hooks.status_event import emit_status_event
+
 CORTEX_KNOWLEDGE_DIR = Path.home() / "cortex" / "knowledge"
 
 
@@ -179,6 +181,8 @@ def handle_session_start(hook_input: dict) -> dict:
                     f.write(f"CORTEX_SESSION_NAME={doc.get('name', repo_name or 'manual')}\n")
             except (json.JSONDecodeError, KeyError, OSError):
                 pass
+
+    emit_status_event("started", f"Session started in {repo_name or 'unknown repo'}")
 
     result: dict = {}
     context_parts: list[str] = []

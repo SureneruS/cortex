@@ -10,6 +10,8 @@ import subprocess
 import sys
 from datetime import datetime, timezone
 
+from nova.hooks.status_event import emit_status_event
+
 ESCALATE_ERRORS = {"billing_error", "authentication_failed"}
 NOTIFY_ERRORS = {"rate_limit", "server_error", "max_output_tokens"}
 
@@ -92,6 +94,8 @@ def handle_stop_failure(hook_input: dict) -> dict:
         _send_human_message(msg)
     elif error_type in NOTIFY_ERRORS:
         _notify(name, f"{error_type}: {str(error_details)[:100]}")
+
+    emit_status_event("error", f"{error_type}: {str(error_details)[:200]}")
 
     return {}
 
