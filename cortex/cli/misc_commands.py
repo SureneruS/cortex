@@ -7,7 +7,7 @@ import subprocess
 
 import click
 
-from cortex.cli import _cli_log, _error_exit, _json_out, get_container
+from cortex.cli import _cli_log, _error_exit, _json_out, _output, get_container
 from cortex.config import load_config, save_config, Config, CONFIG_PATH, CORTEX_DIR
 
 
@@ -182,7 +182,13 @@ def checkpoint_save(week: str, content: str, stream_ids: str | None, metadata_js
     ids = stream_ids.split(",") if stream_ids else None
     svc = get_container().stream_service
     cp = svc.save_checkpoint(week, content, stream_ids=ids, metadata=metadata)
-    _json_out({"id": cp.id, "week_of": cp.week_of, "stream_ids": cp.stream_ids})
+    data = {"id": cp.id, "week_of": cp.week_of, "stream_ids": cp.stream_ids}
+
+    def _fmt(d: dict) -> None:
+        from cortex.cli.formatters import print_ok
+        print_ok(f"Checkpoint saved: {d['week_of']}")
+
+    _output(data, _fmt)
 
 
 @checkpoint.command("get")
@@ -192,11 +198,27 @@ def checkpoint_get(week: str | None) -> None:
     cp = get_container().stream_service.get_checkpoint(week)
     if cp is None:
         _error_exit("No checkpoint found")
-    _json_out({
+    data = {
         "id": cp.id, "week_of": cp.week_of, "content": cp.content,
         "stream_ids": cp.stream_ids, "metadata": cp.metadata,
         "created_at": cp.created_at.isoformat(), "updated_at": cp.updated_at.isoformat(),
-    })
+    }
+
+    def _fmt(d: dict) -> None:
+        from cortex.cli.formatters import get_console, print_detail, relative_time, val
+        fields = [
+            ("Week", val(d.get("week_of"))),
+            ("ID", val(d.get("id"))),
+            ("Created", relative_time(d.get("created_at"))),
+            ("Updated", relative_time(d.get("updated_at"))),
+        ]
+        if d.get("stream_ids"):
+            fields.append(("Streams", ", ".join(d["stream_ids"])))
+        print_detail(fields, title=f"Checkpoint {val(d.get('week_of'))}")
+        if d.get("content"):
+            get_console().print(f"\n{d['content']}")
+
+    _output(data, _fmt)
 
 
 # ── Control ──────────────────────────────────────────────────
@@ -246,7 +268,11 @@ def control() -> None:
 
         if _status == "active" and pane_id and tmux.pane_exists(pane_id):
             tmux.focus(pane_id)
-            _json_out({"action": "attached", "session_id": existing["_id"], "name": session_name})
+            def _fmt_attached(d: dict) -> None:
+                from cortex.cli.formatters import print_ok
+                print_ok(f"Attached to {d['name']}")
+
+            _output({"action": "attached", "session_id": existing["_id"], "name": session_name}, _fmt_attached)
             return
 
         if _status == "paused":
@@ -308,7 +334,13 @@ def control() -> None:
         repo.update(session_id, {"status": "closed"}, trigger="spawn-fail", actor="human")
         _error_exit("Failed to launch control pane")
 
-    _json_out({"action": "spawned", "session_id": session_id, "name": name, "pane_id": pane_id})
+    data = {"action": "spawned", "session_id": session_id, "name": name, "pane_id": pane_id}
+
+    def _fmt(d: dict) -> None:
+        from cortex.cli.formatters import print_ok
+        print_ok(f"Control session spawned: {d['name']} (pane {d['pane_id']})")
+
+    _output(data, _fmt)
 
 
 # ── Logs (aggregated) ───────────────────────────────────────
@@ -344,7 +376,13 @@ def daemon_start() -> None:
     from cortex import daemon as daemon_mod
     try:
         daemon_mod.start()
-        _json_out({"ok": True, "plist": str(daemon_mod.PLIST_PATH), "label": daemon_mod.PLIST_LABEL})
+        data = {"ok": True, "plist": str(daemon_mod.PLIST_PATH), "label": daemon_mod.PLIST_LABEL}
+
+        def _fmt(d: dict) -> None:
+            from cortex.cli.formatters import print_ok
+            print_ok(f"Daemon started ({d['label']})")
+
+        _output(data, _fmt)
     except RuntimeError as e:
         _error_exit(str(e))
 
@@ -355,7 +393,13 @@ def daemon_stop() -> None:
     from cortex import daemon as daemon_mod
     try:
         daemon_mod.stop()
-        _json_out({"ok": True, "stopped": daemon_mod.PLIST_LABEL})
+        data = {"ok": True, "stopped": daemon_mod.PLIST_LABEL}
+
+        def _fmt(d: dict) -> None:
+            from cortex.cli.formatters import print_ok
+            print_ok(f"Daemon stopped ({d['stopped']})")
+
+        _output(data, _fmt)
     except RuntimeError as e:
         _error_exit(str(e))
 
@@ -364,7 +408,15 @@ def daemon_stop() -> None:
 def daemon_status() -> None:
     """Check if the daemon is running."""
     from cortex import daemon as daemon_mod
-    _json_out({"status": daemon_mod.status(), "plist": str(daemon_mod.PLIST_PATH)})
+    data = {"status": daemon_mod.status(), "plist": str(daemon_mod.PLIST_PATH)}
+
+    def _fmt(d: dict) -> None:
+        from cortex.cli.formatters import get_console, styled_status
+        console = get_console()
+        console.print(f"Daemon: {styled_status(d['status'])}")
+        console.print(f"[dim]Plist: {d['plist']}[/]")
+
+    _output(data, _fmt)
 
 
 @daemon.command("run")
@@ -437,12 +489,28 @@ def daemon_cleanup(dry_run: bool) -> None:
     if stale_ids and not dry_run:
         repo.delete_by_ids(stale_ids)
 
-    _json_out({
+    data = {
         "dry_run": dry_run,
         "files_cleaned": cleaned_files,
         "freed_mb": round(freed_bytes / 1024 / 1024, 1),
         "stale_daemon_entries": len(stale_ids),
-    })
+    }
+
+    def _fmt(d: dict) -> None:
+        from cortex.cli.formatters import get_console, print_ok
+        console = get_console()
+        prefix = "[dim](dry run)[/] " if d["dry_run"] else ""
+        files = d.get("files_cleaned", [])
+        if files:
+            print_ok(f"{prefix}Cleaned {len(files)} file(s), freed {d['freed_mb']}MB")
+            for f in files:
+                console.print(f"  {f['file']}  [dim]({f['size_mb']}MB)[/]")
+        else:
+            console.print(f"{prefix}No files to clean.")
+        if d["stale_daemon_entries"]:
+            console.print(f"  Removed {d['stale_daemon_entries']} stale daemon entries")
+
+    _output(data, _fmt)
 
 
 # ── Dashboard / UI ───────────────────────────────────────────
