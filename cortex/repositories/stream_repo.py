@@ -1,63 +1,15 @@
 from __future__ import annotations
 
-from datetime import datetime
-
 from pymongo.database import Database
 
 import structlog
 
 from cortex.domain.utils import _new_id, _now
-from cortex.domain.models import Checkpoint, Decision, Stream, Update
+from cortex.domain.converters import doc_to_decision, doc_to_stream, doc_to_update
+from cortex.domain.models import Decision, Stream, Update
 from cortex.observability import trace
 
 log = structlog.get_logger("cortex.stream_repo")
-
-
-def _doc_to_stream(doc: dict) -> Stream:
-    return Stream(
-        id=doc["_id"],
-        title=doc["title"],
-        repos=doc.get("repos", []),
-        status=doc["status"],
-        summary=doc.get("summary"),
-        created_at=datetime.fromisoformat(doc["created_at"]),
-        updated_at=datetime.fromisoformat(doc["updated_at"]),
-        metadata=doc.get("metadata"),
-    )
-
-
-def _doc_to_update(doc: dict) -> Update:
-    return Update(
-        id=doc["_id"],
-        stream_id=doc["stream_id"],
-        content=doc["content"],
-        summary=doc["summary"],
-        created_at=datetime.fromisoformat(doc["created_at"]),
-        metadata=doc.get("metadata"),
-    )
-
-
-def _doc_to_decision(doc: dict) -> Decision:
-    return Decision(
-        id=doc["_id"],
-        stream_id=doc["stream_id"],
-        what=doc["what"],
-        why=doc["why"],
-        created_at=datetime.fromisoformat(doc["created_at"]),
-        metadata=doc.get("metadata"),
-    )
-
-
-def _doc_to_checkpoint(doc: dict) -> Checkpoint:
-    return Checkpoint(
-        id=doc["_id"],
-        week_of=doc["week_of"],
-        content=doc["content"],
-        stream_ids=doc.get("stream_ids", []),
-        created_at=datetime.fromisoformat(doc["created_at"]),
-        updated_at=datetime.fromisoformat(doc["updated_at"]),
-        metadata=doc.get("metadata"),
-    )
 
 
 class MongoStreamRepository:
@@ -96,12 +48,12 @@ class MongoStreamRepository:
             "summary": None, "metadata": metadata, "created_at": now, "updated_at": now,
         }
         self._streams.insert_one(doc)
-        return _doc_to_stream(doc)
+        return doc_to_stream(doc)
 
     @trace
     def get(self, stream_id: str) -> Stream | None:
         doc = self._streams.find_one({"_id": stream_id})
-        return _doc_to_stream(doc) if doc else None
+        return doc_to_stream(doc) if doc else None
 
     def get_active(self) -> list[Stream]:
         return self.list(status="active")
@@ -110,7 +62,7 @@ class MongoStreamRepository:
     def list(self, status: str = "active") -> list[Stream]:
         filt = {} if status == "all" else {"status": status}
         docs = self._streams.find(filt).sort("updated_at", -1)
-        return [_doc_to_stream(d) for d in docs]
+        return [doc_to_stream(d) for d in docs]
 
     @trace
     def update(
@@ -189,7 +141,7 @@ class MongoStreamRepository:
         }
         self._updates.insert_one(doc)
         self._streams.update_one({"_id": stream_id}, {"$set": {"updated_at": now}})
-        return _doc_to_update(doc)
+        return doc_to_update(doc)
 
     @trace
     def edit_update(self, update_id: str, *, content: str | None = None, summary: str | None = None, metadata: dict | None = None) -> Update | None:
@@ -204,9 +156,9 @@ class MongoStreamRepository:
         if metadata is not None:
             updates["metadata"] = metadata
         if not updates:
-            return _doc_to_update(doc)
+            return doc_to_update(doc)
         self._updates.update_one({"_id": update_id}, {"$set": updates})
-        return _doc_to_update(self._updates.find_one({"_id": update_id}))
+        return doc_to_update(self._updates.find_one({"_id": update_id}))
 
     @trace
     def delete_update(self, update_id: str) -> None:
@@ -225,7 +177,7 @@ class MongoStreamRepository:
         }
         self._decisions.insert_one(doc)
         self._streams.update_one({"_id": stream_id}, {"$set": {"updated_at": now}})
-        return _doc_to_decision(doc)
+        return doc_to_decision(doc)
 
     @trace
     def edit_decision(self, decision_id: str, *, what: str | None = None, why: str | None = None, metadata: dict | None = None) -> Decision | None:
@@ -240,9 +192,9 @@ class MongoStreamRepository:
         if metadata is not None:
             updates["metadata"] = metadata
         if not updates:
-            return _doc_to_decision(doc)
+            return doc_to_decision(doc)
         self._decisions.update_one({"_id": decision_id}, {"$set": updates})
-        return _doc_to_decision(self._decisions.find_one({"_id": decision_id}))
+        return doc_to_decision(self._decisions.find_one({"_id": decision_id}))
 
     @trace
     def delete_decision(self, decision_id: str) -> None:
@@ -358,8 +310,8 @@ class MongoStreamRepository:
     def text_search(self, query: str, limit: int = 20) -> list[Update | Decision]:
         results: list[Update | Decision] = []
         for col, converter in [
-            (self._updates, _doc_to_update),
-            (self._decisions, _doc_to_decision),
+            (self._updates, doc_to_update),
+            (self._decisions, doc_to_decision),
         ]:
             try:
                 cursor = col.find(
@@ -393,9 +345,9 @@ class MongoStreamRepository:
 
         results: list[Update | Decision] = []
         for doc in self._updates.find(_build_filter(["content", "summary"])).sort("created_at", -1).limit(20):
-            results.append(_doc_to_update(doc))
+            results.append(doc_to_update(doc))
         for doc in self._decisions.find(_build_filter(["what", "why"])).sort("created_at", -1).limit(20):
-            results.append(_doc_to_decision(doc))
+            results.append(doc_to_decision(doc))
 
         def _match_count(item: Update | Decision) -> int:
             if isinstance(item, Update):

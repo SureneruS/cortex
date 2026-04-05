@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import sqlite3
 from collections.abc import Callable
-from datetime import datetime
 from pathlib import Path
 
 from pymongo.database import Database
@@ -10,58 +9,12 @@ from pymongo.database import Database
 import structlog
 
 from cortex.adapters.vector_store import SIMILARITY_THRESHOLD
-from cortex.domain.utils import _new_id, _now
+from cortex.domain.converters import doc_to_checkpoint, doc_to_decision, doc_to_stream, doc_to_update
 from cortex.domain.models import Checkpoint, Decision, Stream, Update
+from cortex.domain.utils import _new_id, _now
 from cortex.observability import trace
 
 log = structlog.get_logger("cortex.mongo_state")
-
-
-def _doc_to_stream(doc: dict) -> Stream:
-    return Stream(
-        id=doc["_id"],
-        title=doc["title"],
-        repos=doc.get("repos", []),
-        status=doc["status"],
-        summary=doc.get("summary"),
-        created_at=datetime.fromisoformat(doc["created_at"]),
-        updated_at=datetime.fromisoformat(doc["updated_at"]),
-        metadata=doc.get("metadata"),
-    )
-
-
-def _doc_to_update(doc: dict) -> Update:
-    return Update(
-        id=doc["_id"],
-        stream_id=doc["stream_id"],
-        content=doc["content"],
-        summary=doc["summary"],
-        created_at=datetime.fromisoformat(doc["created_at"]),
-        metadata=doc.get("metadata"),
-    )
-
-
-def _doc_to_decision(doc: dict) -> Decision:
-    return Decision(
-        id=doc["_id"],
-        stream_id=doc["stream_id"],
-        what=doc["what"],
-        why=doc["why"],
-        created_at=datetime.fromisoformat(doc["created_at"]),
-        metadata=doc.get("metadata"),
-    )
-
-
-def _doc_to_checkpoint(doc: dict) -> Checkpoint:
-    return Checkpoint(
-        id=doc["_id"],
-        week_of=doc["week_of"],
-        content=doc["content"],
-        stream_ids=doc.get("stream_ids", []),
-        created_at=datetime.fromisoformat(doc["created_at"]),
-        updated_at=datetime.fromisoformat(doc["updated_at"]),
-        metadata=doc.get("metadata"),
-    )
 
 
 class MongoStateManager:
@@ -164,12 +117,12 @@ class MongoStateManager:
             "updated_at": now,
         }
         self._streams.insert_one(doc)
-        return _doc_to_stream(doc)
+        return doc_to_stream(doc)
 
     @trace
     def get_stream(self, stream_id: str) -> Stream | None:
         doc = self._streams.find_one({"_id": stream_id})
-        return _doc_to_stream(doc) if doc else None
+        return doc_to_stream(doc) if doc else None
 
     def get_active_streams(self) -> list[Stream]:
         return self.list_streams(status="active")
@@ -178,7 +131,7 @@ class MongoStateManager:
     def list_streams(self, status: str = "active") -> list[Stream]:
         filt = {} if status == "all" else {"status": status}
         docs = self._streams.find(filt).sort("updated_at", -1)
-        return [_doc_to_stream(d) for d in docs]
+        return [doc_to_stream(d) for d in docs]
 
     @trace
     def update_stream(
@@ -269,7 +222,7 @@ class MongoStateManager:
         self._streams.update_one({"_id": stream_id}, {"$set": {"updated_at": now}})
         self._index_entity(uid, "update", stream_id, f"{summary} {content}")
         self._notify()
-        return _doc_to_update(doc)
+        return doc_to_update(doc)
 
     @trace
     def edit_update(
@@ -291,10 +244,10 @@ class MongoStateManager:
         if metadata is not None:
             updates["metadata"] = metadata
         if not updates:
-            return _doc_to_update(doc)
+            return doc_to_update(doc)
         self._updates.update_one({"_id": update_id}, {"$set": updates})
         new_doc = self._updates.find_one({"_id": update_id})
-        u = _doc_to_update(new_doc)
+        u = doc_to_update(new_doc)
         self._deindex_entity(update_id)
         self._index_entity(update_id, "update", u.stream_id, f"{u.summary} {u.content}")
         return u
@@ -323,7 +276,7 @@ class MongoStateManager:
         self._streams.update_one({"_id": stream_id}, {"$set": {"updated_at": now}})
         self._index_entity(did, "decision", stream_id, f"{what} {why}")
         self._notify()
-        return _doc_to_decision(doc)
+        return doc_to_decision(doc)
 
     @trace
     def edit_decision(
@@ -345,10 +298,10 @@ class MongoStateManager:
         if metadata is not None:
             updates["metadata"] = metadata
         if not updates:
-            return _doc_to_decision(doc)
+            return doc_to_decision(doc)
         self._decisions.update_one({"_id": decision_id}, {"$set": updates})
         new_doc = self._decisions.find_one({"_id": decision_id})
-        d = _doc_to_decision(new_doc)
+        d = doc_to_decision(new_doc)
         self._deindex_entity(decision_id)
         self._index_entity(decision_id, "decision", d.stream_id, f"{d.what} {d.why}")
         return d
@@ -400,7 +353,7 @@ class MongoStateManager:
             doc = self._checkpoints.find_one({"week_of": week_of})
         else:
             doc = self._checkpoints.find_one(sort=[("week_of", -1)])
-        return _doc_to_checkpoint(doc) if doc else None
+        return doc_to_checkpoint(doc) if doc else None
 
     # ── Session Links ────────────────────────────────────────────
 
@@ -523,9 +476,9 @@ class MongoStateManager:
     def _text_search(self, query: str) -> list[Update | Decision | Checkpoint]:
         results: list[Update | Decision | Checkpoint] = []
         for col, converter in [
-            (self._updates, _doc_to_update),
-            (self._decisions, _doc_to_decision),
-            (self._checkpoints, _doc_to_checkpoint),
+            (self._updates, doc_to_update),
+            (self._decisions, doc_to_decision),
+            (self._checkpoints, doc_to_checkpoint),
         ]:
             try:
                 cursor = col.find(
@@ -565,11 +518,11 @@ class MongoStateManager:
 
         results: list[Update | Decision | Checkpoint] = []
         for doc in self._updates.find(update_filt).sort("created_at", -1).limit(20):
-            results.append(_doc_to_update(doc))
+            results.append(doc_to_update(doc))
         for doc in self._decisions.find(decision_filt).sort("created_at", -1).limit(20):
-            results.append(_doc_to_decision(doc))
+            results.append(doc_to_decision(doc))
         for doc in self._checkpoints.find(checkpoint_filt).sort("created_at", -1).limit(20):
-            results.append(_doc_to_checkpoint(doc))
+            results.append(doc_to_checkpoint(doc))
 
         def _match_count(item: Update | Decision | Checkpoint) -> int:
             if isinstance(item, Update):
@@ -586,13 +539,13 @@ class MongoStateManager:
     def _hydrate_entity(self, entity_id: str, entity_type: str) -> Update | Decision | Checkpoint | None:
         if entity_type == "update":
             doc = self._updates.find_one({"_id": entity_id})
-            return _doc_to_update(doc) if doc else None
+            return doc_to_update(doc) if doc else None
         elif entity_type == "decision":
             doc = self._decisions.find_one({"_id": entity_id})
-            return _doc_to_decision(doc) if doc else None
+            return doc_to_decision(doc) if doc else None
         elif entity_type == "checkpoint":
             doc = self._checkpoints.find_one({"_id": entity_id})
-            return _doc_to_checkpoint(doc) if doc else None
+            return doc_to_checkpoint(doc) if doc else None
         return None
 
     # ── Context & Activity ───────────────────────────────────────
@@ -771,13 +724,13 @@ class MongoStateManager:
 
         entries: list[tuple[str, str, str, str]] = []
         for doc in self._updates.find():
-            u = _doc_to_update(doc)
+            u = doc_to_update(doc)
             entries.append((u.id, "update", u.stream_id, f"{u.summary} {u.content}"))
         for doc in self._decisions.find():
-            d = _doc_to_decision(doc)
+            d = doc_to_decision(doc)
             entries.append((d.id, "decision", d.stream_id, f"{d.what} {d.why}"))
         for doc in self._checkpoints.find():
-            c = _doc_to_checkpoint(doc)
+            c = doc_to_checkpoint(doc)
             entries.append((c.id, "checkpoint", "", c.content))
         if not entries:
             return

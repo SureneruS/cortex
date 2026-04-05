@@ -143,17 +143,16 @@ class StreamService:
         self._vec.clear()
 
     def rebuild_vec_index(self) -> None:
-        from cortex.repositories.stream_repo import _doc_to_update, _doc_to_decision
-        from cortex.repositories.checkpoint_repo import _doc_to_checkpoint
+        from cortex.domain.converters import doc_to_checkpoint, doc_to_decision, doc_to_update
 
         entries: list[tuple[str, str, str, str]] = []
         for doc in self._streams._updates.find():
-            u = _doc_to_update(doc)
+            u = doc_to_update(doc)
             entries.append((u.id, "update", u.stream_id, f"{u.summary} {u.content}"))
         for doc in self._streams._decisions.find():
-            d = _doc_to_decision(doc)
+            d = doc_to_decision(doc)
             entries.append((d.id, "decision", d.stream_id, f"{d.what} {d.why}"))
         for doc in self._checkpoints._col.find():
-            c = _doc_to_checkpoint(doc)
+            c = doc_to_checkpoint(doc)
             entries.append((c.id, "checkpoint", "", c.content))
         self._vec.rebuild(entries)

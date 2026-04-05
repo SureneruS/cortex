@@ -1,28 +1,15 @@
 from __future__ import annotations
 
-from datetime import datetime
-
 from pymongo.database import Database
 
 import structlog
 
-from cortex.domain.utils import _new_id, _now
+from cortex.domain.converters import doc_to_checkpoint
 from cortex.domain.models import Checkpoint
+from cortex.domain.utils import _new_id, _now
 from cortex.observability import trace
 
 log = structlog.get_logger("cortex.checkpoint_repo")
-
-
-def _doc_to_checkpoint(doc: dict) -> Checkpoint:
-    return Checkpoint(
-        id=doc["_id"],
-        week_of=doc["week_of"],
-        content=doc["content"],
-        stream_ids=doc.get("stream_ids", []),
-        created_at=datetime.fromisoformat(doc["created_at"]),
-        updated_at=datetime.fromisoformat(doc["updated_at"]),
-        metadata=doc.get("metadata"),
-    )
 
 
 class MongoCheckpointRepository:
@@ -64,7 +51,7 @@ class MongoCheckpointRepository:
             doc = self._col.find_one({"week_of": week_of})
         else:
             doc = self._col.find_one(sort=[("week_of", -1)])
-        return _doc_to_checkpoint(doc) if doc else None
+        return doc_to_checkpoint(doc) if doc else None
 
     def text_search(self, query: str, limit: int = 20) -> list[Checkpoint]:
         results: list[Checkpoint] = []
@@ -74,7 +61,7 @@ class MongoCheckpointRepository:
                 {"score": {"$meta": "textScore"}},
             ).sort([("score", {"$meta": "textScore"})]).limit(limit)
             for doc in cursor:
-                results.append(_doc_to_checkpoint(doc))
+                results.append(doc_to_checkpoint(doc))
         except Exception:
             log.warning("Text search failed on checkpoints", exc_info=True)
         return results
@@ -88,5 +75,5 @@ class MongoCheckpointRepository:
         filt = {op: clauses} if len(clauses) > 1 else clauses[0]
         results = []
         for doc in self._col.find(filt).sort("created_at", -1).limit(limit):
-            results.append(_doc_to_checkpoint(doc))
+            results.append(doc_to_checkpoint(doc))
         return results

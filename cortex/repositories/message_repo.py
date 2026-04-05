@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pymongo.database import Database
 
+from cortex.domain.converters import doc_to_message
 from cortex.domain.models import Message
 from cortex.domain.utils import _new_msg_id, _now
 
@@ -31,7 +32,7 @@ class MongoMessageRepository:
             "delivered_at": None,
         }
         self._col.insert_one(doc)
-        return _doc_to_message(doc)
+        return doc_to_message(doc)
 
     def get_pending(self, recipient: str, limit: int = 10) -> list[Message]:
         docs = (
@@ -39,7 +40,7 @@ class MongoMessageRepository:
             .sort("created_at", 1)
             .limit(limit)
         )
-        return [_doc_to_message(d) for d in docs]
+        return [doc_to_message(d) for d in docs]
 
     def claim_and_deliver(self, message_id: str) -> Message | None:
         doc = self._col.find_one_and_update(
@@ -49,7 +50,7 @@ class MongoMessageRepository:
         if doc is None:
             return None
         doc["status"] = "delivered"
-        return _doc_to_message(doc)
+        return doc_to_message(doc)
 
     def mark_delivered(self, message_id: str) -> None:
         self._col.update_one(
@@ -78,7 +79,7 @@ class MongoMessageRepository:
         if to_filter:
             query["to"] = to_filter
         docs = list(self._col.find(query).sort("created_at", -1).limit(limit))
-        return [_doc_to_message(d) for d in docs]
+        return [doc_to_message(d) for d in docs]
 
     def has_replies(self, *, from_session: str, to_session: str, after: str) -> bool:
         return self._col.count_documents(
@@ -106,17 +107,4 @@ class MongoMessageRepository:
         if after:
             query["created_at"] = {"$gt": after}
         docs = list(self._col.find(query).sort("created_at", 1).limit(limit))
-        return [_doc_to_message(d) for d in docs]
-
-
-def _doc_to_message(doc: dict) -> Message:
-    return Message(
-        id=doc["_id"],
-        sender=doc["from"],
-        recipient=doc["to"],
-        content=doc.get("content", ""),
-        status=doc.get("status", "pending"),
-        created_at=doc.get("created_at", ""),
-        meta=doc.get("meta", {}),
-        delivered_at=doc.get("delivered_at"),
-    )
+        return [doc_to_message(d) for d in docs]

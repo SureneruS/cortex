@@ -68,22 +68,15 @@ class SearchService:
         return combined[:20]
 
     def _hydrate(self, entity_id: str, entity_type: str) -> SearchResult | None:
+        from cortex.domain.converters import doc_to_checkpoint, doc_to_decision, doc_to_update
+
         if entity_type == "update":
             doc = self._streams._updates.find_one({"_id": entity_id})
-            return Update(
-                id=doc["_id"], stream_id=doc["stream_id"], content=doc["content"],
-                summary=doc["summary"], created_at=__import__("datetime").datetime.fromisoformat(doc["created_at"]),
-                metadata=doc.get("metadata"),
-            ) if doc else None
+            return doc_to_update(doc) if doc else None
         elif entity_type == "decision":
             doc = self._streams._decisions.find_one({"_id": entity_id})
-            return Decision(
-                id=doc["_id"], stream_id=doc["stream_id"], what=doc["what"],
-                why=doc["why"], created_at=__import__("datetime").datetime.fromisoformat(doc["created_at"]),
-                metadata=doc.get("metadata"),
-            ) if doc else None
+            return doc_to_decision(doc) if doc else None
         elif entity_type == "checkpoint":
-            from cortex.repositories.checkpoint_repo import _doc_to_checkpoint
             doc = self._checkpoints._col.find_one({"_id": entity_id})
-            return _doc_to_checkpoint(doc) if doc else None
+            return doc_to_checkpoint(doc) if doc else None
         return None
