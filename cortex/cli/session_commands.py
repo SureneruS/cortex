@@ -6,7 +6,7 @@ from pathlib import Path
 
 import click
 
-from cortex.cli import _cli_log, _error_exit, _json_out, get_container
+from cortex.cli import _cli_log, _error_exit, _json_out, _output, get_container
 from cortex.services.session_service import ClosePermissionDenied, SessionNotFound, SpawnDenied
 
 
@@ -116,7 +116,19 @@ def spawn(
     except (ValueError, SpawnDenied) as e:
         _error_exit(str(e))
 
-    _json_out(result)
+    def _fmt(data: dict) -> None:
+        from cortex.cli.formatters import print_detail, styled_status, val
+        fields = [
+            ("Name", val(data.get("name"))),
+            ("ID", val(data.get("session_id"))),
+            ("Status", styled_status(data.get("status"))),
+            ("Pane", val(data.get("pane_id"))),
+        ]
+        if data.get("workspace"):
+            fields.append(("Workspace", val(data["workspace"])))
+        print_detail(fields, title="Session spawned")
+
+    _output(result, _fmt)
 
 
 def _resolve_caller_pane() -> str | None:
@@ -133,50 +145,63 @@ def _resolve_caller_pane() -> str | None:
 # ── List / Get / Register / Update ──────────────────────────
 
 
-def _relative_age(iso_str: str) -> str:
-    from datetime import datetime, timezone
+def _fmt_session_detail(doc: dict) -> None:
+    from cortex.cli.formatters import (
+        get_console, print_detail, relative_time, styled_runtime, styled_status, truncate, val,
+    )
+    fields = [
+        ("Name", val(doc.get("name"))),
+        ("ID", val(doc.get("_id"))),
+        ("Status", styled_status(doc.get("status"))),
+        ("Runtime", styled_runtime(doc.get("runtime"))),
+        ("Role", val(doc.get("role"))),
+        ("Workspace", val(doc.get("workspace"))),
+        ("Pane", val(doc.get("pane_id"))),
+        ("Created", relative_time(doc.get("created_at"))),
+    ]
+    if doc.get("goal"):
+        fields.append(("Goal", truncate(doc["goal"], 100)))
+    if doc.get("spawned_by"):
+        fields.append(("Spawned by", val(doc["spawned_by"])))
+    if doc.get("repos"):
+        fields.append(("Repos", ", ".join(doc["repos"])))
+    if doc.get("model"):
+        fields.append(("Model", val(doc["model"])))
+    if doc.get("color"):
+        fields.append(("Color", val(doc["color"])))
+    if doc.get("cc_version"):
+        fields.append(("CC version", val(doc["cc_version"])))
+    if doc.get("last_error"):
+        err = doc["last_error"]
+        fields.append(("Last error", f"{err.get('type', '?')}: {truncate(str(err.get('details', '')), 80)}"))
+    if doc.get("watch"):
+        w = doc["watch"]
+        if w.get("type") == "pr":
+            fields.append(("Watch", f"PR {w.get('repo')}#{w.get('number')}"))
+        elif w.get("type") == "alarm":
+            fields.append(("Watch", f"Alarm at {w.get('wake_at')}"))
+    print_detail(fields, title=val(doc.get("name"), "Session"))
 
-    try:
-        dt = datetime.fromisoformat(str(iso_str))
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-        delta = datetime.now(timezone.utc) - dt
-        secs = int(delta.total_seconds())
-        if secs < 60:
-            return f"{secs}s"
-        if secs < 3600:
-            return f"{secs // 60}m"
-        if secs < 86400:
-            return f"{secs // 3600}h"
-        return f"{secs // 86400}d"
-    except (ValueError, TypeError):
-        return "?"
+
+def _fmt_lifecycle_ok(action: str):
+    def _fmt(data: dict) -> None:
+        from cortex.cli.formatters import print_ok, styled_status, val
+        name = val(data.get("name", data.get("_id")))
+        status = data.get("status", action)
+        print_ok(f"Session {action}: {name} [{styled_status(status)}]")
+    return _fmt
 
 
-def _format_sessions_table(sessions: list[dict]) -> str:
-    if not sessions:
-        return "No sessions found."
-
-    headers = ["NAME", "STATUS", "RUNTIME", "ROLE", "AGE", "ID"]
-    rows = []
-    for s in sessions:
-        rows.append([
-            s.get("name", "—"),
-            s.get("status", "—"),
-            s.get("runtime", "—"),
-            s.get("role", "—"),
-            _relative_age(s.get("created_at", "")),
-            s.get("_id", "—")[:12],
-        ])
-
-    widths = [max(len(h), max((len(r[i]) for r in rows), default=0)) for i, h in enumerate(headers)]
-    header_line = "  ".join(h.ljust(w) for h, w in zip(headers, widths))
-    sep = "  ".join("─" * w for w in widths)
-    lines = [header_line, sep]
-    for r in rows:
-        lines.append("  ".join(v.ljust(w) for v, w in zip(r, widths)))
-    lines.append(f"\n{len(sessions)} session(s)")
-    return "\n".join(lines)
+def _fmt_session_list_row(s: dict) -> list[str]:
+    from cortex.cli.formatters import relative_time, styled_runtime, styled_status, val
+    return [
+        val(s.get("name")),
+        styled_status(s.get("status")),
+        styled_runtime(s.get("runtime")),
+        val(s.get("role")),
+        relative_time(s.get("created_at")),
+        val(s.get("_id", ""), "")[:12],
+    ]
 
 
 @session.command("list")
@@ -185,14 +210,12 @@ def _format_sessions_table(sessions: list[dict]) -> str:
 @click.option("--all", "show_all", is_flag=True, default=False, help="Include completed/closed sessions")
 @click.option("--brief", is_flag=True, default=False, help="Omit events and watch details")
 @click.option("--limit", "limit", type=int, default=None, help="Max sessions to return")
-@click.option("--output", "output_fmt", type=click.Choice(["json", "human"]), default="json", help="Output format")
 def list_sessions(
     filter_status: str | None,
     filter_runtime: str | None,
     show_all: bool,
     brief: bool,
     limit: int | None,
-    output_fmt: str,
 ) -> None:
     """List registered sessions. Shows non-terminal sessions by default."""
     from cortex.domain.session_states import TERMINAL
@@ -206,10 +229,33 @@ def list_sessions(
     if filter_runtime:
         filters["runtime"] = filter_runtime
     sessions = repo.list(filters, brief=brief, limit=limit)
-    if output_fmt == "human":
-        click.echo(_format_sessions_table(sessions))
-    else:
-        _json_out(sessions)
+
+    def _fmt(data: list[dict]) -> None:
+        from cortex.cli.formatters import print_table, relative_time, styled_runtime, styled_status, val
+        if not data:
+            click.echo("No sessions found.")
+            return
+        cols = [
+            ("Name", {}),
+            ("Status", {}),
+            ("Runtime", {}),
+            ("Role", {}),
+            ("Age", {"justify": "right"}),
+            ("ID", {"style": "dim"}),
+        ]
+        rows = []
+        for s in data:
+            rows.append([
+                val(s.get("name")),
+                styled_status(s.get("status")),
+                styled_runtime(s.get("runtime")),
+                val(s.get("role")),
+                relative_time(s.get("created_at")),
+                val(s.get("_id", ""), "")[:12],
+            ])
+        print_table(cols, rows, count=len(data))
+
+    _output(sessions, _fmt)
 
 
 @session.command()
@@ -217,7 +263,7 @@ def list_sessions(
 def get(session_id: str) -> None:
     """Get a session by ID, name, or ID prefix."""
     doc = _resolve_or_exit(session_id)
-    _json_out(doc)
+    _output(doc, _fmt_session_detail)
 
 
 @session.command()
@@ -229,7 +275,16 @@ def children(ref: str, include_dead: bool) -> None:
         result = _svc().children(ref, include_dead=include_dead)
     except (SessionNotFound, ValueError) as e:
         _error_exit(str(e))
-    _json_out(result)
+
+    def _fmt(data: list[dict]) -> None:
+        from cortex.cli.formatters import print_table
+        if not data:
+            click.echo("No child sessions.")
+            return
+        cols = [("Name", {}), ("Status", {}), ("Runtime", {}), ("Role", {}), ("Age", {"justify": "right"}), ("ID", {"style": "dim"})]
+        print_table(cols, [_fmt_session_list_row(s) for s in data], count=len(data))
+
+    _output(result, _fmt)
 
 
 @session.command()
@@ -240,7 +295,26 @@ def tree(ref: str | None) -> None:
         result = _svc().tree(ref)
     except (SessionNotFound, ValueError) as e:
         _error_exit(str(e))
-    _json_out(result)
+
+    def _fmt(data: dict | list) -> None:
+        from cortex.cli.formatters import get_console, styled_status, val
+        console = get_console()
+
+        def _print_node(node: dict, indent: int = 0) -> None:
+            prefix = "  " * indent + ("├─ " if indent > 0 else "")
+            name = val(node.get("name"))
+            status = styled_status(node.get("status"))
+            console.print(f"{prefix}{name} [{status}]")
+            for child in node.get("children", []):
+                _print_node(child, indent + 1)
+
+        if isinstance(data, list):
+            for node in data:
+                _print_node(node)
+        else:
+            _print_node(data)
+
+    _output(result, _fmt)
 
 
 @session.command()
@@ -255,7 +329,7 @@ def register(data: str, session_id: str | None) -> None:
         _error_exit(f"Invalid JSON: {e}")
     doc = _repo().register(session_id, fields)
     log.info("Session registered", session_id=doc["_id"])
-    _json_out(doc)
+    _output(doc, lambda d: _fmt_session_detail(d))
 
 
 @session.command()
@@ -277,7 +351,12 @@ def update(session_id: str, data: str, trigger: str, increment: str | None) -> N
     except ValueError as e:
         _error_exit(str(e))
     log.info("Session updated", session_id=doc["_id"])
-    _json_out(result)
+
+    def _fmt(data: dict) -> None:
+        from cortex.cli.formatters import print_ok, val
+        print_ok(f"Session updated: {val(data.get('name', data.get('_id')))}")
+
+    _output(result, _fmt)
 
 
 @session.command("link-cc")
@@ -298,7 +377,12 @@ def link_cc(session_id: str, cc_session_id: str, data: str | None) -> None:
     if result is None:
         _error_exit(f"Session not found: {session_id}")
     log.info("CC session linked", session_id=doc["_id"], cc_session_id=cc_session_id)
-    _json_out(result)
+
+    def _fmt(data: dict) -> None:
+        from cortex.cli.formatters import print_ok, val
+        print_ok(f"CC session linked: {cc_session_id[:12]} → {val(data.get('name', data.get('_id')))}")
+
+    _output(result, _fmt)
 
 
 # ── Message ──────────────────────────────────────────────────
@@ -321,7 +405,12 @@ def message(session_name: str, content: str, thread_id: str | None, meta_json: s
         result = _svc().send_message(session_name, content, thread_id=thread_id, extra_meta=extra_meta)
     except SessionNotFound as e:
         _error_exit(str(e))
-    _json_out(result)
+
+    def _fmt(data: dict) -> None:
+        from cortex.cli.formatters import print_ok, val
+        print_ok(f"Message {val(data.get('status'), 'sent')} → {session_name}")
+
+    _output(result, _fmt)
 
 
 @session.command()
@@ -333,14 +422,29 @@ def messages(session_name: str | None, to_filter: str | None, limit_count: int) 
     msgs = get_container().messages.list_messages(
         session_name=session_name, to_filter=to_filter, limit=limit_count
     )
-    if not msgs:
-        click.echo("No messages found.")
-        return
-    for m in reversed(msgs):
-        ts = m.created_at[:19] if m.created_at else "?"
-        msg_type = m.meta.get("type", "?") if m.meta else "?"
-        content_preview = m.content[:120]
-        click.echo(f"  [{ts}] {m.sender} -> {m.recipient} ({msg_type}, {m.status}): {content_preview}")
+    msg_dicts = [
+        {"sender": m.sender, "recipient": m.recipient, "content": m.content,
+         "status": m.status, "type": (m.meta or {}).get("type"), "created_at": m.created_at}
+        for m in (msgs or [])
+    ]
+
+    def _fmt(data: list[dict]) -> None:
+        from cortex.cli.formatters import get_console, relative_time, truncate
+        if not data:
+            click.echo("No messages found.")
+            return
+        console = get_console()
+        for m in reversed(data):
+            age = relative_time(m.get("created_at"))
+            msg_type = m.get("type") or "?"
+            preview = truncate(m.get("content", ""), 100)
+            console.print(
+                f"  [dim]{age:>8}[/]  [bold]{m['sender']}[/] → {m['recipient']}"
+                f"  [dim]({msg_type})[/]  {preview}"
+            )
+        console.print(f"[dim]{len(data)} message(s)[/]")
+
+    _output(msg_dicts, _fmt)
 
 
 # ── Lifecycle ────────────────────────────────────────────────
@@ -365,7 +469,15 @@ def capture(session_id: str, lines: int) -> None:
         result = _svc().capture(session_id, lines=lines)
     except (SessionNotFound, ValueError) as e:
         _error_exit(str(e))
-    _json_out(result)
+
+    def _fmt(data: dict) -> None:
+        text = data.get("output", "")
+        if text:
+            click.echo(text)
+        else:
+            click.echo("(empty)")
+
+    _output(result, _fmt)
 
 
 @session.command()
@@ -381,7 +493,7 @@ def close(session_id: str, force: bool, cascade: bool, from_hook: bool) -> None:
         doc = _svc().close(session_id, force=force, cascade=cascade, from_hook=from_hook)
     except (SessionNotFound, ValueError, ClosePermissionDenied) as e:
         _error_exit(str(e))
-    _json_out(doc)
+    _output(doc, _fmt_lifecycle_ok("closed"))
 
 
 @session.command()
@@ -392,7 +504,11 @@ def wrapup(session_id: str) -> None:
         ok = _svc().wrapup(session_id)
     except (SessionNotFound, ValueError) as e:
         _error_exit(str(e))
-    _json_out({"ok": ok, "session_id": session_id})
+    def _fmt(data: dict) -> None:
+        from cortex.cli.formatters import print_ok
+        print_ok(f"Wrapup {'complete' if data.get('ok') else 'skipped'}: {session_id}")
+
+    _output({"ok": ok, "session_id": session_id}, _fmt)
 
 
 @session.command("auto-close")
@@ -408,7 +524,7 @@ def auto_close(pane_id: str) -> None:
     doc = sessions[0]
     result = repo.close(doc["_id"], trigger="auto-close", actor="tmux-hook")
     log.info("Auto-closed session", session_id=doc["_id"])
-    _json_out(result)
+    _output(result, _fmt_lifecycle_ok("auto-closed"))
 
 
 @session.command()
@@ -419,7 +535,7 @@ def pause(session_id: str) -> None:
         doc = _svc().pause(session_id)
     except (SessionNotFound, ValueError) as e:
         _error_exit(str(e))
-    _json_out(doc)
+    _output(doc, _fmt_lifecycle_ok("paused"))
 
 
 @session.command()
@@ -430,7 +546,7 @@ def resume(session_id: str) -> None:
         doc = _svc().resume(session_id)
     except (SessionNotFound, ValueError) as e:
         _error_exit(str(e))
-    _json_out(doc)
+    _output(doc, _fmt_lifecycle_ok("resumed"))
 
 
 @session.command()
@@ -441,7 +557,7 @@ def hide(session_id: str) -> None:
         doc = _svc().hide(session_id)
     except (SessionNotFound, ValueError, RuntimeError) as e:
         _error_exit(str(e))
-    _json_out(doc)
+    _output(doc, _fmt_lifecycle_ok("hidden"))
 
 
 @session.command()
@@ -452,7 +568,7 @@ def show(session_id: str) -> None:
         doc = _svc().show(session_id)
     except (SessionNotFound, ValueError, RuntimeError) as e:
         _error_exit(str(e))
-    _json_out(doc)
+    _output(doc, _fmt_lifecycle_ok("shown"))
 
 
 @session.command()
@@ -478,7 +594,7 @@ def restart(session_id: str) -> None:
 
     doc = json.loads(result.stdout)
     log.info("Session restarted", session_id=session_id)
-    _json_out(doc)
+    _output(doc, _fmt_lifecycle_ok("restarted"))
 
 
 # ── Health / Cleanup ─────────────────────────────────────────
@@ -488,7 +604,31 @@ def restart(session_id: str) -> None:
 def health() -> None:
     """Comprehensive health check."""
     result = _svc().health_check()
-    _json_out(result)
+
+    def _fmt(data: dict) -> None:
+        from cortex.cli.formatters import get_console, styled_status
+        console = get_console()
+        summary = data.get("summary", {})
+        console.print(f"[bold]Health Check[/]")
+        for key, val in summary.items():
+            console.print(f"  {key}: {val}")
+        issues = data.get("issues", [])
+        if issues:
+            console.print(f"\n[yellow]Issues ({len(issues)}):[/]")
+            for issue in issues:
+                console.print(f"  [yellow]![/] {issue}")
+        else:
+            console.print(f"\n[green]No issues found.[/]")
+        sessions = data.get("sessions", [])
+        if sessions:
+            console.print(f"\n[bold]Sessions ({len(sessions)}):[/]")
+            for s in sessions:
+                name = s.get("name", "?")
+                status = styled_status(s.get("status"))
+                pane_ok = "[green]✓[/]" if s.get("pane_alive") else "[red]✗[/]"
+                console.print(f"  {pane_ok} {name} [{status}]")
+
+    _output(result, _fmt)
 
 
 @session.command()
@@ -497,7 +637,18 @@ def cleanup() -> None:
     log = _cli_log()
     closed = _svc().cleanup()
     log.info("Cleanup complete", count=len(closed))
-    _json_out({"closed": closed, "count": len(closed)})
+
+    def _fmt(data: dict) -> None:
+        from cortex.cli.formatters import print_ok
+        count = data.get("count", 0)
+        if count == 0:
+            click.echo("No dead sessions to clean up.")
+        else:
+            print_ok(f"Cleaned up {count} dead session(s)")
+            for name in data.get("closed", []):
+                click.echo(f"  - {name}")
+
+    _output({"closed": closed, "count": len(closed)}, _fmt)
 
 
 # ── Spatial ──────────────────────────────────────────────────
@@ -533,7 +684,14 @@ def gather(refs: tuple[str, ...], layout_name: str) -> None:
     win_target = tmux.display_message(target, "#{session_name}:#{window_index}") or ""
     tmux.select_layout(win_target, layout_name)
 
-    _json_out({"gathered": [p["name"] for p in panes], "layout": layout_name, "window": win_target})
+    data = {"gathered": [p["name"] for p in panes], "layout": layout_name, "window": win_target}
+
+    def _fmt(d: dict) -> None:
+        from cortex.cli.formatters import print_ok
+        names = ", ".join(d["gathered"])
+        print_ok(f"Gathered {len(d['gathered'])} sessions: {names} (layout: {d['layout']})")
+
+    _output(data, _fmt)
 
 
 @session.command()
@@ -558,7 +716,16 @@ def scatter(refs: tuple[str, ...]) -> None:
                 repo.update(doc["_id"], {"pane_id": new_pane_id}, trigger="scatter", actor=_caller())
             scattered.append(doc.get("name"))
 
-    _json_out({"scattered": scattered, "count": len(scattered)})
+    data = {"scattered": scattered, "count": len(scattered)}
+
+    def _fmt(d: dict) -> None:
+        from cortex.cli.formatters import print_ok
+        if d["count"] == 0:
+            click.echo("No sessions scattered.")
+        else:
+            print_ok(f"Scattered {d['count']} session(s): {', '.join(d['scattered'])}")
+
+    _output(data, _fmt)
 
 
 @session.command()
@@ -590,7 +757,14 @@ def move(ref: str, beside: str | None, below: str | None) -> None:
     if not tmux.move_pane(pane_id, target_pane, orientation):
         _error_exit("move-pane failed")
 
-    _json_out({"moved": doc.get("name"), "beside" if beside else "below": target_ref})
+    data = {"moved": doc.get("name"), "beside" if beside else "below": target_ref}
+
+    def _fmt(d: dict) -> None:
+        from cortex.cli.formatters import print_ok
+        direction = "beside" if beside else "below"
+        print_ok(f"Moved {d['moved']} {direction} {target_ref}")
+
+    _output(data, _fmt)
 
 
 @session.command()
@@ -647,7 +821,21 @@ def layout(window: str | None) -> None:
     if windows:
         workspace = next(iter(windows.values())).get("workspace", "work")
 
-    _json_out({"workspace": workspace, "windows": sorted(windows.values(), key=lambda w: w["index"])})
+    data = {"workspace": workspace, "windows": sorted(windows.values(), key=lambda w: w["index"])}
+
+    def _fmt(d: dict) -> None:
+        from cortex.cli.formatters import get_console, val
+        console = get_console()
+        console.print(f"[bold]Workspace:[/] {d['workspace']}")
+        for win in d["windows"]:
+            console.print(f"\n[bold]Window {win['index']}[/] — {win['name']}  [dim]({win['id']})[/]")
+            for pane in win.get("panes", []):
+                session_name = pane.get("session") or "[dim]—[/]"
+                active = " [green]●[/]" if pane.get("active") else ""
+                size = f"{pane.get('width', '?')}x{pane.get('height', '?')}"
+                console.print(f"  {pane['pane_id']}  {session_name}{active}  [dim]{size}[/]")
+
+    _output(data, _fmt)
 
 
 # ── Paint ────────────────────────────────────────────────────
@@ -683,7 +871,10 @@ def paint(ref: str | None, color: str | None) -> None:
         if not style.startswith("fg="):
             style = f"fg={style}"
         tmux.set_pane_option(pane_id, "pane-border-style", style)
-        _json_out({"painted": [{"session_id": resolved["_id"], "pane_id": pane_id, "style": style}], "skipped": []})
+        _output(
+            {"painted": [{"session_id": resolved["_id"], "pane_id": pane_id, "style": style}], "skipped": []},
+            _fmt_paint_result,
+        )
         return
 
     sessions = repo.list({"status": {"$nin": ["completed", "closed"]}})
@@ -703,7 +894,20 @@ def paint(ref: str | None, color: str | None) -> None:
         tmux.set_pane_option(pane_id, "pane-border-style", style)
         painted.append({"session_id": session_id, "pane_id": pane_id, "runtime": runtime, "style": style})
 
-    _json_out({"painted": painted, "skipped": skipped})
+    _output({"painted": painted, "skipped": skipped}, _fmt_paint_result)
+
+
+def _fmt_paint_result(data: dict) -> None:
+    from cortex.cli.formatters import print_ok
+    painted = data.get("painted", [])
+    skipped = data.get("skipped", [])
+    if painted:
+        print_ok(f"Painted {len(painted)} pane(s)")
+    if skipped:
+        for s in skipped:
+            click.echo(f"  [dim]skipped {s.get('name', '?')}: {s.get('reason', '?')}[/]")
+    if not painted and not skipped:
+        click.echo("Nothing to paint.")
 
 
 # ── Watch ───────────────────────────────────────────────────
