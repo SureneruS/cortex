@@ -287,6 +287,36 @@ class TmuxAdapter:
             stderr=subprocess.DEVNULL,
         )
 
+    def spawn_prompt_sender(self, pane_id: str, prompt_text: str) -> None:
+        """Launch a background process that waits for CC to be ready, then pastes prompt via buffer."""
+        from pathlib import Path
+
+        fd, tmp_path = tempfile.mkstemp(suffix=".txt", prefix="cortex-prompt-")
+        os.write(fd, prompt_text.encode())
+        os.close(fd)
+
+        log_file = Path.home() / ".cortex" / "logs" / "post-spawn-sender.log"
+        send_script = (
+            f"set log_file {log_file}; "
+            f"echo (date) 'Prompt sender started for pane {pane_id}' >> $log_file; "
+            f"set attempt 0; "
+            f"while not tmux capture-pane -t {pane_id} -p 2>/dev/null | grep -q '❯'; "
+            f"set attempt (math $attempt + 1); "
+            f'echo (date) "Attempt $attempt: waiting for CC prompt on pane {pane_id}" >> $log_file; '
+            f"if test $attempt -gt 60; echo (date) 'Timed out after 60 attempts' >> $log_file; rm -f {tmp_path}; exit 1; end; "
+            f"sleep 1; end; "
+            f"tmux load-buffer {tmp_path}; "
+            f"tmux paste-buffer -d -t {pane_id}; "
+            f"sleep 0.3; tmux send-keys -t {pane_id} Enter; "
+            f"rm -f {tmp_path}; "
+            f"echo (date) 'Prompt sent to {pane_id}' >> $log_file"
+        )
+        subprocess.Popen(
+            ["fish", "-c", send_script],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+
     # ── Internal ─────────────────────────────────────────────
 
     def _run(self, *args: str, check: bool = False) -> subprocess.CompletedProcess[str]:

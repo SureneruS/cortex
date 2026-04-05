@@ -165,7 +165,7 @@ class SessionService:
             self._terminal.send_keys(pane_id, "Enter")
 
             if prompt:
-                self._deliver_prompt(spawned_by, name, prompt)
+                self._deliver_prompt(pane_id, prompt)
 
             if color:
                 self._terminal.spawn_background_sender(pane_id, f"/color {color}")
@@ -762,13 +762,8 @@ class SessionService:
             return str(doc["pane_id"])
         return None
 
-    def _deliver_prompt(self, sender: str, recipient_name: str, prompt: str) -> None:
-        self._messages.create(
-            sender,
-            recipient_name,
-            prompt,
-            meta={"type": "prompt", "sender_type": "system", "priority": "high"},
-        )
+    def _deliver_prompt(self, pane_id: str, prompt: str) -> None:
+        self._terminal.spawn_prompt_sender(pane_id, prompt)
 
     def _wrapup_via_channels(self, session_name: str, session_id: str, pane_id: str) -> bool:
         self._messages.create(
