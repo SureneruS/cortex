@@ -137,21 +137,25 @@ def _resolve_caller_pane() -> str | None:
 @session.command("list")
 @click.option("--status", "filter_status", default=None, help="Filter by status")
 @click.option("--runtime", "filter_runtime", default=None, help="Filter by runtime state")
+@click.option("--all", "show_all", is_flag=True, default=False, help="Include completed/closed sessions")
 @click.option("--brief", is_flag=True, default=False, help="Omit events and watch details")
 @click.option("--limit", "limit", type=int, default=None, help="Max sessions to return")
 def list_sessions(
     filter_status: str | None,
     filter_runtime: str | None,
+    show_all: bool,
     brief: bool,
     limit: int | None,
 ) -> None:
-    """List registered sessions. Shows active sessions by default."""
+    """List registered sessions. Shows non-terminal sessions by default."""
+    from cortex.domain.session_states import TERMINAL
+
     repo = _repo()
     filters = {}
-    if filter_status and filter_status != "all":
+    if filter_status:
         filters["status"] = filter_status
-    elif not filter_status:
-        filters["status"] = {"$nin": ["completed", "closed"]}
+    elif not show_all:
+        filters["status"] = {"$nin": [s.value for s in TERMINAL]}
     if filter_runtime:
         filters["runtime"] = filter_runtime
     sessions = repo.list(filters, brief=brief, limit=limit)
