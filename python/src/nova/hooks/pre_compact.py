@@ -7,9 +7,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from nova.lib.state import CompactCursor, NovaState
-
-NOVA_DIR = Path.home() / ".nova"
+CORTEX_DIR = Path.home() / "cortex"
 
 
 def _cortex_cli(*args: str) -> str | None:
@@ -54,16 +52,14 @@ def _scan_transcript_bounds(
 
 def handle_pre_compact(
     hook_input: dict,
-    state_file: Path | None = None,
     queue_dir: Path | None = None,
 ) -> dict:
-    if state_file is None:
-        state_file = NOVA_DIR / "state.json"
     if queue_dir is None:
-        queue_dir = NOVA_DIR / "memory" / "queue"
+        queue_dir = CORTEX_DIR / "captures"
 
     session_id = hook_input.get("session_id", "")
     transcript_path = hook_input.get("transcript_path", "")
+    compact_summary = hook_input.get("summary", "")
 
     # Update Cortex registry
     cortex_session_id = os.environ.get("CORTEX_SESSION_ID")
@@ -74,79 +70,50 @@ def handle_pre_compact(
             "--trigger", "pre_compact",
         )
 
-    if not session_id or not state_file.exists():
+    if not session_id:
         return {}
 
-    try:
-        state = NovaState(state_file)
-    except Exception:
-        return {}
+    # Write compact summary as a capture for dream to process
+    if compact_summary:
+        queue_dir.mkdir(parents=True, exist_ok=True)
+        now = datetime.now(timezone.utc)
+        filename = f"{now.strftime('%Y-%m-%d-%H%M%S')}-{session_id[:8]}-compact.md"
+        content = f"""---
+source: compact_summary
+session_id: {session_id}
+transcript_path: {transcript_path}
+captured_at: {now.isoformat()}
+---
 
-    session = state.sessions.get(session_id)
-    if not session:
-        return {}
-
-    cursor = session.get("compact_cursor", {"line": 0, "byte": 0, "time": ""})
-    from_line = cursor["line"]
-
-    if transcript_path:
+{compact_summary}
+"""
+        (queue_dir / filename).write_text(content)
+    elif transcript_path:
+        # No summary provided — scan transcript and write range metadata for dream
+        from_line = 0
         to_line, to_byte, from_time, to_time = _scan_transcript_bounds(
             Path(transcript_path), from_line
         )
-    else:
-        to_line, to_byte, from_time, to_time = from_line, cursor["byte"], "", ""
-
-    if to_line > from_line:
-        queue_dir.mkdir(parents=True, exist_ok=True)
-        now = datetime.now(timezone.utc)
-        job = {
-            "session_id": session_id,
-            "transcript_path": transcript_path,
-            "from_line": from_line,
-            "to_line": to_line,
-            "from_byte": cursor["byte"],
-            "to_byte": to_byte,
-            "from_time": cursor["time"] or from_time,
-            "to_time": to_time,
-            "repos": session.get("repos", []),
-            "queued_at": now.isoformat(),
-        }
-        filename = f"{now.strftime('%Y%m%d-%H%M%S-%f')}-{session_id[:8]}.json"
-        (queue_dir / filename).write_text(json.dumps(job, indent=2) + "\n")
-
-        new_cursor = CompactCursor(line=to_line, byte=to_byte, time=to_time)
-        state.set_compact_cursor(session_id, new_cursor)
-
-    state.increment_compaction(session_id)
-    state.save()
+        if to_line > from_line:
+            queue_dir.mkdir(parents=True, exist_ok=True)
+            now = datetime.now(timezone.utc)
+            job = {
+                "source": "transcript_range",
+                "session_id": session_id,
+                "transcript_path": transcript_path,
+                "from_line": from_line,
+                "to_line": to_line,
+                "from_time": from_time,
+                "to_time": to_time,
+                "queued_at": now.isoformat(),
+            }
+            filename = f"{now.strftime('%Y-%m-%d-%H%M%S')}-{session_id[:8]}-range.json"
+            (queue_dir / filename).write_text(json.dumps(job, indent=2) + "\n")
 
     return {}
 
 
 def main():
-    log_file = NOVA_DIR / "logs" / "pre_compact.log"
-    log_file.parent.mkdir(parents=True, exist_ok=True)
-
-    raw = sys.stdin.read()
-    try:
-        hook_input = json.loads(raw)
-    except Exception as e:
-        with log_file.open("a") as f:
-            f.write(f"PARSE ERROR: {e}\n")
-        print(json.dumps({}))
-        return
-
-    with log_file.open("a") as f:
-        f.write(f"CALLED: session={hook_input.get('session_id', '?')}\n")
-
-    try:
-        result = handle_pre_compact(hook_input)
-    except Exception:
-        import traceback
-
-        with log_file.open("a") as f:
-            f.write(f"ERROR: {traceback.format_exc()}\n")
-        print(json.dumps({}))
-        return
-
+    hook_input = json.loads(sys.stdin.read())
+    result = handle_pre_compact(hook_input)
     print(json.dumps(result))
