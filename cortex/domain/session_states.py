@@ -13,7 +13,7 @@ class InvalidTransition(ValueError):
         )
 
 
-TERMINAL = {SessionStatus.COMPLETED, SessionStatus.CLOSED}
+TERMINAL = {SessionStatus.COMPLETED, SessionStatus.CLOSED, SessionStatus.DEAD}
 
 TRANSITIONS: dict[SessionStatus, set[SessionStatus]] = {
     SessionStatus.ACTIVE: {
@@ -22,18 +22,21 @@ TRANSITIONS: dict[SessionStatus, set[SessionStatus]] = {
         SessionStatus.BLOCKED,
         SessionStatus.COMPLETED,
         SessionStatus.CLOSED,
+        SessionStatus.DEAD,
     },
     SessionStatus.IDLE: {
         SessionStatus.ACTIVE,
         SessionStatus.PAUSED,
         SessionStatus.COMPLETED,
         SessionStatus.CLOSED,
+        SessionStatus.DEAD,
     },
     SessionStatus.PAUSED: {
         SessionStatus.ACTIVE,
         SessionStatus.COMPLETED,
         SessionStatus.ARCHIVED,
         SessionStatus.CLOSED,
+        SessionStatus.DEAD,
     },
     SessionStatus.BLOCKED: {
         SessionStatus.ACTIVE,
@@ -41,14 +44,17 @@ TRANSITIONS: dict[SessionStatus, set[SessionStatus]] = {
         SessionStatus.COMPLETED,
         SessionStatus.ARCHIVED,
         SessionStatus.CLOSED,
+        SessionStatus.DEAD,
     },
     SessionStatus.COMPLETED: set(),
     SessionStatus.ARCHIVED: {
         SessionStatus.ACTIVE,
         SessionStatus.COMPLETED,
         SessionStatus.CLOSED,
+        SessionStatus.DEAD,
     },
     SessionStatus.CLOSED: set(),
+    SessionStatus.DEAD: set(),
 }
 
 

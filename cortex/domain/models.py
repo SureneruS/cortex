@@ -16,6 +16,7 @@ class SessionStatus(str, Enum):
     COMPLETED = "completed"
     ARCHIVED = "archived"
     CLOSED = "closed"
+    DEAD = "dead"
 
 
 class RuntimeStatus(str, Enum):
