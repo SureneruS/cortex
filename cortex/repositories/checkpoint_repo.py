@@ -53,6 +53,13 @@ class MongoCheckpointRepository:
             doc = self._col.find_one(sort=[("week_of", -1)])
         return doc_to_checkpoint(doc) if doc else None
 
+    def get_by_id(self, checkpoint_id: str) -> Checkpoint | None:
+        doc = self._col.find_one({"_id": checkpoint_id})
+        return doc_to_checkpoint(doc) if doc else None
+
+    def iter_all(self) -> list[Checkpoint]:
+        return [doc_to_checkpoint(doc) for doc in self._col.find()]
+
     def text_search(self, query: str, limit: int = 20) -> list[Checkpoint]:
         results: list[Checkpoint] = []
         try:

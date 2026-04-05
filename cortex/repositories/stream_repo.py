@@ -305,6 +305,28 @@ class MongoStreamRepository:
         results.sort(key=lambda x: x["created_at"], reverse=True)
         return results[:limit]
 
+    # ── Entity access (used by services) ──────────────────────
+
+    def get_child_ids(self, stream_id: str) -> tuple[list[str], list[str]]:
+        """Return (update_ids, decision_ids) for a stream."""
+        update_ids = [d["_id"] for d in self._updates.find({"stream_id": stream_id}, {"_id": 1})]
+        decision_ids = [d["_id"] for d in self._decisions.find({"stream_id": stream_id}, {"_id": 1})]
+        return update_ids, decision_ids
+
+    def get_update_by_id(self, update_id: str) -> Update | None:
+        doc = self._updates.find_one({"_id": update_id})
+        return doc_to_update(doc) if doc else None
+
+    def get_decision_by_id(self, decision_id: str) -> Decision | None:
+        doc = self._decisions.find_one({"_id": decision_id})
+        return doc_to_decision(doc) if doc else None
+
+    def iter_all_updates(self) -> list[Update]:
+        return [doc_to_update(doc) for doc in self._updates.find()]
+
+    def iter_all_decisions(self) -> list[Decision]:
+        return [doc_to_decision(doc) for doc in self._decisions.find()]
+
     # ── Text search (used by SearchService) ──────────────────
 
     def text_search(self, query: str, limit: int = 20) -> list[Update | Decision]:

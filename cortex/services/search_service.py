@@ -68,15 +68,10 @@ class SearchService:
         return combined[:20]
 
     def _hydrate(self, entity_id: str, entity_type: str) -> SearchResult | None:
-        from cortex.domain.converters import doc_to_checkpoint, doc_to_decision, doc_to_update
-
         if entity_type == "update":
-            doc = self._streams._updates.find_one({"_id": entity_id})
-            return doc_to_update(doc) if doc else None
+            return self._streams.get_update_by_id(entity_id)
         elif entity_type == "decision":
-            doc = self._streams._decisions.find_one({"_id": entity_id})
-            return doc_to_decision(doc) if doc else None
+            return self._streams.get_decision_by_id(entity_id)
         elif entity_type == "checkpoint":
-            doc = self._checkpoints._col.find_one({"_id": entity_id})
-            return doc_to_checkpoint(doc) if doc else None
+            return self._checkpoints.get_by_id(entity_id)
         return None

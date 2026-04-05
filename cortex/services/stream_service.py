@@ -49,11 +49,11 @@ class StreamService:
         self._notify()
 
     def delete_stream(self, stream_id: str) -> None:
-        # Deindex all child entities before deleting
-        for doc in self._streams._updates.find({"stream_id": stream_id}, {"_id": 1}):
-            self._vec.deindex(doc["_id"])
-        for doc in self._streams._decisions.find({"stream_id": stream_id}, {"_id": 1}):
-            self._vec.deindex(doc["_id"])
+        update_ids, decision_ids = self._streams.get_child_ids(stream_id)
+        for uid in update_ids:
+            self._vec.deindex(uid)
+        for did in decision_ids:
+            self._vec.deindex(did)
         self._streams.delete(stream_id)
 
     # ── Updates (with vec indexing) ──────────────────────────
@@ -143,16 +143,11 @@ class StreamService:
         self._vec.clear()
 
     def rebuild_vec_index(self) -> None:
-        from cortex.domain.converters import doc_to_checkpoint, doc_to_decision, doc_to_update
-
         entries: list[tuple[str, str, str, str]] = []
-        for doc in self._streams._updates.find():
-            u = doc_to_update(doc)
+        for u in self._streams.iter_all_updates():
             entries.append((u.id, "update", u.stream_id, f"{u.summary} {u.content}"))
-        for doc in self._streams._decisions.find():
-            d = doc_to_decision(doc)
+        for d in self._streams.iter_all_decisions():
             entries.append((d.id, "decision", d.stream_id, f"{d.what} {d.why}"))
-        for doc in self._checkpoints._col.find():
-            c = doc_to_checkpoint(doc)
+        for c in self._checkpoints.iter_all():
             entries.append((c.id, "checkpoint", "", c.content))
         self._vec.rebuild(entries)
