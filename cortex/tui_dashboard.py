@@ -150,7 +150,10 @@ def _truncate(s: str, n: int) -> str:
 
 def _fetch_sessions(include_done: bool = False) -> list[dict]:
     db = get_db()
-    filt = {} if include_done else {"status": {"$nin": ["completed", "closed", "dead"]}}
+    if include_done:
+        filt = {"status": {"$nin": ["dead"]}}
+    else:
+        filt = {"status": {"$nin": ["completed", "closed", "dead"]}}
     return list(db.session_registry.find(filt).sort("created_at", -1))
 
 
@@ -680,7 +683,7 @@ class CortexDashboard(App):
         sess_list = self.query_one("#sessions-list", SessionListWidget)
         sess_list.set_sessions(sessions)
 
-        active_count = sum(1 for s in sessions if s.get("status") not in ("completed", "closed"))
+        active_count = sum(1 for s in sessions if s.get("status") not in ("completed", "closed", "dead"))
         working_count = sum(1 for s in sessions if s.get("runtime") == "working")
         total_label = "all" if self.show_all else "active"
         self.query_one("#sessions-title", Static).update(
