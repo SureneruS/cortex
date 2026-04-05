@@ -2,7 +2,7 @@
 
 This was the root cause of the dashboard staleness bug: MCP tools call
 state directly (not HTTP endpoints), so SSE never fired.
-The fix: on_mutation callback on MongoStateManager/StreamService, wired in api._wire_sse_callback().
+The fix: on_mutation callback on StreamService, wired in api._wire_sse_callback().
 """
 
 from __future__ import annotations
@@ -10,49 +10,49 @@ from __future__ import annotations
 import asyncio
 
 from cortex.container import Container
-from cortex.mongo_state import MongoStateManager
+from cortex.services.stream_service import StreamService
 
 
 class TestOnMutationCallback:
-    def test_add_update_fires_callback(self, state: MongoStateManager):
+    def test_add_update_fires_callback(self, stream_svc: StreamService):
         fired = []
-        state.on_mutation = lambda: fired.append(True)
-        stream = state.create_stream("Test", ["repo"])
-        state.add_update(stream.id, "content", "summary")
+        stream_svc._on_mutation = lambda: fired.append(True)
+        stream = stream_svc.create_stream("Test", ["repo"])
+        stream_svc.add_update(stream.id, "content", "summary")
         assert len(fired) == 1
 
-    def test_add_decision_fires_callback(self, state: MongoStateManager):
+    def test_add_decision_fires_callback(self, stream_svc: StreamService):
         fired = []
-        state.on_mutation = lambda: fired.append(True)
-        stream = state.create_stream("Test", ["repo"])
-        state.add_decision(stream.id, "what", "why")
+        stream_svc._on_mutation = lambda: fired.append(True)
+        stream = stream_svc.create_stream("Test", ["repo"])
+        stream_svc.add_decision(stream.id, "what", "why")
         assert len(fired) == 1
 
-    def test_link_session_fires_callback(self, state: MongoStateManager):
+    def test_link_session_fires_callback(self, stream_svc: StreamService):
         fired = []
-        state.on_mutation = lambda: fired.append(True)
-        stream = state.create_stream("Test", ["repo"])
-        state.link_session("sess-1", stream.id)
+        stream_svc._on_mutation = lambda: fired.append(True)
+        stream = stream_svc.create_stream("Test", ["repo"])
+        stream_svc.link_session("sess-1", stream.id)
         assert len(fired) == 1
 
-    def test_complete_stream_fires_callback(self, state: MongoStateManager):
+    def test_complete_stream_fires_callback(self, stream_svc: StreamService):
         fired = []
-        state.on_mutation = lambda: fired.append(True)
-        stream = state.create_stream("Test", ["repo"])
-        state.complete_stream(stream.id, "done")
+        stream_svc._on_mutation = lambda: fired.append(True)
+        stream = stream_svc.create_stream("Test", ["repo"])
+        stream_svc.complete_stream(stream.id, "done")
         assert len(fired) == 1
 
-    def test_no_callback_when_none(self, state: MongoStateManager):
+    def test_no_callback_when_none(self, stream_svc: StreamService):
         """Verify no error when on_mutation is not set."""
-        assert state.on_mutation is None
-        stream = state.create_stream("Test", ["repo"])
-        state.add_update(stream.id, "content", "summary")
+        assert stream_svc._on_mutation is None
+        stream = stream_svc.create_stream("Test", ["repo"])
+        stream_svc.add_update(stream.id, "content", "summary")
 
-    def test_create_stream_does_not_fire(self, state: MongoStateManager):
+    def test_create_stream_does_not_fire(self, stream_svc: StreamService):
         """Stream creation is not a mutation that needs live dashboard update."""
         fired = []
-        state.on_mutation = lambda: fired.append(True)
-        state.create_stream("Test", ["repo"])
+        stream_svc._on_mutation = lambda: fired.append(True)
+        stream_svc.create_stream("Test", ["repo"])
         assert len(fired) == 0
 
 

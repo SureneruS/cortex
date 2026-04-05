@@ -1,52 +1,52 @@
-from cortex.mongo_state import MongoStateManager
+from cortex.repositories.dashboard_repo import MongoDashboardRepository
 
 
-def test_save_blueprint(state: MongoStateManager):
+def test_save_blueprint(dashboards: MongoDashboardRepository):
     bp = {"title": "Test", "sections": []}
-    result = state.save_blueprint(bp)
+    result = dashboards.save_blueprint(bp)
     assert result["blueprint"] == bp
     assert result["resolved_data"] is None
     assert "id" in result
     assert "created_at" in result
 
 
-def test_get_blueprint(state: MongoStateManager):
-    state.save_blueprint({"title": "Test", "sections": []})
-    result = state.get_blueprint()
+def test_get_blueprint(dashboards: MongoDashboardRepository):
+    dashboards.save_blueprint({"title": "Test", "sections": []})
+    result = dashboards.get_blueprint()
     assert result is not None
     assert result["blueprint"]["title"] == "Test"
 
 
-def test_get_blueprint_empty(state: MongoStateManager):
-    result = state.get_blueprint()
+def test_get_blueprint_empty(dashboards: MongoDashboardRepository):
+    result = dashboards.get_blueprint()
     assert result is None
 
 
-def test_save_blueprint_overwrites(state: MongoStateManager):
-    state.save_blueprint({"title": "First", "sections": []})
-    state.save_blueprint({"title": "Second", "sections": []})
-    result = state.get_blueprint()
+def test_save_blueprint_overwrites(dashboards: MongoDashboardRepository):
+    dashboards.save_blueprint({"title": "First", "sections": []})
+    dashboards.save_blueprint({"title": "Second", "sections": []})
+    result = dashboards.get_blueprint()
     assert result["blueprint"]["title"] == "Second"
 
 
-def test_update_resolved_data(state: MongoStateManager):
-    state.save_blueprint({"title": "Test", "sections": []})
+def test_update_resolved_data(dashboards: MongoDashboardRepository):
+    dashboards.save_blueprint({"title": "Test", "sections": []})
     resolved = {"title": "Test", "sections": [{"id": "x", "data": [1, 2]}]}
-    state.update_resolved_data(resolved)
-    result = state.get_blueprint()
+    dashboards.update_resolved_data(resolved)
+    result = dashboards.get_blueprint()
     assert result["resolved_data"] == resolved
 
 
-def test_save_blueprint_creates_snapshot(state: MongoStateManager):
-    state.save_blueprint({"title": "Test", "sections": []})
-    snapshots = state.get_dashboard_snapshots(limit=10)
+def test_save_blueprint_creates_snapshot(dashboards: MongoDashboardRepository):
+    dashboards.save_blueprint({"title": "Test", "sections": []})
+    snapshots = dashboards.get_snapshots(limit=10)
     assert len(snapshots) == 1
     assert snapshots[0]["snapshot_type"] == "blueprint"
 
 
-def test_update_resolved_creates_snapshot(state: MongoStateManager):
-    state.save_blueprint({"title": "Test", "sections": []})
-    state.update_resolved_data({"title": "Test", "sections": []})
-    snapshots = state.get_dashboard_snapshots(limit=10)
+def test_update_resolved_creates_snapshot(dashboards: MongoDashboardRepository):
+    dashboards.save_blueprint({"title": "Test", "sections": []})
+    dashboards.update_resolved_data({"title": "Test", "sections": []})
+    snapshots = dashboards.get_snapshots(limit=10)
     assert len(snapshots) == 2
     assert snapshots[0]["snapshot_type"] == "resolved"

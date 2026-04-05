@@ -19,10 +19,8 @@ from textual.widgets import (
 
 from textual.widget import Widget
 
-from cortex.config import load_config
+from cortex.container import get_container
 from cortex.domain.models import Stream
-from cortex.mongo import get_db
-from cortex.mongo_state import MongoStateManager
 
 
 def _relative_time(dt: datetime) -> str:
@@ -189,9 +187,8 @@ class CortexApp(App):
 
     def __init__(self) -> None:
         super().__init__()
-        config = load_config()
-        self._state = MongoStateManager(get_db(), config.resolved_vec_db_path)
-        self._state.init_db()
+        self._container = get_container()
+        self._svc = self._container.stream_service
         self._streams: list[Stream] = []
 
     def compose(self) -> ComposeResult:
@@ -208,7 +205,7 @@ class CortexApp(App):
     def _load_streams(self) -> None:
         list_view = self.query_one("#stream-list", ListView)
         list_view.clear()
-        self._streams = self._state.get_active_streams()
+        self._streams = self._svc.get_active_streams()
         if not self._streams:
             self.query_one("#detail-header", Static).update("[dim]No active streams.[/dim]")
             return
@@ -237,7 +234,7 @@ class CortexApp(App):
         self._show_stream_detail(item.stream_id)
 
     def _show_stream_detail(self, stream_id: str) -> None:
-        ctx = self._state.get_stream_context(stream_id)
+        ctx = self._svc.get_stream_context(stream_id)
         if not ctx:
             return
 
@@ -349,7 +346,7 @@ class CortexApp(App):
             return
         current_goal = (stream.metadata or {}).get("goal", "")
         new_goal = "" if current_goal == goal_type else goal_type
-        self._state.update_stream(
+        self._svc.update_stream(
             stream.id,
             metadata={"goal": new_goal if new_goal else None},
         )
@@ -368,7 +365,7 @@ class CortexApp(App):
         def on_tags_result(tags: list[str] | None) -> None:
             if tags is None:
                 return
-            self._state.update_stream(stream.id, metadata={"tags": tags})
+            self._svc.update_stream(stream.id, metadata={"tags": tags})
             self._load_streams()
             self._show_stream_detail(stream.id)
             self.notify("Tags updated")

@@ -9,7 +9,6 @@ Companion brain for Claude Code — persistent context, session orchestration, m
 - `cortex/repositories/` — MongoDB data access (session_repo, message_repo). One per aggregate.
 - `cortex/adapters/` — external system wrappers (TmuxAdapter). Implements TerminalAdapter protocol.
 - `cortex/container.py` — composition root. Wires repos + adapters + services. `get_container()` singleton.
-- `cortex/mongo_state.py` — MongoStateManager (streams, search, dashboards — not yet split into services)
 - `cortex/server.py` — MCP server (tools removed, kept for non-channel MCP needs)
 - `src/channels-mcp/` — TypeScript channels MCP server (Bun, inter-session messaging)
 - `plugin/` — CC plugin (skills, agents, hooks, rules)
@@ -41,8 +40,8 @@ Companion brain for Claude Code — persistent context, session orchestration, m
 
 ## Conventions
 - Python 3.11+, ruff for linting
-- MongoDB for all persistence (repositories, MongoStateManager for streams/search, cron)
-- Session commands go through SessionService → repos + TmuxAdapter. Other domains still use MongoStateManager directly (to be migrated).
+- MongoDB for all persistence (repositories for streams/search/dashboards/sessions, cron)
+- All domains use layered architecture: CLI → Service → Repository + Adapter
 - `session_registry.py` is a backward-compat shim — real code is in `repositories/session_repo.py`
 - httpx for GitHub API (not gh CLI)
 - Click for CLI, FastMCP for Python MCP server

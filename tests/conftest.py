@@ -11,7 +11,6 @@ from fastapi.testclient import TestClient
 from pymongo import MongoClient
 
 from cortex.container import Container, reset_container
-from cortex.mongo_state import MongoStateManager
 
 
 EMBEDDING_DIMS = 768
@@ -51,14 +50,6 @@ def mongo_db():
 
 
 @pytest.fixture
-def state(tmp_path: Path, mongo_db) -> MongoStateManager:
-    vec_path = tmp_path / "vec.db"
-    sm = MongoStateManager(mongo_db, vec_path)
-    sm.init_db()
-    return sm
-
-
-@pytest.fixture
 def container(tmp_path: Path, mongo_db) -> Container:
     reset_container()
     vec_path = tmp_path / "vec.db"
@@ -68,13 +59,34 @@ def container(tmp_path: Path, mongo_db) -> Container:
 
 
 @pytest.fixture
-def populated_state(state: MongoStateManager) -> MongoStateManager:
-    stream = state.create_stream("Ralph Loop", ["suren-toolbox"])
-    state.add_update(stream.id, "Implemented docker sandbox with volume mounts for .claude and workspace", "Docker sandbox setup")
-    state.add_update(stream.id, "Fixed ralph loop workflow to use prd-driven iteration", "PRD-driven loop complete")
-    state.add_decision(stream.id, "Use WAL mode for SQLite", "Better concurrent read performance")
-    state.add_decision(stream.id, "Route /range declared before /{n} in FastAPI router", "Avoid path parameter collision")
-    return state
+def stream_svc(container: Container):
+    return container.stream_service
+
+
+@pytest.fixture
+def search_svc(container: Container):
+    return container.search_service
+
+
+@pytest.fixture
+def dashboards(container: Container):
+    return container.dashboards
+
+
+@pytest.fixture
+def vec_store(container: Container):
+    return container.vector_store
+
+
+@pytest.fixture
+def populated_container(container: Container) -> Container:
+    svc = container.stream_service
+    stream = svc.create_stream("Ralph Loop", ["suren-toolbox"])
+    svc.add_update(stream.id, "Implemented docker sandbox with volume mounts for .claude and workspace", "Docker sandbox setup")
+    svc.add_update(stream.id, "Fixed ralph loop workflow to use prd-driven iteration", "PRD-driven loop complete")
+    svc.add_decision(stream.id, "Use WAL mode for SQLite", "Better concurrent read performance")
+    svc.add_decision(stream.id, "Route /range declared before /{n} in FastAPI router", "Avoid path parameter collision")
+    return container
 
 
 @pytest.fixture
