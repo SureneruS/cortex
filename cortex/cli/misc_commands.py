@@ -117,10 +117,14 @@ def brief() -> None:
 
 @click.command()
 @click.argument("session_id")
-@click.argument("stream_id")
-def link(session_id: str, stream_id: str) -> None:
+@click.argument("stream_ref")
+def link(session_id: str, stream_ref: str) -> None:
     """Link a session to a stream."""
-    get_container().stream_service.link_session(session_id, stream_id)
+    svc = get_container().stream_service
+    stream = svc.resolve_stream(stream_ref)
+    if not stream:
+        raise SystemExit(f"Stream '{stream_ref}' not found")
+    svc.link_session(session_id, stream.id)
 
 
 @click.command()

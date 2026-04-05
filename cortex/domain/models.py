@@ -64,6 +64,7 @@ class Session:
 class Stream:
     id: str
     title: str
+    name: str
     repos: list[str]
     status: str
     summary: str | None

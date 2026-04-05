@@ -11,6 +11,13 @@ def _svc():
     return get_container().stream_service
 
 
+def _resolve_or_exit(ref: str):
+    stream = _svc().resolve_stream(ref)
+    if not stream:
+        _error_exit(f"Stream '{ref}' not found")
+    return stream
+
+
 @click.group()
 def stream() -> None:
     """Manage work streams, updates, and decisions."""
@@ -24,7 +31,7 @@ def stream_list(status: str) -> None:
     streams = _svc().list_streams(status=status)
     _json_out([
         {
-            "id": s.id, "title": s.title, "repos": s.repos,
+            "id": s.id, "name": s.name, "title": s.title, "repos": s.repos,
             "status": s.status, "summary": s.summary,
             "metadata": s.metadata, "updated_at": s.updated_at.isoformat(),
         }
@@ -33,12 +40,13 @@ def stream_list(status: str) -> None:
 
 
 @stream.command("get")
-@click.argument("stream_id")
-def stream_get(stream_id: str) -> None:
+@click.argument("ref")
+def stream_get(ref: str) -> None:
     """Get full stream context (updates, decisions, sessions)."""
-    ctx = _svc().get_stream_context(stream_id)
+    s = _resolve_or_exit(ref)
+    ctx = _svc().get_stream_context(s.id)
     if not ctx:
-        _error_exit(f"Stream {stream_id} not found")
+        _error_exit(f"Stream '{ref}' not found")
     _json_out(ctx)
 
 
@@ -50,11 +58,11 @@ def stream_create(title: str, repos: str, metadata_json: str | None) -> None:
     """Create a new stream."""
     metadata = json.loads(metadata_json) if metadata_json else None
     s = _svc().create_stream(title, repos.split(","), metadata=metadata)
-    _json_out({"id": s.id, "title": s.title})
+    _json_out({"id": s.id, "name": s.name, "title": s.title})
 
 
 @stream.command("update")
-@click.argument("stream_id")
+@click.argument("ref")
 @click.option("--title", default=None)
 @click.option("--status", "new_status", default=None)
 @click.option("--repos", default=None, help="Comma-separated repo names")
@@ -62,32 +70,34 @@ def stream_create(title: str, repos: str, metadata_json: str | None) -> None:
 @click.option("--metadata", "metadata_json", default=None, help="JSON metadata")
 @click.option("--replace-metadata", is_flag=True, help="Replace metadata instead of merging")
 def stream_update(
-    stream_id: str, title: str | None, new_status: str | None,
+    ref: str, title: str | None, new_status: str | None,
     repos: str | None, summary: str | None, metadata_json: str | None,
     replace_metadata: bool,
 ) -> None:
     """Update a stream."""
+    resolved = _resolve_or_exit(ref)
     metadata = json.loads(metadata_json) if metadata_json else None
     repos_list = repos.split(",") if repos else None
     try:
         s = _svc().update_stream(
-            stream_id, title=title, status=new_status, repos=repos_list,
+            resolved.id, title=title, status=new_status, repos=repos_list,
             summary=summary, metadata=metadata, merge_metadata=not replace_metadata,
         )
     except ValueError as e:
         _error_exit(str(e))
     if s is None:
-        _error_exit(f"Stream {stream_id} not found")
-    _json_out({"id": s.id, "status": s.status, "updated_at": s.updated_at.isoformat()})
+        _error_exit(f"Stream '{ref}' not found")
+    _json_out({"id": s.id, "name": s.name, "status": s.status, "updated_at": s.updated_at.isoformat()})
 
 
 @stream.command("complete")
-@click.argument("stream_id")
+@click.argument("ref")
 @click.option("--summary", required=True, help="Completion summary")
-def stream_complete(stream_id: str, summary: str) -> None:
+def stream_complete(ref: str, summary: str) -> None:
     """Mark a stream as completed."""
-    _svc().complete_stream(stream_id, summary)
-    _json_out({"completed": stream_id, "summary": summary})
+    resolved = _resolve_or_exit(ref)
+    _svc().complete_stream(resolved.id, summary)
+    _json_out({"completed": resolved.id, "name": resolved.name, "summary": summary})
 
 
 @stream.command("delete")
@@ -106,30 +116,32 @@ def stream_delete(entry_id: str, entry_type: str) -> None:
 
 
 @stream.command("log")
-@click.argument("stream_id")
+@click.argument("ref")
 @click.option("--content", required=True, help="Update content")
 @click.option("--summary", required=True, help="Short summary")
 @click.option("--metadata", "metadata_json", default=None, help="JSON metadata")
-def stream_log(stream_id: str, content: str, summary: str, metadata_json: str | None) -> None:
+def stream_log(ref: str, content: str, summary: str, metadata_json: str | None) -> None:
     """Log a progress update to a stream."""
+    resolved = _resolve_or_exit(ref)
     metadata = json.loads(metadata_json) if metadata_json else None
     try:
-        u = _svc().add_update(stream_id, content, summary, metadata=metadata)
+        u = _svc().add_update(resolved.id, content, summary, metadata=metadata)
     except ValueError as e:
         _error_exit(str(e))
     _json_out({"id": u.id, "summary": u.summary})
 
 
 @stream.command("decide")
-@click.argument("stream_id")
+@click.argument("ref")
 @click.option("--what", required=True, help="What was decided")
 @click.option("--why", required=True, help="Why this decision")
 @click.option("--metadata", "metadata_json", default=None, help="JSON metadata")
-def stream_decide(stream_id: str, what: str, why: str, metadata_json: str | None) -> None:
+def stream_decide(ref: str, what: str, why: str, metadata_json: str | None) -> None:
     """Log a decision to a stream."""
+    resolved = _resolve_or_exit(ref)
     metadata = json.loads(metadata_json) if metadata_json else None
     try:
-        d = _svc().add_decision(stream_id, what, why, metadata=metadata)
+        d = _svc().add_decision(resolved.id, what, why, metadata=metadata)
     except ValueError as e:
         _error_exit(str(e))
     _json_out({"id": d.id, "what": d.what})
@@ -180,13 +192,14 @@ def stream_search(query: str) -> None:
 
 @stream.command("link")
 @click.argument("session_id")
-@click.argument("stream_id")
+@click.argument("stream_ref")
 @click.option("--repo", default="", help="Repository name")
 @click.option("--branch", default="", help="Branch name")
-def stream_link(session_id: str, stream_id: str, repo: str, branch: str) -> None:
+def stream_link(session_id: str, stream_ref: str, repo: str, branch: str) -> None:
     """Link a session to a stream."""
+    resolved = _resolve_or_exit(stream_ref)
     try:
-        _svc().link_session(session_id, stream_id, repo=repo, branch=branch)
+        _svc().link_session(session_id, resolved.id, repo=repo, branch=branch)
     except ValueError as e:
         _error_exit(str(e))
-    _json_out({"linked": True, "session_id": session_id, "stream_id": stream_id})
+    _json_out({"linked": True, "session_id": session_id, "stream_id": resolved.id, "stream_name": resolved.name})

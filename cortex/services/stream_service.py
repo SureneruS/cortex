@@ -33,6 +33,9 @@ class StreamService:
     def get_stream(self, stream_id: str) -> Stream | None:
         return self._streams.get(stream_id)
 
+    def resolve_stream(self, ref: str) -> Stream | None:
+        return self._streams.resolve(ref)
+
     def get_active_streams(self) -> list[Stream]:
         return self._streams.get_active()
 

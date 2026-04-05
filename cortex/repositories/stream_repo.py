@@ -4,7 +4,7 @@ from pymongo.database import Database
 
 import structlog
 
-from cortex.domain.utils import _new_id, _now
+from cortex.domain.utils import _new_id, _now, _slugify
 from cortex.domain.converters import doc_to_decision, doc_to_stream, doc_to_update
 from cortex.domain.models import Decision, Stream, Update
 from cortex.observability import trace
@@ -23,6 +23,7 @@ class MongoStreamRepository:
 
     def _ensure_indexes(self) -> None:
         self._streams.create_index("status")
+        self._streams.create_index("name", unique=True, sparse=True)
         self._updates.create_index("stream_id")
         self._decisions.create_index("stream_id")
         self._sessions.create_index([("session_id", 1), ("stream_id", 1)], unique=True)
@@ -37,14 +38,55 @@ class MongoStreamRepository:
             except Exception:
                 log.debug("Text index already exists", index=name)
 
+        self._backfill_names()
+
+    def _generate_unique_name(self, title: str) -> str:
+        base = _slugify(title)
+        if not base:
+            base = "stream"
+        candidate = base
+        suffix = 2
+        while self._streams.find_one({"name": candidate}):
+            candidate = f"{base}-{suffix}"
+            suffix += 1
+        return candidate
+
+    def _backfill_names(self) -> None:
+        for doc in self._streams.find({"$or": [{"name": None}, {"name": {"$exists": False}}]}):
+            name = self._generate_unique_name(doc["title"])
+            self._streams.update_one({"_id": doc["_id"]}, {"$set": {"name": name}})
+            log.info("Backfilled stream name", stream_id=doc["_id"], name=name)
+
+    # ── Resolution ──────────────────────────────────────────
+
+    @trace
+    def resolve(self, ref: str) -> Stream | None:
+        doc = self._streams.find_one({"_id": ref})
+        if doc:
+            return doc_to_stream(doc)
+
+        doc = self._streams.find_one({"name": ref})
+        if doc:
+            return doc_to_stream(doc)
+
+        by_prefix = list(self._streams.find({"_id": {"$regex": f"^{ref}"}}).limit(5))
+        if len(by_prefix) == 1:
+            return doc_to_stream(by_prefix[0])
+        if len(by_prefix) > 1:
+            options = ", ".join(f"{d['_id']} ({d.get('name', '?')})" for d in by_prefix)
+            raise ValueError(f"Ambiguous prefix '{ref}' matches {len(by_prefix)} streams: {options}")
+
+        return None
+
     # ── Stream CRUD ──────────────────────────────────────────
 
     @trace
     def create(self, title: str, repos: list[str], *, metadata: dict | None = None) -> Stream:
         now = _now()
         sid = _new_id()
+        name = self._generate_unique_name(title)
         doc = {
-            "_id": sid, "title": title, "repos": repos, "status": "active",
+            "_id": sid, "title": title, "name": name, "repos": repos, "status": "active",
             "summary": None, "metadata": metadata, "created_at": now, "updated_at": now,
         }
         self._streams.insert_one(doc)
@@ -125,7 +167,7 @@ class MongoStreamRepository:
         if not stream:
             raise ValueError(f"Stream {stream_id} not found")
         if stream.status != "active":
-            raise ValueError(f"Stream {stream_id} is {stream.status} — archived streams are immutable")
+            raise ValueError(f"Stream '{stream.name}' is {stream.status} — archived streams are immutable")
         return stream
 
     # ── Update CRUD ──────────────────────────────────────────
@@ -258,7 +300,7 @@ class MongoStreamRepository:
         sessions = list(self._sessions.find({"stream_id": stream_id}).sort("created_at", -1))
         return {
             "stream": {
-                "id": stream.id, "title": stream.title, "repos": stream.repos,
+                "id": stream.id, "name": stream.name, "title": stream.title, "repos": stream.repos,
                 "status": stream.status, "summary": stream.summary, "metadata": stream.metadata,
                 "created_at": stream.created_at.isoformat(), "updated_at": stream.updated_at.isoformat(),
             },

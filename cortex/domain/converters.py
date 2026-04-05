@@ -9,6 +9,7 @@ def doc_to_stream(doc: dict) -> Stream:
     return Stream(
         id=doc["_id"],
         title=doc["title"],
+        name=doc.get("name", ""),
         repos=doc.get("repos", []),
         status=doc["status"],
         summary=doc.get("summary"),
