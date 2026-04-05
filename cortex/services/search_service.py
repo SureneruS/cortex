@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-from cortex.adapters.vector_store import SIMILARITY_THRESHOLD, SqliteVectorStore
+from cortex.adapters.vector_store import SIMILARITY_THRESHOLD
 from cortex.domain.models import Checkpoint, Decision, Update
-from cortex.repositories.checkpoint_repo import MongoCheckpointRepository
-from cortex.repositories.stream_repo import MongoStreamRepository
+from cortex.domain.protocols import CheckpointRepository, StreamRepository, VectorStore
 
 SearchResult = Update | Decision | Checkpoint
 
@@ -13,9 +12,9 @@ class SearchService:
 
     def __init__(
         self,
-        streams: MongoStreamRepository,
-        checkpoints: MongoCheckpointRepository,
-        vector_store: SqliteVectorStore,
+        streams: StreamRepository,
+        checkpoints: CheckpointRepository,
+        vector_store: VectorStore,
     ) -> None:
         self._streams = streams
         self._checkpoints = checkpoints

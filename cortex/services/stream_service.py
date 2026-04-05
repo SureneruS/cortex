@@ -2,10 +2,8 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from cortex.adapters.vector_store import SqliteVectorStore
 from cortex.domain.models import Checkpoint, Decision, Stream, Update
-from cortex.repositories.checkpoint_repo import MongoCheckpointRepository
-from cortex.repositories.stream_repo import MongoStreamRepository
+from cortex.domain.protocols import CheckpointRepository, StreamRepository, VectorStore
 
 
 class StreamService:
@@ -13,9 +11,9 @@ class StreamService:
 
     def __init__(
         self,
-        streams: MongoStreamRepository,
-        checkpoints: MongoCheckpointRepository,
-        vector_store: SqliteVectorStore,
+        streams: StreamRepository,
+        checkpoints: CheckpointRepository,
+        vector_store: VectorStore,
         on_mutation: Callable[[], None] | None = None,
     ) -> None:
         self._streams = streams
