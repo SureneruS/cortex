@@ -180,6 +180,9 @@ Use send_message to communicate with other sessions or the human operator.
 Use get_status to see who's active and what they're working on.
 Use get_messages ONLY to recover messages you might have missed (e.g. after context compaction). Do NOT use it to wait for replies — replies arrive as channel notifications automatically.
 
+IMPORTANT — Immediate reply on new topics:
+When you receive a channel message about a NEW topic (not a continuation of something already in your conversation), you MUST immediately reply to the sender via send_message BEFORE doing any work. A short acknowledgment is enough (e.g., "Got it, working on this now."). This confirms message delivery — the sender is waiting for your reply to verify you received it. Do not skip this step.
+
 Messages are async. Don't wait for replies — continue your work.`;
 
 const WORKER_INSTRUCTIONS = `${BASE_INSTRUCTIONS}
@@ -214,11 +217,16 @@ You are the CONTROL session — the coordinator between the human and all worker
 CRITICAL: You NEVER do implementation work. No reading code, no writing code, no running tests, no exploring codebases. When the human asks for any task, your FIRST action is to spawn a worker session for it.
 
 Your only actions:
-- Spawn workers: cortex session spawn --name <name> --repo <repo> --prompt "..."
+- Spawn workers: ALWAYS use \`cortex session spawn\` — never use the Agent tool or \`claude -p\`
 - Send instructions: send_message(to="worker-name", content="...")
 - Monitor: get_status, cortex session health, cortex session list --brief
 - Close sessions: cortex session close <name> (--cascade to include children)
 - Log to streams: cortex stream log/decide
+
+Spawn + prompt delivery:
+- When spawning with --prompt, the worker MUST reply within ~15 seconds confirming receipt.
+- If no reply arrives, send the prompt again via send_message with: "Sending again as last message did not get any response — respond to this message immediately: <original prompt>"
+- Only retry once. If still no reply after the second attempt, report the issue.
 
 Message handling:
 - Worker status updates: track progress, relay to human if noteworthy
@@ -627,11 +635,23 @@ startHeartbeat();
 
 // Start delivery and polling AFTER MCP transport is connected
 mcp.oninitialized = () => {
-  log("info", "MCP initialized, starting message delivery");
-  deliverPending().then(() => pollLoop()).catch((err) => {
-    log("error", "Initial delivery failed", { error: String(err) });
-    pollLoop();
+  log("info", "MCP initialized, signaling readiness");
+  sessions.updateOne(
+    { _id: SESSION_ID },
+    { $set: { channel_status: "ready" } }
+  ).catch((err) => {
+    log("error", "Failed to set channel_status=ready", { error: String(err) });
   });
+
+  // Delay first delivery — CC needs ~1s after oninitialized to set up its
+  // conversation context. Without this, notifications are silently dropped.
+  setTimeout(() => {
+    log("info", "Readiness delay elapsed, starting message delivery");
+    deliverPending().then(() => pollLoop()).catch((err) => {
+      log("error", "Initial delivery failed", { error: String(err) });
+      pollLoop();
+    });
+  }, 1000);
 };
 
 // Connect MCP (stdio transport)

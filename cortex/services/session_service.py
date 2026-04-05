@@ -165,7 +165,7 @@ class SessionService:
             self._terminal.send_keys(pane_id, "Enter")
 
             if prompt:
-                self._deliver_prompt(pane_id, prompt)
+                self._deliver_prompt(session_id, name, prompt)
 
             if color:
                 self._terminal.spawn_background_sender(pane_id, f"/color {color}")
@@ -762,8 +762,43 @@ class SessionService:
             return str(doc["pane_id"])
         return None
 
-    def _deliver_prompt(self, pane_id: str, prompt: str) -> None:
-        self._terminal.spawn_prompt_sender(pane_id, prompt)
+    def _deliver_prompt(self, session_id: str, session_name: str, prompt: str) -> None:
+        """Deliver prompt via channels with readiness gate and reply verification."""
+        # Wait for channel_status="ready" (set by channels MCP on oninitialized)
+        for _ in range(60):
+            doc = self._sessions.get(session_id)
+            if doc and doc.get("channel_status") == "ready":
+                break
+            time.sleep(1)
+        else:
+            log.warning("Channel readiness timeout", session=session_name)
+            return
+
+        spawned_by = os.environ.get("CORTEX_SESSION_NAME", "cli")
+        sent_at = datetime.now(timezone.utc).isoformat()
+
+        self._messages.create(
+            spawned_by, session_name, prompt,
+            meta={"type": "prompt", "sender_type": "system", "priority": "high"},
+        )
+        log.info("Prompt sent via channels", session=session_name)
+
+        # Wait for reply to confirm delivery
+        for _ in range(15):
+            time.sleep(1)
+            if self._messages.has_replies(
+                from_session=session_name, to_session=spawned_by, after=sent_at,
+            ):
+                log.info("Prompt delivery confirmed by reply", session=session_name)
+                return
+
+        # No reply — resend with fallback notice
+        log.warning("No reply to prompt, resending", session=session_name)
+        self._messages.create(
+            spawned_by, session_name,
+            f"Sending again as last message did not get any response — respond to this message immediately: {prompt}",
+            meta={"type": "prompt", "sender_type": "system", "priority": "high"},
+        )
 
     def _wrapup_via_channels(self, session_name: str, session_id: str, pane_id: str) -> bool:
         self._messages.create(

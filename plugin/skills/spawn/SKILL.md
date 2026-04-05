@@ -82,6 +82,16 @@ cortex session spawn --name planner --repo recruitment-backend --permission-mode
 cortex session spawn --name feat-avatar --repo recruitment-backend --worktree feat/avatar-upload
 ```
 
+## Prompt delivery and verification
+
+When spawning with `--prompt`:
+1. The prompt is delivered via channels (MongoDB message bus), not tmux.
+2. The spawned session is instructed to immediately reply when it receives a new-topic message.
+3. **You MUST wait ~15 seconds for a reply** from the spawned session confirming receipt.
+4. If no reply arrives, the spawn command automatically resends with a fallback notice.
+5. If you still get no reply after that, send the prompt manually via `send_message(to="<session-name>", content="Sending again as last message did not get any response — respond to this message immediately: <original prompt>")`.
+
 ## Important
 
+- **ALWAYS use `cortex session spawn`** to create sessions. Never use the Agent tool, subagents, or `claude -p` as a substitute. Cortex spawn handles registry, channels, env vars, and lifecycle — raw alternatives skip all of this.
 - Always pass `--worktree` when `--repo` is specified — worktree name defaults to the session name. This ensures workers never edit the main repo directly.

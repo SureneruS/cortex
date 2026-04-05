@@ -90,6 +90,12 @@ class MongoMessageRepository:
         docs = list(self._col.find(query).sort("created_at", -1).limit(limit))
         return [_doc_to_message(d) for d in docs]
 
+    def has_replies(self, *, from_session: str, to_session: str, after: str) -> bool:
+        return self._col.count_documents(
+            {"from": from_session, "to": to_session, "created_at": {"$gt": after}},
+            limit=1,
+        ) > 0
+
     def watch_messages(
         self,
         *,
