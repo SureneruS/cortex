@@ -109,8 +109,8 @@ class TestRegistryUpdates:
 
         args = mock_run.call_args[0][0]
         assert args[0] == "cortex"
-        assert args[1:3] == ["session", "update"]
-        assert args[3] == "test-session-123"
+        assert args[1:4] == ["--json", "session", "update"]
+        assert args[4] == "test-session-123"
         assert "--increment" in args
         assert args[args.index("--increment") + 1] == "subagent_count"
         assert "--trigger" in args
@@ -126,7 +126,7 @@ class TestRegistryUpdates:
             handle_subagent_stop({"agent_type": "general-purpose"})
 
         args = mock_run.call_args[0][0]
-        assert args[1:3] == ["session", "update"]
+        assert args[1:4] == ["--json", "session", "update"]
         assert "--trigger" in args
         assert args[args.index("--trigger") + 1] == "subagent_stop"
 
@@ -140,7 +140,7 @@ class TestRegistryUpdates:
             handle_task_created({"task": {"subject": "Implement feature X"}, "total_tasks": 5})
 
         args = mock_run.call_args[0][0]
-        assert args[1:3] == ["session", "update"]
+        assert args[1:4] == ["--json", "session", "update"]
         assert args[args.index("--trigger") + 1] == "task_created"
 
         data_idx = args.index("--data") + 1
@@ -175,7 +175,7 @@ class TestRegistryUpdates:
             handle_post_compact({})
 
         args = mock_run.call_args[0][0]
-        assert args[1:3] == ["session", "update"]
+        assert args[1:4] == ["--json", "session", "update"]
         assert args[args.index("--trigger") + 1] == "post_compact"
         assert args[args.index("--increment") + 1] == "compact_count"
 
