@@ -237,10 +237,7 @@ def control() -> None:
     repo = container.sessions
     tmux = container.terminal
 
-    existing = repo._col.find_one(
-        {"role": "control", "name": {"$regex": "^control-"}, "status": {"$nin": ["completed", "closed"]}},
-        sort=[("created_at", -1)],
-    )
+    existing = repo.find_control()
 
     if existing:
         _status = existing["status"]
@@ -434,13 +431,11 @@ def daemon_cleanup(dry_run: bool) -> None:
                 path.unlink()
 
     # Stale daemon entries in MongoDB
-    db = get_db()
-    from cortex.repositories.session_repo import MongoSessionRepository
-    repo = MongoSessionRepository(db)
+    repo = get_container().sessions
     stale = repo.list({"role": "daemon", "status": {"$in": ["active", "closed"]}})
     stale_ids = [s["_id"] for s in stale]
     if stale_ids and not dry_run:
-        db["session_registry"].delete_many({"_id": {"$in": stale_ids}})
+        repo.delete_by_ids(stale_ids)
 
     _json_out({
         "dry_run": dry_run,

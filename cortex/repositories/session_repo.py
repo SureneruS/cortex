@@ -169,6 +169,20 @@ class MongoSessionRepository:
             cursor = cursor.limit(limit)
         return list(cursor)
 
+    def find_control(self) -> dict | None:
+        """Find the most recent non-terminal control session."""
+        return self._col.find_one(
+            {"role": "control", "name": {"$regex": "^control-"}, "status": {"$nin": ["completed", "closed"]}},
+            sort=[("created_at", -1)],
+        )
+
+    def delete_by_ids(self, ids: list[str]) -> int:
+        """Delete sessions by ID list. Returns count deleted."""
+        if not ids:
+            return 0
+        result = self._col.delete_many({"_id": {"$in": ids}})
+        return result.deleted_count
+
     def resolve(self, ref: str) -> dict | None:
         doc = self.get(ref)
         if doc is not None:
