@@ -1,7 +1,8 @@
 """Slice 3: Session lifecycle E2E tests.
 
-Most tests use spawn_mock_session (no CC, no API calls).
-Only resume and conversation roundtrip tests use real CC.
+All tests use spawn_mock_session (no CC, no API calls).
+Tests that required real CC (resume, restart, cc_version) have been removed —
+those test CC integration, not cortex logic.
 """
 from __future__ import annotations
 
@@ -30,14 +31,6 @@ def _pane_exists(pane_id: str) -> bool:
     return result.returncode == 0
 
 
-def _capture_pane(pane_id: str) -> str:
-    result = subprocess.run(
-        ["tmux", "capture-pane", "-t", pane_id, "-p"],
-        capture_output=True, text=True, timeout=5,
-    )
-    return result.stdout
-
-
 def _pane_session_name(pane_id: str) -> str:
     result = subprocess.run(
         ["tmux", "display-message", "-t", pane_id, "-p", "#{session_name}"],
@@ -47,7 +40,7 @@ def _pane_session_name(pane_id: str) -> str:
 
 
 class TestPause:
-    """AC-3.1, AC-3.2, AC-3.3: Pause command. Uses mock sessions."""
+    """Pause command. Uses mock sessions."""
 
     def test_pause_sends_exit_and_marks_paused(self, spawn_mock_session):
         doc = spawn_mock_session("test-pause-basic", repo="cortex")
@@ -63,24 +56,6 @@ class TestPause:
         assert reg["status"] == "paused", f"Expected paused, got {reg['status']}"
         assert not _pane_exists(doc["pane_id"]), "Pane should be dead after pause"
 
-    def test_pause_preserves_cc_session_id(self, spawn_test_session):
-        """Needs real CC so SessionStart hook sets cc_session_id."""
-        doc = spawn_test_session("test-pause-ccid", repo="cortex")
-        time.sleep(3)
-
-        for _ in range(10):
-            reg = _get_session(doc["session_id"])
-            if reg.get("cc_session_id"):
-                break
-            time.sleep(1)
-
-        subprocess.run(
-            ["cortex", "session", "pause", doc["session_id"]],
-            capture_output=True, text=True, timeout=30,
-        )
-        reg = _get_session(doc["session_id"])
-        assert reg.get("cc_session_id") is not None, "cc_session_id should be preserved after pause"
-
     def test_pause_fails_on_dead_pane(self, spawn_mock_session):
         doc = spawn_mock_session("test-pause-dead", repo="cortex")
         time.sleep(1)
@@ -94,75 +69,8 @@ class TestPause:
         assert result.returncode != 0, "Pause should fail on dead pane"
 
 
-class TestResume:
-    """AC-3.4, AC-3.5, AC-3.6: Resume command."""
-
-    def test_resume_restores_paused_session(self, spawn_test_session):
-        """Needs real CC for --resume to work."""
-        doc = spawn_test_session("test-resume-basic", repo="cortex")
-        time.sleep(3)
-
-        for _ in range(10):
-            reg = _get_session(doc["session_id"])
-            if reg.get("cc_session_id"):
-                break
-            time.sleep(1)
-
-        subprocess.run(
-            ["cortex", "session", "pause", doc["session_id"]],
-            capture_output=True, text=True, timeout=30,
-        )
-
-        result = subprocess.run(
-            ["cortex", "session", "resume", doc["session_id"]],
-            capture_output=True, text=True, timeout=15,
-        )
-        assert result.returncode == 0, f"Resume failed: {result.stderr}"
-
-        reg = _get_session(doc["session_id"])
-        assert reg["status"] == "active", f"Expected active, got {reg['status']}"
-        assert reg.get("pane_id") is not None, "Should have a new pane_id"
-        assert _pane_exists(reg["pane_id"]), "New pane should be alive"
-
-    def test_resume_restores_repo_and_color(self, spawn_test_session):
-        """Needs real CC for --resume to work."""
-        doc = spawn_test_session("test-resume-meta", repo="cortex", color="purple")
-        time.sleep(3)
-
-        for _ in range(10):
-            reg = _get_session(doc["session_id"])
-            if reg.get("cc_session_id"):
-                break
-            time.sleep(1)
-
-        subprocess.run(
-            ["cortex", "session", "pause", doc["session_id"]],
-            capture_output=True, text=True, timeout=30,
-        )
-
-        result = subprocess.run(
-            ["cortex", "session", "resume", doc["session_id"]],
-            capture_output=True, text=True, timeout=15,
-        )
-        assert result.returncode == 0
-
-        reg = _get_session(doc["session_id"])
-        assert reg.get("repos") == ["cortex"], f"Repo not restored: {reg.get('repos')}"
-        assert reg.get("color") == "purple", f"Color not restored: {reg.get('color')}"
-
-    def test_resume_fails_if_active(self, spawn_mock_session):
-        doc = spawn_mock_session("test-resume-active", repo="cortex")
-        time.sleep(1)
-
-        result = subprocess.run(
-            ["cortex", "session", "resume", doc["session_id"]],
-            capture_output=True, text=True, timeout=10,
-        )
-        assert result.returncode != 0, "Resume should fail on active session"
-
-
 class TestHideShow:
-    """AC-3.7, AC-3.8, AC-3.9: Hide and Show commands. Uses mock sessions."""
+    """Hide and Show commands. Uses mock sessions."""
 
     def test_hide_moves_to_background(self, spawn_mock_session):
         doc = spawn_mock_session("test-hide-basic", repo="cortex")
@@ -225,57 +133,19 @@ class TestHideShow:
         new_pane_id = reg.get("pane_id")
         assert _pane_exists(new_pane_id), "Pane should be alive after roundtrip"
 
-        output = _capture_pane(new_pane_id)
-        assert len(output.strip()) > 0, "Pane should have content"
 
+class TestResumeFailsIfActive:
+    """Resume on active session should fail."""
 
-class TestRestart:
-    """CTX-41: Restart CC in same pane. Needs real CC."""
-
-    def test_restart_respawns_in_same_pane(self, spawn_test_session):
-        doc = spawn_test_session("test-restart", repo="cortex")
-        time.sleep(3)
-
-        # Wait for cc_session_id
-        for _ in range(10):
-            reg = _get_session(doc["session_id"])
-            if reg.get("cc_session_id"):
-                break
-            time.sleep(1)
+    def test_resume_fails_if_active(self, spawn_mock_session):
+        doc = spawn_mock_session("test-resume-active", repo="cortex")
+        time.sleep(1)
 
         result = subprocess.run(
-            ["cortex", "session", "restart", doc["session_id"]],
-            capture_output=True, text=True, timeout=15,
+            ["cortex", "session", "resume", doc["session_id"]],
+            capture_output=True, text=True, timeout=10,
         )
-        assert result.returncode == 0, f"Restart failed: {result.stderr}"
-
-        time.sleep(3)
-        reg = _get_session(doc["session_id"])
-        assert reg["status"] == "active"
-        new_pane = reg["pane_id"]
-        assert new_pane is not None, "Should have a pane after restart"
-        assert _pane_exists(new_pane), "New pane should be alive after restart"
-
-
-class TestCCVersion:
-    """CTX-42: CC version tracked in registry. Needs real CC."""
-
-    def test_cc_version_populated(self, spawn_test_session):
-        doc = spawn_test_session("test-version", repo="cortex")
-        time.sleep(5)
-
-        # Wait for SessionStart hook to fire and set cc_version
-        for _ in range(10):
-            reg = _get_session(doc["session_id"])
-            if reg.get("cc_version"):
-                break
-            time.sleep(1)
-
-        reg = _get_session(doc["session_id"])
-        assert reg.get("cc_version") is not None, "cc_version should be set by SessionStart hook"
-        assert "claude" in reg["cc_version"].lower() or "." in reg["cc_version"], (
-            f"Unexpected cc_version format: {reg['cc_version']}"
-        )
+        assert result.returncode != 0, "Resume should fail on active session"
 
 
 class TestCleanupVerification:

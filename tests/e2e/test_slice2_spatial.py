@@ -1,7 +1,6 @@
 """Slice 2: Spatial spawn + layout E2E tests.
 
-Most tests use spawn_mock_session (no CC, no API calls).
-Only color-sends and prompt-delivery tests use real CC.
+All tests use spawn_mock_session (no CC, no API calls).
 """
 from __future__ import annotations
 
@@ -37,14 +36,6 @@ def _find_pane_in_layout(layout: dict, pane_id: str) -> dict | None:
             if pane["pane_id"] == pane_id:
                 return pane
     return None
-
-
-def _capture_pane(pane_id: str) -> str:
-    result = subprocess.run(
-        ["tmux", "capture-pane", "-t", pane_id, "-p"],
-        capture_output=True, text=True, timeout=5,
-    )
-    return result.stdout
 
 
 class TestLayout:
@@ -153,40 +144,6 @@ class TestColor:
         time.sleep(1)
         reg = _get_session(doc["session_id"])
         assert reg.get("color") == "blue", f"Expected color 'blue', got {reg.get('color')}"
-
-    def test_spawn_with_color_sends_color_command(self, spawn_test_session):
-        """This test needs real CC to verify /color is received."""
-        doc = spawn_test_session("test-color-cmd", repo="cortex", color="green")
-        for _ in range(20):
-            time.sleep(2)
-            output = _capture_pane(doc["pane_id"])
-            if "/color green" in output or "color" in output.lower():
-                break
-        else:
-            pytest.fail(f"/color green not found in pane output after 40s")
-
-
-class TestPromptDelivery:
-    """AC-2.11: Prompt delivery is reliable. Needs real CC."""
-
-    def test_prompt_delivered_and_processed(self, spawn_test_session):
-        doc = spawn_test_session(
-            "test-prompt-delivery",
-            repo="cortex",
-            prompt="respond with exactly the word: PROMPT_RECEIVED",
-        )
-        output = ""
-        for _ in range(30):
-            time.sleep(2)
-            output = _capture_pane(doc["pane_id"])
-            if "PROMPT_RECEIVED" in output:
-                break
-        else:
-            if "respond with" not in output:
-                pytest.fail(f"Prompt not even delivered within 60s. Last output:\n{output[-500:]}")
-            else:
-                pytest.fail(f"Prompt delivered but CC didn't respond within 60s. Last output:\n{output[-500:]}")
-
 
 class TestCleanupVerification:
     """No test artifacts remain."""

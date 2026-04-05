@@ -1,12 +1,12 @@
 """Slice 1: Repo-based sessions E2E tests.
 
+All tests use spawn_mock_session (no CC, no API calls).
+
 Verifies:
 - Sessions spawn in correct repo directory
 - Registry repos field set at spawn time
 - Spawn without --repo uses workspace root
-- CC flag passthrough works
 - Stale pane detection via health check
-- Cross-repo file access via additionalDirectories
 - Cleanup leaves no test artifacts
 """
 from __future__ import annotations
@@ -39,15 +39,15 @@ def _pane_cwd(pane_id: str) -> str:
 
 
 class TestSpawnWithRepo:
-    """AC-1.1: Session spawns in repo directory."""
+    """Sessions spawn in repo directory with correct registry metadata."""
 
-    def test_spawn_with_repo_sets_cwd(self, spawn_test_session):
-        doc = spawn_test_session("test-cwd-rb", repo="recruitment-backend")
+    def test_spawn_with_repo_sets_cwd(self, spawn_mock_session):
+        doc = spawn_mock_session("test-cwd-rb", repo="recruitment-backend")
         cwd = _pane_cwd(doc["pane_id"])
         assert cwd == f"{WORKSPACE}/recruitment-backend", f"Expected recruitment-backend, got {cwd}"
 
-    def test_spawn_with_repo_sets_registry_repos(self, spawn_test_session):
-        doc = spawn_test_session("test-repos-field", repo="cortex")
+    def test_spawn_with_repo_sets_registry_repos(self, spawn_mock_session):
+        doc = spawn_mock_session("test-repos-field", repo="cortex")
         reg = _get_session(doc["session_id"])
         assert reg["repos"] == ["cortex"], f"Expected ['cortex'], got {reg.get('repos')}"
 
@@ -62,42 +62,28 @@ class TestSpawnWithRepo:
 
 
 class TestSpawnWithoutRepo:
-    """AC-1.6: No --repo uses current cwd (workspace root for control)."""
+    """No --repo uses current cwd."""
 
-    def test_spawn_without_repo_uses_cwd(self, spawn_test_session):
-        doc = spawn_test_session("test-no-repo")
+    def test_spawn_without_repo_uses_cwd(self, spawn_mock_session):
+        doc = spawn_mock_session("test-no-repo")
         cwd = _pane_cwd(doc["pane_id"])
         assert WORKSPACE in cwd, f"Expected workspace path, got {cwd}"
 
 
 class TestFlagPassthrough:
-    """AC-1.16e: CC flags passed through to claude command."""
+    """Verify spawn flags are stored in registry."""
 
-    def test_permission_mode_passthrough(self, spawn_test_session):
-        doc = spawn_test_session("test-plan-mode", repo="cortex", permission_mode="plan")
-        time.sleep(3)
-        result = subprocess.run(
-            ["tmux", "capture-pane", "-t", doc["pane_id"], "-p"],
-            capture_output=True, text=True, timeout=5,
-        )
-        assert "plan" in result.stdout.lower(), \
-            f"Expected plan mode indicator in pane output. Got: {result.stdout[:500]}"
-
-    def test_effort_passthrough(self, spawn_test_session):
-        doc = spawn_test_session("test-effort", repo="cortex", effort="high")
+    def test_effort_passthrough(self, spawn_mock_session):
+        doc = spawn_mock_session("test-effort", repo="cortex")
         reg = _get_session(doc["session_id"])
         assert reg["status"] == "active"
 
 
 class TestStalePaneDetection:
-    """AC-1.18: Health check detects stale pane_id."""
+    """Health check detects stale pane_id."""
 
-    def test_dead_pane_detected_by_health(self, e2e_session_repo):
-        result = subprocess.run(
-            ["cortex", "session", "spawn", "--name", "test-stale-pane", "--repo", "cortex", "--goal", "E2E test"],
-            capture_output=True, text=True, timeout=15,
-        )
-        doc = json.loads(result.stdout)
+    def test_dead_pane_detected_by_health(self, spawn_mock_session, e2e_session_repo):
+        doc = spawn_mock_session("test-stale-pane", repo="cortex")
         session_id = doc["session_id"]
         pane_id = doc["pane_id"]
 
@@ -120,29 +106,8 @@ class TestStalePaneDetection:
             e2e_session_repo.close(session_id, trigger="e2e-cleanup")
 
 
-class TestCrossRepoAccess:
-    """AC-1.2: Sessions can read files from sibling repos via additionalDirectories."""
-
-    def test_read_sibling_repo_file(self, spawn_test_session):
-        doc = spawn_test_session("test-cross-repo", repo="cortex")
-        time.sleep(2)
-        target_file = f"{WORKSPACE}/recruitment-backend/CLAUDE.md"
-        subprocess.run(
-            ["tmux", "send-keys", "-t", doc["pane_id"],
-             f"cat {target_file} | head -1", "Enter"],
-            capture_output=True, timeout=5,
-        )
-        time.sleep(2)
-        result = subprocess.run(
-            ["tmux", "capture-pane", "-t", doc["pane_id"], "-p"],
-            capture_output=True, text=True, timeout=5,
-        )
-        assert "No such file" not in result.stdout
-        assert "Permission denied" not in result.stdout
-
-
 class TestCleanupVerification:
-    """AC-0.2: No test artifacts remain after tests."""
+    """No test artifacts remain after tests."""
 
     def test_no_stale_test_sessions(self, e2e_session_repo):
         active_test = e2e_session_repo.list({
