@@ -5,7 +5,7 @@ description: Use when you need to interact with Cortex — logging updates/decis
 
 # Cortex CLI Reference
 
-All output is JSON. Errors return `{"error": "..."}` with exit code 1.
+Output defaults to human-friendly Rich format on TTY, JSON when piped (non-TTY). Use `--json` flag to force JSON. CC sessions get JSON automatically since Bash tool output is piped. Errors return `{"error": "..."}` with exit code 1 in JSON mode.
 
 ## Streams
 

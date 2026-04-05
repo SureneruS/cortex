@@ -50,5 +50,5 @@
 ## Why CLI?
 
 - Saves ~3k tokens per session (no MCP tool definitions loaded)
-- Same functionality, JSON output
+- Same functionality, JSON output in non-TTY contexts (auto-detected) or with `--json` flag
 - Skills document all commands — invoke `/cortex-cli` for full reference

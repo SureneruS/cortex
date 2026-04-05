@@ -20,6 +20,7 @@ Companion brain for Claude Code — persistent context, session orchestration, m
 
 ## Architecture
 - **CLI-first**: All operations via `cortex` CLI. MCP tools removed (Phase 4). Skills document CLI commands.
+- **CLI output**: Human-friendly Rich format on TTY, JSON when piped (non-TTY). Use `--json` flag to force JSON. All subprocess/programmatic callers must use `--json` explicitly.
 - **Layered**: CLI (thin) → Service (business logic) → Repository (data access) + Adapter (external systems)
 - **TerminalAdapter protocol**: Abstracts tmux behind a protocol. TmuxAdapter today, Claude Code URI adapter in future.
 - **Container**: `get_container()` returns singleton with all repos/adapters/services wired. Reset with `reset_container()` in tests.

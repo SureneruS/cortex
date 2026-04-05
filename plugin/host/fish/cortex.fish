@@ -5,7 +5,7 @@ complete -c cortex -f
 
 # ── Helpers ──────────────────────────────────────────────────
 function __cortex_session_names
-    cortex session list --brief 2>/dev/null | python3 -c "import json,sys; [print(s['name']) for s in json.load(sys.stdin) if s.get('status') not in ('completed','dead')]" 2>/dev/null
+    cortex --json session list --brief 2>/dev/null | python3 -c "import json,sys; [print(s['name']) for s in json.load(sys.stdin) if s.get('status') not in ('completed','dead')]" 2>/dev/null
 end
 
 function __cortex_repo_names
@@ -21,7 +21,7 @@ for s in MongoClient('mongodb://localhost:27017').cortex.streams.find({'status':
 end
 
 function __cortex_cron_names
-    cortex cron list 2>/dev/null | python3 -c "import json,sys; [print(j['name']) for j in json.load(sys.stdin)]" 2>/dev/null
+    cortex --json cron list 2>/dev/null | python3 -c "import json,sys; [print(j['name']) for j in json.load(sys.stdin)]" 2>/dev/null
 end
 
 function __cortex_github_repos
