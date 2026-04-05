@@ -854,7 +854,7 @@ class TestSpawnLimit:
         repo = MongoSessionRepo(cli_db)
         repo.register("s1", {"name": "existing", "last_seen": datetime.now(timezone.utc).isoformat()})
         with (
-            patch("cortex.adapters.tmux.TmuxAdapter.create_pane", return_value="%99"),
+            patch("cortex.adapters.tmux.TmuxAdapter.create_interactive_pane", return_value="%99"),
             patch("cortex.adapters.tmux.TmuxAdapter.send_text"),
             patch("cortex.adapters.tmux.TmuxAdapter.send_keys"),
             patch("cortex.adapters.tmux.TmuxAdapter.spawn_background_sender"),
@@ -871,7 +871,7 @@ class TestSpawnLimit:
         for i in range(MAX_ACTIVE_SESSIONS):
             repo.register(f"s{i}", {"name": f"session-{i}", "status": "completed"})
         with (
-            patch("cortex.adapters.tmux.TmuxAdapter.create_pane", return_value="%99"),
+            patch("cortex.adapters.tmux.TmuxAdapter.create_interactive_pane", return_value="%99"),
             patch("cortex.adapters.tmux.TmuxAdapter.send_text"),
             patch("cortex.adapters.tmux.TmuxAdapter.send_keys"),
             patch("cortex.adapters.tmux.TmuxAdapter.spawn_background_sender"),

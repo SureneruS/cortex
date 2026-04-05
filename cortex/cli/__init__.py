@@ -34,14 +34,6 @@ def _error_exit(msg: str) -> None:
     raise SystemExit(1)
 
 
-# ── Backward-compat shim (used by stale_sweep tests) ────────
-
-
-def _sweep_stale_sessions(repo) -> int:
-    """Backward-compat shim — deprecated. Health check now runs in daemon."""
-    return 0
-
-
 # Register command groups
 from cortex.cli.stream_commands import stream  # noqa: E402
 from cortex.cli.session_commands import session  # noqa: E402

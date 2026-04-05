@@ -8,6 +8,7 @@ from pathlib import Path
 import structlog
 
 from cortex.domain.protocols import MessageRepository, SessionRepository, TerminalAdapter
+from cortex.domain.session_states import TERMINAL
 from cortex.repositories.session_repo import _new_id
 
 log = structlog.get_logger("cortex.session_service")
@@ -531,7 +532,8 @@ class SessionService:
         import uuid
 
         if recipient != "human":
-            sessions = self._sessions.list({"name": recipient, "status": {"$nin": ["completed", "closed"]}})
+            terminal_values = [s.value for s in TERMINAL]
+            sessions = self._sessions.list({"name": recipient, "status": {"$nin": terminal_values}})
             if not sessions:
                 raise SessionNotFound(recipient)
 
