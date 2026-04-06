@@ -11,11 +11,11 @@ Automates end-of-session cleanup: memorize insights, update Cortex, clean git, c
 
 ### 1. Memorize
 
-Invoke `/memorize` to capture session insights to Cortex memory. Wait for it to complete before continuing.
+Invoke `/memorize` to capture session insights to `~/cortex/captures/`. This writes a structured capture file that the dream agent later consolidates into knowledge files. Wait for it to complete before continuing.
 
 ### 2. Knowledge effectiveness review
 
-Get the session ID: `echo $CLAUDE_CODE_SESSION_ID` (set by SessionStart hook). If empty, derive from `ls -t ~/.claude/projects/-Users-suren-workspace-cercli/*.jsonl | head -1`.
+Get the session ID: `echo $CORTEX_SESSION_ID`.
 
 Read `~/cortex/sessions/{session_id}/injected.json` to see what knowledge entries were injected at session start. If the file doesn't exist, skip this step.
 
@@ -34,9 +34,9 @@ Keep it quick — 30 seconds max. If unsure, rate "relevant" and move on.
 
 ### 3. Update Cortex
 
-- `cortex_get_active_streams` — find streams related to this session's work
-- `cortex_log_update` — log progress, decisions, or completions on relevant streams
-- `cortex_complete_stream` — **only** if stream's work is fully done (PR merged, feature shipped). Most sessions end mid-stream — update, don't complete.
+- `cortex stream list` — find streams related to this session's work
+- `cortex stream log` — log progress, decisions, or completions on relevant streams
+- `cortex stream complete` — **only** if stream's work is fully done (PR merged, feature shipped). Most sessions end mid-stream — update, don't complete.
 
 ### 4. Git cleanup
 
