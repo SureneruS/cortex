@@ -219,43 +219,23 @@ Screen {
     display: none;
 }
 
-/* ── Action bar (context hints) ─────────────────────────────── */
+/* ── Bottom bar: actions + stats ────────────────────────────── */
 
-#action-bar {
+#bottom-bar {
     dock: bottom;
     height: 1;
-    background: $bg-panel;
-    padding: 0 0;
-    color: $text-muted;
-}
-
-/* ── Status bar (bottom) ────────────────────────────────────── */
-
-#status-bar {
-    dock: bottom;
-    height: 1;
-    background: $bg-panel;
-    border-top: solid $border-dim;
+    background: $bg-surface;
     layout: horizontal;
     padding: 0 1;
 }
 
-.status-item {
-    width: auto;
-    padding: 0 2 0 0;
+#action-bar {
+    width: 1fr;
     color: $text-muted;
 }
 
-.status-item.-active {
-    color: $green;
-}
-
-.status-item.-error {
-    color: $red;
-}
-
 #status-right {
-    width: 1fr;
+    width: auto;
     content-align: right middle;
     color: $text-dim;
 }

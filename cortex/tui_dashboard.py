@@ -9,7 +9,7 @@ from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.reactive import reactive
 from textual.screen import ModalScreen
 from textual.widget import Widget
-from textual.widgets import Static, Sparkline, Input
+from textual.widgets import Static, Input
 
 from rich.console import RenderableType
 from rich.markdown import Markdown
@@ -772,7 +772,6 @@ class CortexDashboard(App):
 
     show_all: reactive[bool] = reactive(False)
     filter_text: reactive[str] = reactive("")
-    _msg_sparkline: list[float] = []
     _refresh_count: int = 0
     _all_sessions: list[dict] = []
 
@@ -806,21 +805,14 @@ class CortexDashboard(App):
         # Filter bar (hidden by default)
         yield Input(placeholder="Filter sessions...", id="filter-bar")
 
-        # Action bar (context-sensitive hints)
-        yield Static("", id="action-bar")
-
-        # Status bar
-        with Horizontal(id="status-bar"):
-            yield Static("", classes="status-item", id="stat-sessions")
-            yield Static("", classes="status-item", id="stat-messages")
-            yield Static("", classes="status-item", id="stat-streams")
-            yield Sparkline([], id="msg-spark")
+        # Bottom bar: action hints (left) + stats (right)
+        with Horizontal(id="bottom-bar"):
+            yield Static("", id="action-bar")
             yield Static("", id="status-right")
 
     def on_mount(self) -> None:
         self._refresh_data()
         self.set_interval(3.0, self._refresh_data)
-        self.set_interval(30.0, self._refresh_sparkline)
         self.query_one("#sessions-list", SessionListWidget).focus()
         self._update_action_bar()
 
@@ -839,11 +831,6 @@ class CortexDashboard(App):
 
         self._all_sessions = sessions
         self._refresh_count += 1
-
-        # Sparkline data point
-        self._msg_sparkline.append(rate)
-        if len(self._msg_sparkline) > 30:
-            self._msg_sparkline = self._msg_sparkline[-30:]
 
         self.app.call_from_thread(self._apply_data, sessions, timeline, streams, rate)
 
@@ -906,33 +893,17 @@ class CortexDashboard(App):
             )
         )
 
-        # Status bar
-        self.query_one("#stat-sessions", Static).update(
-            Text.from_markup(f"[#58a6ff]●[/] {active_count} sessions")
-        )
-        self.query_one("#stat-messages", Static).update(
-            Text.from_markup(f"[#bc8cff]●[/] {msg_count} msgs")
-        )
-        self.query_one("#stat-streams", Static).update(
-            Text.from_markup(f"[#d29922]●[/] {len(streams)} streams")
-        )
-
-        # Sparkline
-        spark = self.query_one("#msg-spark", Sparkline)
-        spark.data = self._msg_sparkline
-
+        # Status (right side of bottom bar)
         self.query_one("#status-right", Static).update(
-            Text.from_markup(f"[dim]refresh #{self._refresh_count}[/]")
+            Text.from_markup(
+                f"[#58a6ff]●[/] {active_count}  "
+                f"[#bc8cff]●[/] {msg_count} msgs  "
+                f"[#d29922]●[/] {len(streams)} streams  "
+                f"[dim]#{self._refresh_count}[/]"
+            )
         )
 
         self._update_action_bar()
-
-    @work(thread=True)
-    def _refresh_sparkline(self) -> None:
-        rate = _message_rate()
-        self._msg_sparkline.append(rate)
-        if len(self._msg_sparkline) > 30:
-            self._msg_sparkline = self._msg_sparkline[-30:]
 
     # ── Action bar ──────────────────────────────────────────────
 
