@@ -257,13 +257,20 @@ def pr_watch(pr_ref: str, session_id: str | None, message: str | None) -> None:
         watch_config["message"] = message
 
     session_repo = get_container().sessions
-    session_repo.update(
-        session_id,
+    doc = session_repo.resolve(session_id)
+    if doc is None:
+        _error_exit(f"Session not found: {session_id}")
+
+    result = session_repo.update(
+        doc["_id"],
         {"status": "idle", "runtime": "waiting_input", "watch": watch_config, "watch_active": True},
         trigger="pr-watch",
         actor=os.environ.get("CORTEX_SESSION_NAME"),
     )
-    data = {"ok": True, "session_id": session_id, "pr": pr_ref, "repo": repo, "number": number, "baseline": state}
+    if result is None:
+        _error_exit(f"Failed to update session: {doc['_id']}")
+
+    data = {"ok": True, "session_id": doc["_id"], "pr": pr_ref, "repo": repo, "number": number, "baseline": state}
 
     def _fmt(d: dict) -> None:
         from cortex.cli.formatters import print_ok
