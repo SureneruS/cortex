@@ -270,6 +270,11 @@ def pr_watch(pr_ref: str, session_id: str | None, message: str | None) -> None:
     if result is None:
         _error_exit(f"Failed to update session: {doc['_id']}")
 
+    from cortex.mongo import get_db
+    from cortex.cron_executor import _log_activity
+    session_name = doc.get("name", doc["_id"])
+    _log_activity(get_db(), "watch", f"PR watch registered: {pr_ref} → {session_name}", session=session_name, pr=pr_ref)
+
     data = {"ok": True, "session_id": doc["_id"], "pr": pr_ref, "repo": repo, "number": number, "baseline": state}
 
     def _fmt(d: dict) -> None:

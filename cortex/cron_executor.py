@@ -120,6 +120,7 @@ def execute_check_watches(job: dict) -> None:
             trigger="cron",
             actor="daemon",
         )
+        _log_activity(db, "watch", f"PR watch cleared: {pr_ref} — {session_name} woken", session=session_name, pr=pr_ref)
 
     log.info("check_watches_done", count=len(sessions))
 
