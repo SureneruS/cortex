@@ -224,8 +224,7 @@ Screen {
 #action-bar {
     dock: bottom;
     height: 1;
-    background: $bg-surface;
-    border-top: solid $border-dim;
+    background: $bg-panel;
     padding: 0 0;
     color: $text-muted;
 }
