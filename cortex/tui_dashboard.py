@@ -263,12 +263,45 @@ def _message_rate() -> float:
     return count / 5.0
 
 
-def _merge_timeline(messages: list[dict], events: list[dict]) -> list[dict]:
+def _fetch_activity(limit: int = 30) -> list[dict]:
+    db = get_db()
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
+    return list(
+        db.activity.find({"timestamp": {"$gte": cutoff}})
+        .sort("timestamp", -1)
+        .limit(limit)
+    )
+
+
+def _fetch_errors_for_timeline(limit: int = 20) -> list[dict]:
+    db = get_db()
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
+    return list(
+        db.errors.find({"timestamp": {"$gte": cutoff}})
+        .sort("timestamp", -1)
+        .limit(limit)
+    )
+
+
+def _merge_timeline(
+    messages: list[dict],
+    events: list[dict],
+    activity: list[dict] | None = None,
+    errors: list[dict] | None = None,
+) -> list[dict]:
     items = []
     for m in messages:
         items.append({"kind": "msg", "ts": m.get("created_at", ""), "data": m})
     for e in events:
         items.append({"kind": "event", "ts": e.get("at", ""), "data": e})
+    for a in (activity or []):
+        ts = a.get("timestamp")
+        ts_str = ts.isoformat() if hasattr(ts, "isoformat") else str(ts)
+        items.append({"kind": "activity", "ts": ts_str, "data": a})
+    for err in (errors or []):
+        ts = err.get("timestamp")
+        ts_str = ts.isoformat() if hasattr(ts, "isoformat") else str(ts)
+        items.append({"kind": "error", "ts": ts_str, "data": err})
     items.sort(key=lambda x: x["ts"])
     return items
 
@@ -369,6 +402,46 @@ def _render_event_line(ev: dict) -> Text:
     )
 
 
+def _render_activity_line(activity: dict) -> Text:
+    ts = activity.get("timestamp")
+    ts_str = ts.isoformat() if hasattr(ts, "isoformat") else str(ts)
+    ts_fmt = _fmt_ts(ts_str)
+    summary = activity.get("summary", "?")
+    details = activity.get("details", {})
+    is_error = details.get("error", False)
+    has_changes = "changes" in details
+
+    if is_error:
+        glyph, color = "!", "#f85149"
+    elif has_changes:
+        glyph, color = "▲", "#d29922"
+    else:
+        glyph, color = "◇", "#484f58"
+
+    return Text.from_markup(
+        f"  [#484f58]{ts_fmt}[/]  [{color}]{glyph}[/]  [{color}]{_truncate(summary, 60)}[/]"
+    )
+
+
+def _render_error_line(error: dict) -> Text:
+    ts = error.get("timestamp")
+    ts_str = ts.isoformat() if hasattr(ts, "isoformat") else str(ts)
+    ts_fmt = _fmt_ts(ts_str)
+    component = error.get("component", "?")
+    event = str(error.get("event", ""))
+    level = error.get("level", "ERROR")
+    details = error.get("details", {})
+    exc_type = details.get("exception_type", "")
+
+    suffix = f" ({exc_type})" if exc_type else ""
+    level_color = "#f85149" if level == "ERROR" else "#d29922"
+
+    return Text.from_markup(
+        f"  [#484f58]{ts_fmt}[/]  [{level_color}]▲[/]  "
+        f"[dim]{component}[/] [{level_color}]{_truncate(event, 40)}{suffix}[/]"
+    )
+
+
 def _render_stream_card(stream: dict, entries: list[dict]) -> RenderableType:
     title = stream.get("title", "untitled")
     repos = stream.get("repos", [])
@@ -435,8 +508,13 @@ class TimelineScroll(VerticalScroll):
         was_at_bottom = self.scroll_offset.y >= self.max_scroll_y - 2
         self.remove_children()
         for item in items:
-            if item["kind"] == "msg":
+            kind = item["kind"]
+            if kind == "msg":
                 self.mount(Static(_render_msg_bubble(item["data"]), classes="msg-bubble"))
+            elif kind == "activity":
+                self.mount(Static(_render_activity_line(item["data"]), classes="activity-line"))
+            elif kind == "error":
+                self.mount(Static(_render_error_line(item["data"]), classes="error-line"))
             else:
                 self.mount(Static(_render_event_line(item["data"]), classes="event-line"))
         if was_at_bottom:
@@ -730,7 +808,9 @@ class CortexDashboard(App):
         sessions = _fetch_sessions(include_done=self.show_all)
         messages = _fetch_messages(60)
         events = _fetch_events(30)
-        timeline = _merge_timeline(messages, events)
+        activity = _fetch_activity(30)
+        errors = _fetch_errors_for_timeline(20)
+        timeline = _merge_timeline(messages, events, activity, errors)
         streams = _fetch_streams()
         rate = _message_rate()
 

@@ -141,6 +141,18 @@ Screen {
     color: $text-dim;
 }
 
+.activity-line {
+    height: auto;
+    padding: 0 1;
+    color: $text-dim;
+}
+
+.error-line {
+    height: auto;
+    padding: 0 1;
+    color: $red;
+}
+
 /* ── Right panel: Streams + Health ──────────────────────────── */
 
 #right-panel {

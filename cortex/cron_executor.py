@@ -22,6 +22,16 @@ HEALTH_MISS_THRESHOLD = 5
 ARCHIVE_AFTER_DAYS = 7
 
 
+def _log_activity(db, kind: str, summary: str, **details) -> None:
+    from datetime import datetime, timezone
+    db["activity"].insert_one({
+        "kind": kind,
+        "summary": summary,
+        "details": details,
+        "timestamp": datetime.now(timezone.utc),
+    })
+
+
 def execute_check_watches(job: dict) -> None:
     from cortex import github
     from cortex.session_registry import MongoSessionRepo
@@ -68,12 +78,14 @@ def execute_check_watches(job: dict) -> None:
 
         if current_state == last_state:
             log.info("pr_no_changes", session=session_name, pr=pr_ref)
+            _log_activity(db, "watch", f"PR {pr_ref} checked — no changes", session=session_name, pr=pr_ref)
             continue
 
         changes = _detect_pr_changes(last_state, current_state)
 
         if not changes:
             log.info("pr_baseline_updated", session=session_name, pr=pr_ref)
+            _log_activity(db, "watch", f"PR {pr_ref} baseline updated", session=session_name, pr=pr_ref)
             session_repo.update(
                 session["_id"], {"watch": {**watch, "last_state": current_state}}, trigger="cron", actor="daemon"
             )
@@ -92,10 +104,12 @@ def execute_check_watches(job: dict) -> None:
         )
         if result.returncode != 0:
             log.error("pr_wake_send_failed", session=session_name, pr=pr_ref, stderr=result.stderr.strip())
+            _log_activity(db, "watch", f"PR {pr_ref} wake failed — {result.stderr.strip()[:80]}", session=session_name, pr=pr_ref, error=True)
             # Keep watching so we retry next cycle
             continue
 
         log.info("pr_wake_sent", session=session_name, pr=pr_ref)
+        _log_activity(db, "watch", f"PR {pr_ref} changed — {change_summary}; waking {session_name}", session=session_name, pr=pr_ref, changes=change_summary)
 
         session_repo.update(
             session["_id"],
@@ -589,6 +603,7 @@ def run() -> None:
 
     log.info("daemon_starting", poll_interval=POLL_INTERVAL)
     db = get_db()
+    db["activity"].create_index("timestamp", expireAfterSeconds=7 * 86400)
     cron = CronManager(db)
 
     from cortex.session_registry import MongoSessionRepo, _new_id
