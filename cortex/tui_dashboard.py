@@ -402,7 +402,7 @@ def _render_event_line(ev: dict) -> Text:
     )
 
 
-def _render_activity_line(activity: dict) -> Text:
+def _render_activity_line(activity: dict) -> RenderableType:
     ts = activity.get("timestamp")
     ts_str = ts.isoformat() if hasattr(ts, "isoformat") else str(ts)
     ts_fmt = _fmt_ts(ts_str)
@@ -410,6 +410,7 @@ def _render_activity_line(activity: dict) -> Text:
     details = activity.get("details", {})
     is_error = details.get("error", False)
     has_changes = "changes" in details
+    changes_text = details.get("changes", "")
 
     if is_error:
         glyph, color = "!", "#f85149"
@@ -418,12 +419,15 @@ def _render_activity_line(activity: dict) -> Text:
     else:
         glyph, color = "◇", "#484f58"
 
-    return Text.from_markup(
-        f"  [#484f58]{ts_fmt}[/]  [{color}]{glyph}[/]  [{color}]{_truncate(summary, 60)}[/]"
+    header = Text.from_markup(
+        f"  [#484f58]{ts_fmt}[/]  [{color}]{glyph}[/]  [{color}]{summary}[/]"
     )
+    if changes_text:
+        header.append_text(Text.from_markup(f"\n        [dim]{changes_text}[/]"))
+    return header
 
 
-def _render_error_line(error: dict) -> Text:
+def _render_error_line(error: dict) -> RenderableType:
     ts = error.get("timestamp")
     ts_str = ts.isoformat() if hasattr(ts, "isoformat") else str(ts)
     ts_fmt = _fmt_ts(ts_str)
@@ -432,14 +436,25 @@ def _render_error_line(error: dict) -> Text:
     level = error.get("level", "ERROR")
     details = error.get("details", {})
     exc_type = details.get("exception_type", "")
+    exc_msg = details.get("exception", "")
+    message = details.get("message", "")
 
-    suffix = f" ({exc_type})" if exc_type else ""
     level_color = "#f85149" if level == "ERROR" else "#d29922"
 
-    return Text.from_markup(
+    header = Text.from_markup(
         f"  [#484f58]{ts_fmt}[/]  [{level_color}]▲[/]  "
-        f"[dim]{component}[/] [{level_color}]{_truncate(event, 40)}{suffix}[/]"
+        f"[dim]{component}[/]  [{level_color}]{event}[/]"
     )
+    detail_parts = []
+    if exc_type:
+        detail_parts.append(f"[{level_color}]{exc_type}[/]")
+    if exc_msg:
+        detail_parts.append(f"[dim]{exc_msg}[/]")
+    elif message and message != event:
+        detail_parts.append(f"[dim]{message}[/]")
+    if detail_parts:
+        header.append_text(Text.from_markup("\n        " + "  ".join(detail_parts)))
+    return header
 
 
 def _render_stream_card(stream: dict, entries: list[dict]) -> RenderableType:
