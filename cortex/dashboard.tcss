@@ -219,6 +219,17 @@ Screen {
     display: none;
 }
 
+/* ── Action bar (context hints) ─────────────────────────────── */
+
+#action-bar {
+    dock: bottom;
+    height: 1;
+    background: $bg-surface;
+    border-top: solid $border-dim;
+    padding: 0 0;
+    color: $text-muted;
+}
+
 /* ── Status bar (bottom) ────────────────────────────────────── */
 
 #status-bar {
