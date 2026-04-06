@@ -19,22 +19,6 @@ def _cortex_cli(*args: str) -> str | None:
         return None
 
 
-def _load_workflow_context() -> str | None:
-    """Load workflow context for injection into all sessions."""
-    # Find the workflow-context.md relative to the plugin
-    plugin_root = os.environ.get("CLAUDE_PLUGIN_ROOT", "")
-    if plugin_root:
-        ctx_path = Path(plugin_root) / "hooks" / "workflow-context.md"
-    else:
-        # Fallback: search from cortex repo
-        ctx_path = Path(__file__).parents[4] / "plugin" / "hooks" / "workflow-context.md"
-
-    try:
-        return ctx_path.read_text()
-    except (FileNotFoundError, PermissionError):
-        return None
-
-
 def _extract_summary(path: Path) -> str | None:
     """Extract the summary field from YAML frontmatter."""
     try:
@@ -190,20 +174,12 @@ def handle_session_start(hook_input: dict) -> dict:
         emit_status_event("started", f"Session started in {repo_name or 'unknown repo'}")
 
     result: dict = {}
-    context_parts: list[str] = []
-
-    workflow_ctx = _load_workflow_context()
-    if workflow_ctx:
-        context_parts.append(workflow_ctx)
 
     knowledge_ctx = _load_knowledge_context(repo_name)
     if knowledge_ctx:
-        context_parts.append(knowledge_ctx)
-
-    if context_parts:
         result["hookSpecificOutput"] = {
             "hookEventName": "SessionStart",
-            "additionalContext": "\n\n".join(context_parts),
+            "additionalContext": knowledge_ctx,
         }
     return result
 

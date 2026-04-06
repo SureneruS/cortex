@@ -1,7 +1,6 @@
 """PostCompact hook — fires after context compaction.
 
 Updates registry: increments compact_count, stores timestamp.
-Re-injects workflow context so it survives compaction.
 """
 
 import json
@@ -9,7 +8,6 @@ import os
 import subprocess
 import sys
 from datetime import datetime, timezone
-from pathlib import Path
 
 
 def _cortex_cli(*args: str) -> str | None:
@@ -19,19 +17,6 @@ def _cortex_cli(*args: str) -> str | None:
         )
         return result.stdout if result.returncode == 0 else None
     except Exception:
-        return None
-
-
-def _load_workflow_context() -> str | None:
-    plugin_root = os.environ.get("CLAUDE_PLUGIN_ROOT", "")
-    if plugin_root:
-        ctx_path = Path(plugin_root) / "hooks" / "workflow-context.md"
-    else:
-        ctx_path = Path(__file__).parents[4] / "plugin" / "hooks" / "workflow-context.md"
-
-    try:
-        return ctx_path.read_text()
-    except (FileNotFoundError, PermissionError):
         return None
 
 
@@ -47,14 +32,7 @@ def handle_post_compact(hook_input: dict) -> dict:
             "--increment", "compact_count",
         )
 
-    result: dict = {}
-    workflow_ctx = _load_workflow_context()
-    if workflow_ctx:
-        result["hookSpecificOutput"] = {
-            "hookEventName": "PostCompact",
-            "additionalContext": workflow_ctx,
-        }
-    return result
+    return {}
 
 
 def main():
