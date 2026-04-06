@@ -18,6 +18,7 @@ from rich.style import Style
 from rich.table import Table
 from rich.text import Text
 
+from cortex.container import get_container
 from cortex.mongo import get_db
 
 
@@ -577,21 +578,24 @@ class CortexDashboard(App):
     TITLE = "Cortex"
 
     BINDINGS = [
-        Binding("q", "quit", "Quit", show=True, priority=True),
-        Binding("r", "refresh", "Refresh", show=True),
+        Binding("q", "quit", "Quit", show=False, priority=True),
+        Binding("R", "refresh", "Refresh", show=False),
         Binding("j", "move_down", "↓", show=False),
         Binding("k", "move_up", "↑", show=False),
-        Binding("enter", "drill_down", "Detail", show=True),
+        Binding("enter", "drill_down", "Detail", show=False),
         Binding("d", "drill_down", "Detail", show=False),
-        Binding("slash", "toggle_filter", "Filter", show=True),
+        Binding("p", "pause_session", "Pause", show=False),
+        Binding("r", "resume_session", "Resume", show=False),
+        Binding("c", "close_session", "Close", show=False),
+        Binding("slash", "toggle_filter", "Filter", show=False),
         Binding("escape", "close_filter", "Back", show=False),
-        Binding("tab", "focus_next", "Next Panel", show=True),
+        Binding("tab", "focus_next", "Next Panel", show=False),
         Binding("shift+tab", "focus_previous", "Prev Panel", show=False),
-        Binding("a", "toggle_all", "All sessions", show=True),
+        Binding("a", "toggle_all", "All sessions", show=False),
         Binding("g", "scroll_top", "Top", show=False),
         Binding("G", "scroll_bottom", "Bottom", show=False),
-        Binding("left_square_bracket", "toggle_left_panel", "[  Sessions", show=True),
-        Binding("right_square_bracket", "toggle_right_panel", "]  Streams", show=True),
+        Binding("left_square_bracket", "toggle_left_panel", "[  Sessions", show=False),
+        Binding("right_square_bracket", "toggle_right_panel", "]  Streams", show=False),
     ]
 
     show_all: reactive[bool] = reactive(False)
@@ -630,6 +634,9 @@ class CortexDashboard(App):
         # Filter bar (hidden by default)
         yield Input(placeholder="Filter sessions...", id="filter-bar")
 
+        # Action bar (context-sensitive hints)
+        yield Static("", id="action-bar")
+
         # Status bar
         with Horizontal(id="status-bar"):
             yield Static("", classes="status-item", id="stat-sessions")
@@ -643,6 +650,7 @@ class CortexDashboard(App):
         self.set_interval(3.0, self._refresh_data)
         self.set_interval(30.0, self._refresh_sparkline)
         self.query_one("#sessions-list", SessionListWidget).focus()
+        self._update_action_bar()
 
     # ── Data refresh ────────────────────────────────────────────
 
@@ -743,6 +751,8 @@ class CortexDashboard(App):
             Text.from_markup(f"[dim]refresh #{self._refresh_count}[/]")
         )
 
+        self._update_action_bar()
+
     @work(thread=True)
     def _refresh_sparkline(self) -> None:
         rate = _message_rate()
@@ -750,21 +760,103 @@ class CortexDashboard(App):
         if len(self._msg_sparkline) > 30:
             self._msg_sparkline = self._msg_sparkline[-30:]
 
+    # ── Action bar ──────────────────────────────────────────────
+
+    def _update_action_bar(self) -> None:
+        sess = self.query_one("#sessions-list", SessionListWidget).get_selected()
+        status = sess.get("status", "") if sess else ""
+
+        parts: list[str] = []
+
+        def _key(k: str, label: str, color: str = "#58a6ff") -> str:
+            return f"[bold {color}]{k}[/] [#c9d1d9]{label}[/]"
+
+        if status in ("active", "idle", "blocked", "hidden"):
+            parts.append(_key("p", "Pause", "#d29922"))
+        if status in ("paused",):
+            parts.append(_key("r", "Resume", "#3fb950"))
+        if status in ("active", "idle", "blocked", "hidden", "paused"):
+            parts.append(_key("c", "Close", "#f85149"))
+        if sess:
+            parts.append(_key("Enter", "Detail"))
+        parts.append(_key("/", "Filter", "#6e7681"))
+        parts.append(_key("a", "All", "#6e7681"))
+        parts.append(_key("R", "Refresh", "#6e7681"))
+        parts.append(_key("q", "Quit", "#6e7681"))
+
+        bar = self.query_one("#action-bar", Static)
+        bar.update(Text.from_markup("  " + "    ".join(parts)))
+
     # ── Actions ─────────────────────────────────────────────────
 
     def action_refresh(self) -> None:
         self._refresh_data()
 
     def action_move_down(self) -> None:
-        self.query_one("#sessions-list", SessionListWidget).move_selection(1)
+        sl = self.query_one("#sessions-list", SessionListWidget)
+        sl.move_selection(1)
+        self._update_action_bar()
 
     def action_move_up(self) -> None:
-        self.query_one("#sessions-list", SessionListWidget).move_selection(-1)
+        sl = self.query_one("#sessions-list", SessionListWidget)
+        sl.move_selection(-1)
+        self._update_action_bar()
 
     def action_drill_down(self) -> None:
         sess = self.query_one("#sessions-list", SessionListWidget).get_selected()
         if sess:
             self.push_screen(SessionDetailScreen(sess["_id"]))
+
+    def action_pause_session(self) -> None:
+        sess = self.query_one("#sessions-list", SessionListWidget).get_selected()
+        if not sess or sess.get("status") not in ("active", "idle", "blocked", "hidden"):
+            self.notify("No pausable session selected", severity="warning")
+            return
+        self._do_pause(sess["_id"], sess.get("name", sess["_id"]))
+
+    @work(thread=True)
+    def _do_pause(self, session_id: str, name: str) -> None:
+        try:
+            svc = get_container().session_service
+            svc.pause(session_id)
+            self.app.call_from_thread(self.notify, f"Paused {name}", severity="information")
+        except Exception as e:
+            self.app.call_from_thread(self.notify, f"Pause failed: {e}", severity="error")
+        self._refresh_data()
+
+    def action_resume_session(self) -> None:
+        sess = self.query_one("#sessions-list", SessionListWidget).get_selected()
+        if not sess or sess.get("status") != "paused":
+            self.notify("No paused session selected", severity="warning")
+            return
+        self._do_resume(sess["_id"], sess.get("name", sess["_id"]))
+
+    @work(thread=True)
+    def _do_resume(self, session_id: str, name: str) -> None:
+        try:
+            svc = get_container().session_service
+            svc.resume(session_id)
+            self.app.call_from_thread(self.notify, f"Resumed {name}", severity="information")
+        except Exception as e:
+            self.app.call_from_thread(self.notify, f"Resume failed: {e}", severity="error")
+        self._refresh_data()
+
+    def action_close_session(self) -> None:
+        sess = self.query_one("#sessions-list", SessionListWidget).get_selected()
+        if not sess or sess.get("status") in ("completed", "closed", "dead"):
+            self.notify("No closable session selected", severity="warning")
+            return
+        self._do_close(sess["_id"], sess.get("name", sess["_id"]))
+
+    @work(thread=True)
+    def _do_close(self, session_id: str, name: str) -> None:
+        try:
+            svc = get_container().session_service
+            svc.close(session_id)
+            self.app.call_from_thread(self.notify, f"Closed {name}", severity="information")
+        except Exception as e:
+            self.app.call_from_thread(self.notify, f"Close failed: {e}", severity="error")
+        self._refresh_data()
 
     def action_toggle_filter(self) -> None:
         fbar = self.query_one("#filter-bar", Input)
@@ -787,6 +879,7 @@ class CortexDashboard(App):
     def action_toggle_all(self) -> None:
         self.show_all = not self.show_all
         self._refresh_data()
+        self._update_action_bar()
 
     def action_scroll_top(self) -> None:
         tl = self.query_one("#timeline-scroll", TimelineScroll)
