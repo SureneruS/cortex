@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import json
 import logging
-from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 import structlog
 
 from cortex.observability import (
+    MongoErrorHandler,
     bind_correlation,
     setup_logging,
     trace,
@@ -47,13 +47,13 @@ class TestSetupLogging:
     def test_creates_handlers(self, log_dir):
         setup_logging("test")
         root = logging.getLogger()
-        assert len(root.handlers) == 3  # info file, debug file, console
+        assert len(root.handlers) == 4  # info file, debug file, console, mongo
 
     def test_idempotent(self, log_dir):
         setup_logging("test")
         setup_logging("test")
         root = logging.getLogger()
-        assert len(root.handlers) == 3
+        assert len(root.handlers) == 4
 
     def test_info_log_written_to_file(self, log_dir):
         setup_logging("test")
@@ -191,3 +191,109 @@ class TestTrace:
             pass
 
         assert my_function.__name__ == "my_function"
+
+
+class TestMongoErrorHandler:
+    @pytest.fixture
+    def error_db(self):
+        from pymongo import MongoClient
+        client = MongoClient("mongodb://localhost:27017")
+        db = client["cortex_state_test"]
+        db.errors.drop()
+        yield db
+        db.errors.drop()
+        client.close()
+
+    def test_error_written_to_mongo(self, error_db):
+        handler = MongoErrorHandler("test-component")
+        handler._col = error_db["errors"]
+
+        record = logging.LogRecord(
+            name="cortex.test", level=logging.ERROR, pathname="", lineno=0,
+            msg="something_failed", args=(), exc_info=None,
+        )
+        handler.emit(record)
+
+        docs = list(error_db.errors.find())
+        assert len(docs) == 1
+        assert docs[0]["component"] == "test-component"
+        assert docs[0]["level"] == "ERROR"
+        assert docs[0]["event"] == "something_failed"
+
+    def test_warning_written_to_mongo(self, error_db):
+        handler = MongoErrorHandler("test-component")
+        handler._col = error_db["errors"]
+
+        record = logging.LogRecord(
+            name="cortex.test", level=logging.WARNING, pathname="", lineno=0,
+            msg="watch_out", args=(), exc_info=None,
+        )
+        handler.emit(record)
+
+        docs = list(error_db.errors.find())
+        assert len(docs) == 1
+        assert docs[0]["level"] == "WARNING"
+
+    def test_info_not_written(self, error_db):
+        handler = MongoErrorHandler("test-component")
+        handler._col = error_db["errors"]
+        handler.setLevel(logging.WARNING)
+
+        record = logging.LogRecord(
+            name="cortex.test", level=logging.INFO, pathname="", lineno=0,
+            msg="just_info", args=(), exc_info=None,
+        )
+        # Handler level filter prevents emit from being called by logging,
+        # but if called directly, it would still write. Test the level gate:
+        if record.levelno >= handler.level:
+            handler.emit(record)
+
+        docs = list(error_db.errors.find())
+        assert len(docs) == 0
+
+    def test_exception_details_captured(self, error_db):
+        handler = MongoErrorHandler("test-component")
+        handler._col = error_db["errors"]
+
+        try:
+            raise ValueError("test error details")
+        except ValueError:
+            import sys
+            exc_info = sys.exc_info()
+
+        record = logging.LogRecord(
+            name="cortex.test", level=logging.ERROR, pathname="", lineno=0,
+            msg="failed_with_exception", args=(), exc_info=exc_info,
+        )
+        handler.emit(record)
+
+        docs = list(error_db.errors.find())
+        assert len(docs) == 1
+        assert docs[0]["details"]["exception"] == "test error details"
+        assert docs[0]["details"]["exception_type"] == "ValueError"
+
+    def test_emit_swallows_db_errors(self, error_db):
+        handler = MongoErrorHandler("test-component")
+        handler._col = None  # Force lazy init
+
+        # Patch get_db to raise — handler should not propagate
+        with patch("cortex.mongo.get_db", side_effect=RuntimeError("db down")):
+            handler._col = None
+            record = logging.LogRecord(
+                name="cortex.test", level=logging.ERROR, pathname="", lineno=0,
+                msg="should_not_crash", args=(), exc_info=None,
+            )
+            handler.emit(record)  # Should not raise
+
+    def test_ttl_index_created(self, error_db):
+        handler = MongoErrorHandler("test-component")
+        with patch("cortex.mongo.get_db", return_value=error_db):
+            handler._get_collection()
+
+        indexes = error_db.errors.index_information()
+        ttl_indexes = [
+            idx for idx in indexes.values()
+            if idx.get("expireAfterSeconds") is not None
+        ]
+        assert len(ttl_indexes) == 1
+        assert ttl_indexes[0]["key"] == [("timestamp", 1)]

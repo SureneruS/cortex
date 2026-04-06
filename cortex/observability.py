@@ -6,6 +6,7 @@ import logging.handlers
 import os
 import time
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +16,53 @@ from structlog.contextvars import bind_contextvars, clear_contextvars, merge_con
 LOG_DIR = Path.home() / ".cortex" / "logs"
 
 _configured = False
+
+ERRORS_TTL_DAYS = 7
+
+
+class MongoErrorHandler(logging.Handler):
+    """Logging handler that writes WARNING+ events to MongoDB `errors` collection."""
+
+    def __init__(self, component: str, level: int = logging.WARNING) -> None:
+        super().__init__(level)
+        self._component = component
+        self._col = None
+
+    def _get_collection(self):
+        if self._col is None:
+            from cortex.mongo import get_db
+            db = get_db()
+            self._col = db["errors"]
+            self._col.create_index("timestamp", expireAfterSeconds=ERRORS_TTL_DAYS * 86400)
+        return self._col
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            col = self._get_collection()
+
+            details = {}
+            if hasattr(record, "msg") and isinstance(record.msg, str):
+                details["message"] = record.getMessage()
+
+            if record.exc_info and record.exc_info[1]:
+                details["exception"] = str(record.exc_info[1])
+                details["exception_type"] = type(record.exc_info[1]).__name__
+
+            for key in ("correlation_id", "func", "duration_ms"):
+                val = getattr(record, key, None)
+                if val is not None:
+                    details[key] = val
+
+            col.insert_one({
+                "component": self._component,
+                "logger": record.name,
+                "level": record.levelname,
+                "event": getattr(record, "msg", ""),
+                "details": details,
+                "timestamp": datetime.now(timezone.utc),
+            })
+        except Exception:
+            pass
 
 
 def setup_logging(component: str = "cortex", *, force: bool = False) -> None:
@@ -99,11 +147,16 @@ def setup_logging(component: str = "cortex", *, force: bool = False) -> None:
     console_handler.setLevel(logging.CRITICAL)
     console_handler.setFormatter(console_formatter)
 
+    # MongoDB — error sink for dashboard visibility
+    mongo_handler = MongoErrorHandler(component)
+    mongo_handler.setLevel(logging.WARNING)
+
     root = logging.getLogger()
     root.handlers.clear()
     root.addHandler(info_handler)
     root.addHandler(debug_handler)
     root.addHandler(console_handler)
+    root.addHandler(mongo_handler)
     root.setLevel(min(log_level, logging.DEBUG))
 
     # Quiet noisy libraries

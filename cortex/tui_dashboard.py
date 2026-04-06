@@ -218,6 +218,44 @@ def _fetch_cron_jobs() -> list[dict]:
     return list(db.cron_jobs.find().sort("created_at", -1))
 
 
+def _fetch_daemon_status() -> str:
+    import subprocess
+    try:
+        result = subprocess.run(
+            ["launchctl", "list", "com.cortex.daemon"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if result.returncode != 0:
+            return "stopped"
+        for line in result.stdout.splitlines():
+            parts = line.split("\t")
+            if len(parts) >= 3 and parts[2] == "com.cortex.daemon":
+                return "stopped" if parts[0].strip() == "-" else "running"
+        return "running"
+    except Exception:
+        return "unknown"
+
+
+def _fetch_watch_count() -> int:
+    db = get_db()
+    return db.session_registry.count_documents({"watch_active": True})
+
+
+def _fetch_recent_errors(limit: int = 5) -> list[dict]:
+    db = get_db()
+    return list(
+        db.errors.find()
+        .sort("timestamp", -1)
+        .limit(limit)
+    )
+
+
+def _fetch_error_count_24h() -> int:
+    db = get_db()
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
+    return db.errors.count_documents({"timestamp": {"$gte": cutoff}})
+
+
 def _message_rate() -> float:
     db = get_db()
     five_min_ago = (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat()
@@ -426,7 +464,21 @@ class HealthPanel(Widget):
         enabled = sum(1 for c in crons if c.get("enabled"))
         total_crons = len(crons)
 
+        daemon_status = _fetch_daemon_status()
+        watch_count = _fetch_watch_count()
+        error_count = _fetch_error_count_24h()
+        recent_errors = _fetch_recent_errors(3)
+
         lines = Text()
+
+        # Daemon
+        if daemon_status == "running":
+            lines.append_text(Text.from_markup("  [#3fb950]●[/] Daemon     [#3fb950]running[/]\n"))
+        elif daemon_status == "stopped":
+            lines.append_text(Text.from_markup("  [#f85149]●[/] Daemon     [#f85149]stopped[/]\n"))
+        else:
+            lines.append_text(Text.from_markup("  [#d29922]●[/] Daemon     [#d29922]unknown[/]\n"))
+
         # MongoDB
         if mongo_ok:
             lines.append_text(Text.from_markup("  [#3fb950]●[/] MongoDB    [#3fb950]connected[/]\n"))
@@ -437,6 +489,33 @@ class HealthPanel(Widget):
         lines.append_text(Text.from_markup(
             f"  [#58a6ff]●[/] Cron jobs  [dim]{enabled}/{total_crons} enabled[/]\n"
         ))
+
+        # PR Watches
+        if watch_count > 0:
+            lines.append_text(Text.from_markup(
+                f"  [#bc8cff]●[/] Watches    [#bc8cff]{watch_count} active[/]\n"
+            ))
+        else:
+            lines.append_text(Text.from_markup(
+                "  [#484f58]○[/] Watches    [dim]none[/]\n"
+            ))
+
+        # Errors
+        if error_count > 0:
+            lines.append_text(Text.from_markup(
+                f"\n  [#f85149 bold]▲ {error_count} error{'s' if error_count != 1 else ''} (24h)[/]\n"
+            ))
+            for err in recent_errors:
+                ts = _fmt_ago(err.get("timestamp", "").isoformat() if hasattr(err.get("timestamp", ""), "isoformat") else str(err.get("timestamp", "")))
+                component = err.get("component", "?")
+                event = _truncate(str(err.get("event", "")), 22)
+                lines.append_text(Text.from_markup(
+                    f"  [#484f58]{ts}[/] [dim]{component}[/] [#f85149]{event}[/]\n"
+                ))
+        else:
+            lines.append_text(Text.from_markup(
+                "\n  [#3fb950]✓[/] [dim]No errors (24h)[/]\n"
+            ))
 
         return lines
 

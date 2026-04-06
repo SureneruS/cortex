@@ -182,8 +182,8 @@ Screen {
 
 #health-section {
     height: auto;
-    min-height: 8;
-    max-height: 12;
+    min-height: 12;
+    max-height: 20;
     layout: vertical;
     padding: 0;
 }
