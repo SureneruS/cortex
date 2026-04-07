@@ -83,10 +83,8 @@ When all met: squash-merge the PR, then send Arc DM confirming.
 gh pr merge <number> --squash
 ```
 
-### 6. Re-register for watching (if PR still open)
+### 6. Watch persistence
 
-If the PR is still open after handling, re-register so the watcher picks up the next change:
-```bash
-cortex pr watch cercli/<repo>#<number> <your-session-id>
-```
-This fetches current state as baseline and registers in one call.
+The PR watch is **persistent** — the daemon automatically updates the baseline after each wake and keeps watching until the PR is merged or closed. No manual re-registration needed.
+
+If you need to stop watching early (e.g., PR abandoned), the watch clears automatically when the PR state is no longer OPEN.

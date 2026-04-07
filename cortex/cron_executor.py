@@ -111,16 +111,20 @@ def execute_check_watches(job: dict) -> None:
         log.info("pr_wake_sent", session=session_name, pr=pr_ref)
         _log_activity(db, "watch", f"PR {pr_ref} changed — {change_summary}; waking {session_name}", session=session_name, pr=pr_ref, changes=change_summary)
 
+        pr_still_open = current_state.get("state") == "OPEN"
         session_repo.update(
             session["_id"],
             {
                 "watch": {**watch, "last_state": current_state},
-                "watch_active": False,
+                "watch_active": pr_still_open,
             },
             trigger="cron",
             actor="daemon",
         )
-        _log_activity(db, "watch", f"PR watch cleared: {pr_ref} — {session_name} woken", session=session_name, pr=pr_ref)
+        if pr_still_open:
+            _log_activity(db, "watch", f"PR {pr_ref} watch continues with updated baseline", session=session_name, pr=pr_ref)
+        else:
+            _log_activity(db, "watch", f"PR watch cleared: {pr_ref} — PR no longer open", session=session_name, pr=pr_ref)
 
     log.info("check_watches_done", count=len(sessions))
 
