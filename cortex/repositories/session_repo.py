@@ -97,7 +97,7 @@ class MongoSessionRepository:
                     target_status = SessionStatus(data[field])
                     allowed = TRANSITIONS.get(current_status, set())
                     if target_status not in allowed:
-                        log.warning(
+                        log.info(
                             "Invalid transition ignored",
                             current=current_status.value,
                             target=target_status.value,

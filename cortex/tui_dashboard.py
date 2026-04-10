@@ -239,7 +239,10 @@ def _fetch_daemon_status() -> str:
 
 def _fetch_watch_count() -> int:
     db = get_db()
-    return db.session_registry.count_documents({"watch_active": True})
+    return db.session_registry.count_documents({
+        "watch_active": True,
+        "status": {"$in": ["active", "idle", "paused", "blocked"]},
+    })
 
 
 def _fetch_recent_errors(limit: int = 5) -> list[dict]:

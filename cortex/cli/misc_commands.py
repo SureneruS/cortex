@@ -23,6 +23,7 @@ def register_misc_commands(cli: click.Group) -> None:
     cli.add_command(control)
     cli.add_command(daemon)
     cli.add_command(logs)
+    cli.add_command(errors)
     cli.add_command(dashboard)
     cli.add_command(ui)
     cli.add_command(test_group, "test")
@@ -509,6 +510,71 @@ def daemon_cleanup(dry_run: bool) -> None:
             console.print(f"{prefix}No files to clean.")
         if d["stale_daemon_entries"]:
             console.print(f"  Removed {d['stale_daemon_entries']} stale daemon entries")
+
+    _output(data, _fmt)
+
+
+# ── Errors ──────────────────────────────────────────────────
+
+
+@click.group(cls=JsonGroup)
+def errors() -> None:
+    """Manage the error sink (dashboard error panel)."""
+    pass
+
+
+@errors.command("list")
+@click.option("-n", "--limit", default=10, help="Number of recent errors to show")
+def errors_list(limit: int) -> None:
+    """List recent errors from the error sink."""
+    from cortex.mongo import get_db
+    db = get_db()
+    docs = list(db.errors.find().sort("timestamp", -1).limit(limit))
+    data = [
+        {
+            "id": str(d["_id"]),
+            "component": d.get("component", "?"),
+            "level": d.get("level", "?"),
+            "event": str(d.get("event", "")),
+            "timestamp": d["timestamp"].isoformat() if hasattr(d.get("timestamp"), "isoformat") else str(d.get("timestamp", "")),
+        }
+        for d in docs
+    ]
+
+    def _fmt(items: object) -> None:
+        from cortex.cli.formatters import get_console
+        console = get_console()
+        if not items:
+            console.print("[dim]No errors.[/]")
+            return
+        for item in items:  # type: ignore[union-attr]
+            console.print(
+                f"  [dim]{item['timestamp']}[/] [{item['level']}] "
+                f"[dim]{item['component']}[/] {item['event'][:80]}"
+            )
+
+    _output(data, _fmt)
+
+
+@errors.command("clear")
+@click.option("--all", "clear_all", is_flag=True, help="Clear all errors (not just 24h)")
+def errors_clear(clear_all: bool) -> None:
+    """Clear errors from the error sink."""
+    from datetime import datetime, timezone, timedelta
+    from cortex.mongo import get_db
+    db = get_db()
+
+    if clear_all:
+        result = db.errors.delete_many({})
+    else:
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
+        result = db.errors.delete_many({"timestamp": {"$lte": cutoff}})
+
+    data = {"deleted": result.deleted_count, "scope": "all" if clear_all else "older_than_24h"}
+
+    def _fmt(d: dict) -> None:
+        from cortex.cli.formatters import print_ok
+        print_ok(f"Cleared {d['deleted']} error(s) ({d['scope']})")
 
     _output(data, _fmt)
 
