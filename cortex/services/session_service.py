@@ -275,6 +275,8 @@ class SessionService:
             return
         if caller_id == target_id:
             return
+        if os.environ.get("CORTEX_SESSION_ROLE") == "control":
+            return
 
         current = self._sessions.get(target_id)
         while current:

@@ -952,6 +952,30 @@ class TestClosePermission:
         assert code == 1
         assert "not an ancestor" in output["error"].lower()
 
+    def test_control_role_can_close_any_session(self, _patch_cli_db, cli_db):
+        repo = MongoSessionRepo(cli_db)
+        repo.register("ctrl-2", {"name": "control-new", "role": "control"})
+        repo.register("orphan-1", {"name": "orphan-worker", "parent_id": "old-ctrl"})
+        with (
+            patch.dict(os.environ, {"CORTEX_SESSION_ID": "ctrl-2", "CORTEX_SESSION_ROLE": "control"}),
+            patch("cortex.adapters.tmux.TmuxAdapter.pane_exists", return_value=False),
+        ):
+            code, output = _run_cli(["session", "close", "orphan-1"])
+        assert code == 0
+        assert output["status"] == "completed"
+
+    def test_worker_role_cannot_close_unrelated(self, _patch_cli_db, cli_db):
+        repo = MongoSessionRepo(cli_db)
+        repo.register("w1", {"name": "worker-1", "role": "worker"})
+        repo.register("w2", {"name": "worker-2", "role": "worker"})
+        with (
+            patch.dict(os.environ, {"CORTEX_SESSION_ID": "w1", "CORTEX_SESSION_ROLE": "worker"}),
+            patch("cortex.adapters.tmux.TmuxAdapter.pane_exists", return_value=False),
+        ):
+            code, output = _run_cli(["session", "close", "w2"])
+        assert code == 1
+        assert "not an ancestor" in output["error"].lower()
+
 
 class TestCascadeClose:
     def test_cascade_closes_children(self, _patch_cli_db, cli_db):
