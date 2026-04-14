@@ -922,6 +922,16 @@ class CortexDashboard(App):
         self.query_one("#sessions-list", SessionListWidget).focus()
         self._update_action_bar()
 
+    def on_text_selected(self) -> None:
+        text = self.screen.get_selected_text()
+        if not text:
+            return
+        self.copy_to_clipboard(text)
+        lines = text.count("\n") + 1
+        chars = len(text)
+        label = f"{lines} lines" if lines > 1 else f"{chars} chars"
+        self.notify(f"Copied {label}", timeout=2)
+
     # ── Data refresh ────────────────────────────────────────────
 
     @work(thread=True)
