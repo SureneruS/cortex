@@ -532,11 +532,12 @@ class SelectableStatic(Static):
 
         # RichVisual path: Rich renderables lack the offset metadata that
         # the compositor needs to map mouse coordinates → content positions.
-        # Inject it via apply_offsets, then apply selection highlighting.
+        # Apply selection highlighting first, then inject offsets — ordering
+        # matters because Strip.divide (used by highlighting) splits segments
+        # but copies the original offset, leaving stale values on the pieces.
         strips = Visual.to_strips(
             self, visual, width, height, self.visual_style, apply_selection=False,
         )
-        strips = [strip.apply_offsets(0, y) for y, strip in enumerate(strips)]
 
         selection = self.text_selection
         if selection is not None:
@@ -545,6 +546,8 @@ class SelectableStatic(Static):
                 self._apply_selection_to_strip(strip, selection, y, sel_style)
                 for y, strip in enumerate(strips)
             ]
+
+        strips = [strip.apply_offsets(0, y) for y, strip in enumerate(strips)]
 
         self._render_cache = _RenderCache(self.size, strips)
         self._dirty_regions.clear()
@@ -930,7 +933,12 @@ class CortexDashboard(App):
         lines = text.count("\n") + 1
         chars = len(text)
         label = f"{lines} lines" if lines > 1 else f"{chars} chars"
-        self.notify(f"Copied {label}", timeout=2)
+        status = self.query_one("#status-right", Static)
+        status.update(Text.from_markup(f"[#3fb950]Copied {label}[/]"))
+        self.set_timer(3.0, self._clear_copy_status)
+
+    def _clear_copy_status(self) -> None:
+        self.query_one("#status-right", Static).update("")
 
     # ── Data refresh ────────────────────────────────────────────
 
