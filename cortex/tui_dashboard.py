@@ -11,12 +11,19 @@ from textual.screen import ModalScreen
 from textual.widget import Widget
 from textual.widgets import Static, Input
 
-from rich.console import RenderableType
+from io import StringIO
+
+from rich.console import Console as RichConsole, RenderableType
 from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.style import Style
 from rich.table import Table
 from rich.text import Text
+
+from textual.selection import Selection
+from textual.strip import Strip
+from textual.visual import Visual, RichVisual
+from textual.widget import _RenderCache
 
 from cortex.container import get_container
 from cortex.mongo import get_db
@@ -483,6 +490,76 @@ def _render_stream_card(stream: dict, entries: list[dict]) -> RenderableType:
     return lines
 
 
+# ── Selectable Static ──────────────────────────────────────────
+
+class SelectableStatic(Static):
+    """Static widget that supports mouse text selection on Rich renderables.
+
+    Textual's built-in selection works for Text/Content visuals but not for
+    Panel/Markdown which go through the RichVisual path.  This subclass adds
+    both text extraction (for copy) and visual highlighting for those cases.
+    """
+
+    def get_selection(self, selection: Selection) -> tuple[str, str] | None:
+        visual = self._render()
+        if isinstance(visual, (Text,)):
+            return super().get_selection(selection)
+        if not isinstance(visual, RichVisual):
+            return super().get_selection(selection)
+        # Render the Rich object to plain text at the widget's width
+        width = self.size.width or 80
+        console = RichConsole(file=StringIO(), width=width, no_color=True)
+        console.print(visual._renderable, end="")
+        text = console.file.getvalue()
+        return selection.extract(text), "\n"
+
+    def _render_content(self) -> None:
+        width, height = self.size
+        visual = self._render()
+
+        if not isinstance(visual, RichVisual):
+            # Text/Content path — Textual handles selection natively
+            super()._render_content()
+            return
+
+        # RichVisual path — render without selection, then apply manually
+        strips = Visual.to_strips(
+            self, visual, width, height, self.visual_style, apply_selection=False,
+        )
+
+        selection = self.text_selection
+        if selection is not None:
+            sel_style = self.screen.get_component_rich_style("screen--selection")
+            strips = [
+                self._apply_selection_to_strip(strip, selection, y, sel_style)
+                for y, strip in enumerate(strips)
+            ]
+
+        self._render_cache = _RenderCache(self.size, strips)
+        self._dirty_regions.clear()
+
+    @staticmethod
+    def _apply_selection_to_strip(
+        strip: Strip, selection: Selection, y: int, style: Style,
+    ) -> Strip:
+        span = selection.get_span(y)
+        if span is None:
+            return strip
+        start, end = span
+        cell_len = strip.cell_length
+        if cell_len == 0:
+            return strip
+        if end == -1:
+            end = cell_len
+        end = min(end, cell_len)
+        if start >= end:
+            return strip
+        parts = strip.divide([start, end, cell_len])
+        if len(parts) == 3:
+            return Strip.join([parts[0], parts[1].apply_style(style), parts[2]])
+        return strip
+
+
 # ── Widgets ─────────────────────────────────────────────────────
 
 class SessionListWidget(VerticalScroll):
@@ -529,13 +606,13 @@ class TimelineScroll(VerticalScroll):
         for item in items:
             kind = item["kind"]
             if kind == "msg":
-                self.mount(Static(_render_msg_bubble(item["data"]), classes="msg-bubble"))
+                self.mount(SelectableStatic(_render_msg_bubble(item["data"]), classes="msg-bubble"))
             elif kind == "activity":
-                self.mount(Static(_render_activity_line(item["data"]), classes="activity-line"))
+                self.mount(SelectableStatic(_render_activity_line(item["data"]), classes="activity-line"))
             elif kind == "error":
-                self.mount(Static(_render_error_line(item["data"]), classes="error-line"))
+                self.mount(SelectableStatic(_render_error_line(item["data"]), classes="error-line"))
             else:
-                self.mount(Static(_render_event_line(item["data"]), classes="event-line"))
+                self.mount(SelectableStatic(_render_event_line(item["data"]), classes="event-line"))
         if was_at_bottom:
             self.scroll_end(animate=False)
 
