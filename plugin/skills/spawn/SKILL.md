@@ -62,6 +62,38 @@ cortex session spawn --name <name> [options]
    - Check layout: `cortex session layout`
    - Close: `cortex session close <name>`
 
+## Session Modes
+
+Two modes, inferred from the user's language:
+
+### Interactive (default)
+**Signal:** User says "start/spawn a session for/on X" — emphasis on starting a session, not completing a task.
+
+- Spawn with context only — what the session is about, relevant files/branches, but NO "report back to me", NO "wait for instructions", NO "don't make changes yet"
+- Worker does NOT send messages to control — only automated status events come through
+- Worker treats the next human input as coming from the user directly in the pane
+- Control just notes it's active and moves on
+
+Examples:
+- "start a session to debug screening schema" → interactive
+- "start a session on kew repo" → interactive
+- "spawn a session for feedback testing" → interactive
+
+### Delegated
+**Signal:** User describes a task with a clear deliverable — "investigate X and report", "fix Y", "have the worker do Z"
+
+- Spawn with full prompt including task, context, and expectations
+- Worker reports to control, control relays and coordinates
+- Control tracks progress and makes decisions
+
+Examples:
+- "investigate the staging deploy issues and report" → delegated
+- "finalize the scheduler on kew" → delegated
+- "debug X and report back" → delegated
+
+### Default: Interactive
+If ambiguous, default to interactive — it's less disruptive. User can always say "manage this" to switch to delegated.
+
 ## Examples
 
 ```
