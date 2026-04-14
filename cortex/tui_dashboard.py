@@ -1,6 +1,7 @@
 """Cortex Mission Control — Textual TUI dashboard."""
 from __future__ import annotations
 
+import time
 from datetime import datetime, timezone, timedelta
 from textual import work
 from textual.app import App, ComposeResult
@@ -883,6 +884,7 @@ class CortexDashboard(App):
     filter_text: reactive[str] = reactive("")
     _refresh_count: int = 0
     _all_sessions: list[dict] = []
+    _status_hold_until: float = 0.0
 
     def compose(self) -> ComposeResult:
         # Header
@@ -933,12 +935,10 @@ class CortexDashboard(App):
         lines = text.count("\n") + 1
         chars = len(text)
         label = f"{lines} lines" if lines > 1 else f"{chars} chars"
-        status = self.query_one("#status-right", Static)
-        status.update(Text.from_markup(f"[#3fb950]Copied {label}[/]"))
-        self.set_timer(3.0, self._clear_copy_status)
-
-    def _clear_copy_status(self) -> None:
-        self.query_one("#status-right", Static).update("")
+        self.query_one("#status-right", Static).update(
+            Text.from_markup(f"[#3fb950]Copied {label}[/]")
+        )
+        self._status_hold_until = time.monotonic() + 3.0
 
     # ── Data refresh ────────────────────────────────────────────
 
@@ -1017,15 +1017,16 @@ class CortexDashboard(App):
             )
         )
 
-        # Status (right side of bottom bar)
-        self.query_one("#status-right", Static).update(
-            Text.from_markup(
-                f"[#58a6ff]●[/] {active_count}  "
-                f"[#bc8cff]●[/] {msg_count} msgs  "
-                f"[#d29922]●[/] {len(streams)} streams  "
-                f"[dim]#{self._refresh_count}[/]"
+        # Status (right side of bottom bar) — skip if showing copy message
+        if time.monotonic() >= self._status_hold_until:
+            self.query_one("#status-right", Static).update(
+                Text.from_markup(
+                    f"[#58a6ff]●[/] {active_count}  "
+                    f"[#bc8cff]●[/] {msg_count} msgs  "
+                    f"[#d29922]●[/] {len(streams)} streams  "
+                    f"[dim]#{self._refresh_count}[/]"
+                )
             )
-        )
 
         self._update_action_bar()
 
