@@ -317,6 +317,15 @@ def _merge_timeline(
     return items
 
 
+def _timeline_fingerprint(items: list[dict]) -> str:
+    """Fast fingerprint to detect timeline data changes."""
+    parts = []
+    for item in items:
+        data = item["data"]
+        parts.append(f"{item['kind']}:{data.get('_id', data.get('at', ''))}")
+    return "|".join(parts)
+
+
 # ── Rich Renderables ────────────────────────────────────────────
 
 def _render_session_row(s: dict, selected: bool = False) -> RenderableType:
@@ -518,14 +527,16 @@ class SelectableStatic(Static):
         visual = self._render()
 
         if not isinstance(visual, RichVisual):
-            # Text/Content path — Textual handles selection natively
             super()._render_content()
             return
 
-        # RichVisual path — render without selection, then apply manually
+        # RichVisual path: Rich renderables lack the offset metadata that
+        # the compositor needs to map mouse coordinates → content positions.
+        # Inject it via apply_offsets, then apply selection highlighting.
         strips = Visual.to_strips(
             self, visual, width, height, self.visual_style, apply_selection=False,
         )
+        strips = [strip.apply_offsets(0, y) for y, strip in enumerate(strips)]
 
         selection = self.text_selection
         if selection is not None:
@@ -600,7 +611,14 @@ class SessionListWidget(VerticalScroll):
 
 
 class TimelineScroll(VerticalScroll):
+    _fingerprint: str = ""
+
     def populate(self, items: list[dict]) -> None:
+        fp = _timeline_fingerprint(items)
+        if fp == self._fingerprint:
+            return
+        self._fingerprint = fp
+
         was_at_bottom = self.scroll_offset.y >= self.max_scroll_y - 2
         self.remove_children()
         for item in items:
