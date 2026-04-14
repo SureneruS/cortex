@@ -320,7 +320,7 @@ def control() -> None:
             f"set -x CORTEX_MONGODB_URI {mongodb_uri}"
         )
         claude_cmd = (
-            f"claude {channels_flag}--disallowedTools SendMessage "
+            f"claude {channels_flag}--disallowedTools SendMessage --effort max "
             f"--name {name} --append-system-prompt-file {prompt_file}"
         )
         tmux.send_text(pane_id, env_cmd)

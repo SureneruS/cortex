@@ -676,7 +676,7 @@ class SessionService:
         model_flag = f"--model {model} " if model else ""
         resume_flag = f"--resume {resume_id} " if resume_id else ""
         pm_flag = f"--permission-mode {permission_mode} " if permission_mode else ""
-        effort_flag = f"--effort {effort} " if effort else ""
+        effort_flag = f"--effort {effort or 'max'} "
         agent_flag = f"--agent {agent_name} " if agent_name else ""
         tools_flag = f"--allowed-tools {allowed_tools} " if allowed_tools else ""
         wt_flag = f"--worktree {worktree} " if worktree else ""
