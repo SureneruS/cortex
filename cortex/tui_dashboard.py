@@ -567,7 +567,15 @@ class SelectableStatic(Static):
             return strip
         parts = strip.divide([start, end, cell_len])
         if len(parts) == 3:
-            return Strip.join([parts[0], parts[1].apply_style(style), parts[2]])
+            # Use post_style so selection bgcolor overrides existing bgcolor.
+            # Strip.apply_style uses `sel + existing` (existing wins).
+            # Segment.apply_style with post_style uses `existing + sel` (sel wins).
+            from rich.segment import Segment
+            highlighted = Strip(
+                list(Segment.apply_style(parts[1]._segments, post_style=style)),
+                parts[1].cell_length,
+            )
+            return Strip.join([parts[0], highlighted, parts[2]])
         return strip
 
 
