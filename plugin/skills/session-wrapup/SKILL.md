@@ -80,6 +80,7 @@ Decide the action:
 
 - **Entered via `path:`** (resumed another session's worktree) → `ExitWorktree(action: "keep")`. Only valid option — never remove a worktree you didn't create.
 - **Entered via `name:`, branch merged AND tree clean** → `ExitWorktree(action: "remove")`. Deletes worktree dir + branch.
+  - *Caveat:* if you committed during this session and fast-forwarded main, ExitWorktree compares against the branch state at EnterWorktree time (not current main) and will refuse with `"Could not verify worktree state"` despite being safe. Use `ExitWorktree(action: "remove", discard_changes: true)` — nothing is actually discarded; the flag just overrides the stale safety check. Verify the commit is on `origin/main` first.
 - **Entered via `name:`, unmerged work worth resuming** → `ExitWorktree(action: "keep")`. Preserves both for next session.
 - **Entered via `name:`, uncommitted changes to discard** → ask the user first, then `ExitWorktree(action: "remove", discard_changes: true)`.
 - **Never called `EnterWorktree` this session** → skip. Worktrees from `--worktree` / `--worktree-path` at spawn time are out of scope for this tool.
