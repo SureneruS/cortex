@@ -53,7 +53,8 @@ def _resolve_or_exit(ref: str) -> dict:
 @click.option("--effort", default=None, help="CC effort level (e.g. low, medium, high)")
 @click.option("--agent", "agent_name", default=None, help="CC agent name to use")
 @click.option("--allowed-tools", default=None, help="CC allowed tools (comma-separated)")
-@click.option("--worktree", default=None, help="CC worktree name")
+@click.option("--worktree", default=None, help="CC worktree name (creates new)")
+@click.option("--worktree-path", default=None, help="Path to existing worktree to enter")
 @click.option("--beside", default=None, help="Split horizontally beside this session/pane")
 @click.option("--below", default=None, help="Split vertically below this session/pane")
 @click.option("--color", default=None, help="CC session color")
@@ -72,6 +73,7 @@ def spawn(
     agent_name: str | None,
     allowed_tools: str | None,
     worktree: str | None,
+    worktree_path: str | None,
     beside: str | None,
     below: str | None,
     color: str | None,
@@ -81,6 +83,9 @@ def spawn(
     log = _cli_log()
     log.info("CLI spawn called", name=name, goal=bool(goal), prompt=bool(prompt), workspace=workspace)
 
+    if worktree and worktree_path:
+        _error_exit("--worktree and --worktree-path are mutually exclusive")
+
     repo_path: Path | None = None
     if repo:
         repo_path = Path.home() / "workspace" / "cercli" / repo
@@ -88,6 +93,11 @@ def spawn(
             _error_exit(f"Repo directory not found: {repo_path}")
         if not (repo_path / ".git").exists():
             _error_exit(f"Not a git repo (no .git): {repo_path}")
+
+    if worktree_path:
+        wt = Path(worktree_path).expanduser().resolve()
+        if not wt.is_dir():
+            _error_exit(f"Worktree path not found: {wt}")
 
     if split and not beside and not below:
         beside_pane = _resolve_caller_pane()
@@ -108,6 +118,7 @@ def spawn(
             agent_name=agent_name,
             allowed_tools=allowed_tools,
             worktree=worktree,
+            worktree_path=worktree_path,
             beside=beside,
             below=below,
             color=color,

@@ -27,7 +27,8 @@ cortex session spawn --name <name> [options]
 | `--model` | Claude model (haiku, sonnet, opus) |
 | `--permission-mode` | CC mode (e.g., plan) |
 | `--effort` | CC effort (low, medium, high) |
-| `--worktree` | CC worktree name (creates branch + isolated dir) |
+| `--worktree` | CC worktree name (creates new branch + isolated dir) |
+| `--worktree-path` | Path to existing worktree to enter (mutually exclusive with --worktree) |
 | `--resume` | CC session UUID to resume |
 | `--split` | Split current pane (legacy, prefer --beside/--below) |
 | `--workspace` | default or background |
@@ -50,7 +51,15 @@ cortex session spawn --name <name> [options]
    - Unrelated? New tab (default behavior)
 
 4. Run `cortex session spawn` with the assembled flags.
-   - When `--repo` is provided, always include `--worktree` with name derived from the session name:
+   - When `--repo` is provided, check for an existing worktree first:
+     ```bash
+     git -C ~/workspace/cercli/<repo> worktree list
+     ```
+   - If a worktree already exists for the task (matching ticket ID, branch name, or session name), use `--worktree-path`:
+     ```
+     cortex session spawn --name rb-resume --repo recruitment-backend --worktree-path /path/to/existing/worktree --goal '...'
+     ```
+   - Otherwise, create a new one with `--worktree`:
      ```
      cortex session spawn --name rb-copy-skill --repo recruitment-backend --worktree rb-copy-skill --goal '...'
      ```
@@ -110,8 +119,11 @@ cortex session spawn --name reviewer --repo cortex --prompt "review the latest P
 # Plan mode
 cortex session spawn --name planner --repo recruitment-backend --permission-mode plan
 
-# With worktree
-cortex session spawn --name feat-avatar --repo recruitment-backend --worktree feat/avatar-upload
+# New worktree
+cortex session spawn --name feat-avatar --repo recruitment-backend --worktree feat-avatar
+
+# Enter existing worktree
+cortex session spawn --name resume-ats-1028 --repo recruitment-backend --worktree-path ~/.../worktrees/ats-1028-v2
 ```
 
 ## Prompt delivery and verification
@@ -126,4 +138,5 @@ When spawning with `--prompt`:
 ## Important
 
 - **ALWAYS use `cortex session spawn`** to create sessions. Never use the Agent tool, subagents, or `claude -p` as a substitute. Cortex spawn handles registry, channels, env vars, and lifecycle — raw alternatives skip all of this.
-- Always pass `--worktree` when `--repo` is specified — worktree name defaults to the session name. This ensures workers never edit the main repo directly.
+- Always pass `--worktree` or `--worktree-path` when `--repo` is specified. This ensures workers never edit the main repo directly.
+- Prefer `--worktree-path` when an existing worktree matches the task — avoids creating redundant worktrees.

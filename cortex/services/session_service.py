@@ -76,6 +76,7 @@ class SessionService:
         agent_name: str | None = None,
         allowed_tools: str | None = None,
         worktree: str | None = None,
+        worktree_path: str | None = None,
         beside: str | None = None,
         below: str | None = None,
         color: str | None = None,
@@ -122,7 +123,9 @@ class SessionService:
         self._sessions.register(session_id, data)
         log.info("Session registered", session_id=session_id, name=name)
 
-        prompt_file = self._write_system_prompt(session_id, name, parent_name=parent_name)
+        prompt_file = self._write_system_prompt(
+            session_id, name, parent_name=parent_name, worktree_path=worktree_path,
+        )
 
         # Resolve spatial targets
         target_pane, split_orientation = self._resolve_spatial_target(beside, below)
@@ -157,7 +160,8 @@ class SessionService:
                     name=name, model=model, resume_id=resume_id,
                     permission_mode=permission_mode, effort=effort,
                     agent_name=agent_name, allowed_tools=allowed_tools,
-                    worktree=worktree, prompt_file=prompt_file,
+                    worktree=worktree, worktree_path=worktree_path,
+                    prompt_file=prompt_file,
                 )
                 self._terminal.send_text(pane_id, env_cmd)
                 time.sleep(0.3)
@@ -610,7 +614,9 @@ class SessionService:
             suffix += 1
 
     def _write_system_prompt(
-        self, session_id: str, name: str, *, parent_name: str | None = None,
+        self, session_id: str, name: str, *,
+        parent_name: str | None = None,
+        worktree_path: str | None = None,
     ) -> Path:
         prompt_dir = Path.home() / ".cortex" / "session-prompts"
         prompt_dir.mkdir(parents=True, exist_ok=True)
@@ -633,6 +639,11 @@ class SessionService:
                 f"Report progress and blockers to the control session via messages.\n"
                 f"When done or asked to wrap up, run /session-wrapup and /exit.\n"
                 f"Use /cortex-cli skill for the full command reference."
+            )
+        if worktree_path:
+            system_prompt += (
+                f"\n\nIMPORTANT: Enter the existing worktree before doing any work. "
+                f"Call EnterWorktree(path: \"{worktree_path}\") as your first action."
             )
         prompt_file.write_text(system_prompt)
         return prompt_file
@@ -671,6 +682,7 @@ class SessionService:
         agent_name: str | None,
         allowed_tools: str | None,
         worktree: str | None,
+        worktree_path: str | None,
         prompt_file: Path,
     ) -> str:
         channels_flag = "--dangerously-load-development-channels server:cortex-team "
