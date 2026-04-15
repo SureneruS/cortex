@@ -72,7 +72,19 @@ Then report what was cleaned up. Flag anything still pending:
 - Uncommitted work
 - Active Cortex streams continuing to next session
 
-### 8. Close (worker sessions only)
+### 8. Exit worktree (if in one)
+
+If you called `EnterWorktree` during this session, call `ExitWorktree` BEFORE step 9 — otherwise `cortex session close` kills the pane with the worktree still attached and worktrees pile up on disk.
+
+Decide the action:
+
+- **Entered via `path:`** (resumed another session's worktree) → `ExitWorktree(action: "keep")`. Only valid option — never remove a worktree you didn't create.
+- **Entered via `name:`, branch merged AND tree clean** → `ExitWorktree(action: "remove")`. Deletes worktree dir + branch.
+- **Entered via `name:`, unmerged work worth resuming** → `ExitWorktree(action: "keep")`. Preserves both for next session.
+- **Entered via `name:`, uncommitted changes to discard** → ask the user first, then `ExitWorktree(action: "remove", discard_changes: true)`.
+- **Never called `EnterWorktree` this session** → skip. Worktrees from `--worktree` / `--worktree-path` at spawn time are out of scope for this tool.
+
+### 9. Close (worker sessions only)
 
 Check `CORTEX_SESSION_ROLE` environment variable.
 
