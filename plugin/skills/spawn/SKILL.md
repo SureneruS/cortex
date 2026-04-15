@@ -123,7 +123,7 @@ cortex session spawn --name planner --repo recruitment-backend --permission-mode
 cortex session spawn --name feat-avatar --repo recruitment-backend --worktree feat-avatar
 
 # Enter existing worktree
-cortex session spawn --name resume-ats-1028 --repo recruitment-backend --worktree-path ~/.../worktrees/ats-1028-v2
+cortex session spawn --name resume-ats-1028 --repo recruitment-backend --worktree-path ~/workspace/cercli/recruitment-backend/.worktrees/ats-1028-v2
 ```
 
 ## Prompt delivery and verification
