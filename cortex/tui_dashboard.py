@@ -194,6 +194,12 @@ def _fetch_events(limit: int = 30) -> list[dict]:
         {"$limit": limit},
         {"$project": {
             "_id": 0, "session_name": "$name",
+            "session_role": "$role",
+            "session_workspace": "$workspace",
+            "session_color": "$color",
+            "session_repos": "$repos",
+            "session_worktree": "$worktree",
+            "session_channel_status": "$channel_status",
             "field": "$events.field", "from": "$events.from",
             "to": "$events.to", "at": "$events.at",
             "trigger": "$events.trigger", "actor": "$events.actor",
@@ -423,6 +429,49 @@ def _render_event_line(ev: dict) -> Text:
     )
 
 
+def _render_spawn_card(ev: dict) -> Panel:
+    name = ev.get("session_name", "?")
+    cc_color = ev.get("session_color", "")
+    if cc_color and cc_color in SESSION_COLORS:
+        _sender_colors[name] = SESSION_COLORS[cc_color]
+    theme = _sender_theme(name)
+    fg, bg = theme["fg"], theme["bg"]
+
+    ts = _fmt_ts(ev.get("at", ""))
+    role = ev.get("session_role") or "—"
+    spawned_by = ev.get("actor") or "—"
+    workspace = ev.get("session_workspace") or "—"
+    repos = ev.get("session_repos") or []
+    repo_str = ", ".join(repos) if repos else "—"
+    worktree = ev.get("session_worktree") or "—"
+    channels = "on" if ev.get("session_channel_status") else "off"
+    channels_color = "#3fb950" if channels == "on" else "#f85149"
+
+    title = Text.from_markup(
+        f"[bold #3fb950]+ spawned[/]  [bold {fg}]{name}[/]  [#484f58]{ts}[/]"
+    )
+
+    info = Table.grid(padding=(0, 2))
+    info.add_column(style="#6e7681", width=11)
+    info.add_column()
+    info.add_row("role", Text(role, style=fg))
+    info.add_row("from", Text(spawned_by))
+    info.add_row("workspace", Text(workspace))
+    info.add_row("repos", Text(repo_str))
+    info.add_row("color", Text(cc_color or "—", style=fg if cc_color else ""))
+    info.add_row("worktree", Text(worktree))
+    info.add_row("channels", Text.from_markup(f"[{channels_color}]{channels}[/]"))
+
+    return Panel(
+        info,
+        title=title,
+        title_align="left",
+        border_style=Style(color=fg),
+        style=Style(bgcolor=bg),
+        padding=(0, 1),
+    )
+
+
 def _render_activity_line(activity: dict) -> RenderableType:
     ts = activity.get("timestamp")
     ts_str = ts.isoformat() if hasattr(ts, "isoformat") else str(ts)
@@ -642,7 +691,11 @@ class TimelineScroll(VerticalScroll):
             elif kind == "error":
                 self.mount(SelectableStatic(_render_error_line(item["data"]), classes="error-line"))
             else:
-                self.mount(SelectableStatic(_render_event_line(item["data"]), classes="event-line"))
+                ev = item["data"]
+                if ev.get("trigger") == "spawn":
+                    self.mount(SelectableStatic(_render_spawn_card(ev), classes="msg-bubble"))
+                else:
+                    self.mount(SelectableStatic(_render_event_line(ev), classes="event-line"))
         if was_at_bottom:
             self.scroll_end(animate=False)
 
@@ -782,10 +835,17 @@ class SessionDetailScreen(ModalScreen[None]):
         info.add_column()
 
         info.add_row("Role", doc.get("role", "?"))
+        info.add_row("Workspace", doc.get("workspace") or "—")
         info.add_row("Pane", doc.get("pane_id") or "—")
         info.add_row("Model", doc.get("model") or "—")
         info.add_row("Color", doc.get("color") or "—")
         info.add_row("Spawned by", doc.get("spawned_by") or "—")
+        info.add_row("Worktree", doc.get("worktree") or "—")
+        channels_on = bool(doc.get("channel_status"))
+        info.add_row(
+            "Channels",
+            Text("on", style="#3fb950") if channels_on else Text("off", style="#f85149"),
+        )
         info.add_row("Created", _fmt_ts(doc.get("created_at", "")))
         if doc.get("closed_at"):
             info.add_row("Closed", _fmt_ts(doc["closed_at"]))

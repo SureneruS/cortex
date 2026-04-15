@@ -304,6 +304,25 @@ def test_backward_compat_old_session(session_repo):
     assert updated["events"][0]["to"] == "idle"
 
 
+def test_register_persists_spawn_params(session_repo):
+    session_repo.register("sess-sp", {
+        "name": "wt-session",
+        "workspace": "default",
+        "spawned_by": "control-15-apr",
+        "role": "worker",
+        "color": "cyan",
+        "repos": ["cortex"],
+        "worktree": "ats-831",
+    })
+    fetched = session_repo.get("sess-sp")
+    assert fetched["worktree"] == "ats-831"
+    assert fetched["workspace"] == "default"
+    assert fetched["spawned_by"] == "control-15-apr"
+    assert fetched["role"] == "worker"
+    assert fetched["color"] == "cyan"
+    assert fetched["repos"] == ["cortex"]
+
+
 # --- cc_sessions tracking (CTX-63/CTX-68) ---
 
 

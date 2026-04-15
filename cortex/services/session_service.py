@@ -116,6 +116,8 @@ class SessionService:
             data["resumed_from"] = resume_id
         if repo_path:
             data["repos"] = [repo_path.name]
+        if worktree:
+            data["worktree"] = worktree
 
         self._sessions.register(session_id, data)
         log.info("Session registered", session_id=session_id, name=name)
