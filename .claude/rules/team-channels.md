@@ -40,8 +40,8 @@
 
 ## Daemon
 
-- **Human message routing polls every 10s**, separate from the 60s cron job cycle. Uses a counter pattern in the main loop.
-- **Slack delivery via SlackPoster** with env vars `SLACK_BOT_TOKEN` and `SLACK_TARGET_USER_ID`. Falls back to `~/.cortex/human-messages/` files if Slack is not configured.
+- **Suren message routing polls every 10s**, separate from the 60s cron job cycle. Uses a counter pattern in the main loop. Query covers `to` in `{"suren", "human"}` to catch legacy-alias stragglers.
+- **Slack delivery via SlackPoster** with env vars `SLACK_BOT_TOKEN` and `SLACK_TARGET_USER_ID`. Falls back to `~/.cortex/suren-messages/` files if Slack is not configured (legacy `~/.cortex/human-messages/` is migrated on daemon startup).
 - **Atomic claim before Slack delivery.** `find_one_and_update(status: pending → delivered)` prevents double delivery if the daemon restarts mid-cycle.
 
 ## Known Constraints
