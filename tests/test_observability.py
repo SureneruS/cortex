@@ -35,6 +35,17 @@ def log_dir(tmp_path):
         yield tmp_path
 
 
+@pytest.fixture
+def _enable_error_sink(monkeypatch):
+    """Force the mongo error sink on for tests that specifically cover it.
+
+    The root tests/conftest.py sets CORTEX_DISABLE_ERROR_SINK=1 so normal tests
+    don't pollute the production `errors` collection. These handler-inspection
+    tests need it back on.
+    """
+    monkeypatch.delenv("CORTEX_DISABLE_ERROR_SINK", raising=False)
+
+
 class TestSetupLogging:
     def test_creates_log_dir(self, log_dir):
         import shutil
@@ -44,12 +55,19 @@ class TestSetupLogging:
         setup_logging("test")
         assert log_dir.exists()
 
-    def test_creates_handlers(self, log_dir):
+    def test_creates_handlers(self, log_dir, _enable_error_sink):
         setup_logging("test")
         root = logging.getLogger()
         assert len(root.handlers) == 4  # info file, debug file, console, mongo
 
-    def test_idempotent(self, log_dir):
+    def test_error_sink_skipped_when_disabled(self, log_dir, monkeypatch):
+        monkeypatch.setenv("CORTEX_DISABLE_ERROR_SINK", "1")
+        setup_logging("test")
+        root = logging.getLogger()
+        assert len(root.handlers) == 3  # info file, debug file, console — no mongo
+        assert not any(isinstance(h, MongoErrorHandler) for h in root.handlers)
+
+    def test_idempotent(self, log_dir, _enable_error_sink):
         setup_logging("test")
         setup_logging("test")
         root = logging.getLogger()

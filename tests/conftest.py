@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import os
 import random
 from pathlib import Path
 from unittest.mock import patch
@@ -10,7 +11,12 @@ import pytest
 from fastapi.testclient import TestClient
 from pymongo import MongoClient
 
-from cortex.container import Container, reset_container
+# Disable the production MongoDB error sink for the entire test session,
+# including any `cortex` CLI subprocess that inherits this environment.
+# See cortex/observability.py::setup_logging.
+os.environ["CORTEX_DISABLE_ERROR_SINK"] = "1"
+
+from cortex.container import Container, reset_container  # noqa: E402
 
 
 EMBEDDING_DIMS = 768

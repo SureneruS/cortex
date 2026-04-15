@@ -147,16 +147,20 @@ def setup_logging(component: str = "cortex", *, force: bool = False) -> None:
     console_handler.setLevel(logging.CRITICAL)
     console_handler.setFormatter(console_formatter)
 
-    # MongoDB — error sink for dashboard visibility
-    mongo_handler = MongoErrorHandler(component)
-    mongo_handler.setLevel(logging.WARNING)
-
     root = logging.getLogger()
     root.handlers.clear()
     root.addHandler(info_handler)
     root.addHandler(debug_handler)
     root.addHandler(console_handler)
-    root.addHandler(mongo_handler)
+
+    # MongoDB — error sink for dashboard visibility.
+    # Disabled when CORTEX_DISABLE_ERROR_SINK=1 so tests (and subprocesses they
+    # spawn) don't pollute the production `errors` collection.
+    if os.environ.get("CORTEX_DISABLE_ERROR_SINK") != "1":
+        mongo_handler = MongoErrorHandler(component)
+        mongo_handler.setLevel(logging.WARNING)
+        root.addHandler(mongo_handler)
+
     root.setLevel(min(log_level, logging.DEBUG))
 
     # Quiet noisy libraries
