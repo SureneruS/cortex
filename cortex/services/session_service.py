@@ -8,6 +8,13 @@ from pathlib import Path
 import structlog
 
 from cortex.domain.protocols import MessageRepository, SessionRepository, TerminalAdapter
+from cortex.domain.routing import (
+    RESERVED_NAMES,
+    canonical_recipient,
+    is_human_recipient,
+    resolve_actor,
+    sender_type_for,
+)
 
 from cortex.domain.utils import _new_id
 
@@ -536,22 +543,32 @@ class SessionService:
     ) -> dict:
         import uuid
 
-        if recipient != "human":
-            sessions = self._sessions.list({"name": recipient})
-            if not sessions:
-                raise SessionNotFound(recipient)
+        canonical, warning = canonical_recipient(recipient)
+        if warning:
+            log.warning(
+                "deprecated_recipient_alias",
+                requested=recipient, canonical=canonical,
+            )
 
-        sender = os.environ.get("CORTEX_SESSION_NAME", "human")
+        if not is_human_recipient(canonical):
+            sessions = self._sessions.list({"name": canonical})
+            if not sessions:
+                raise SessionNotFound(canonical)
+
+        sender = resolve_actor()
         meta = {
             "type": "request",
-            "sender_type": "human" if sender == "human" else "agent",
+            "sender_type": sender_type_for(sender),
             "priority": "high",
             "thread_id": thread_id or ("t_" + uuid.uuid4().hex[:12]),
         }
         if extra_meta:
             meta.update(extra_meta)
-        msg = self._messages.create(sender, recipient, content, meta=meta)
-        return {"success": True, "msg_id": msg.id, "to": recipient}
+        msg = self._messages.create(sender, canonical, content, meta=meta)
+        result: dict = {"success": True, "msg_id": msg.id, "to": canonical}
+        if warning:
+            result["warning"] = warning
+        return result
 
     # ── Children / Tree ────────────────────────────────────────
 
@@ -598,6 +615,10 @@ class SessionService:
         return next((c for c in CC_COLORS if c not in used), CC_COLORS[0])
 
     def _unique_name(self, name: str) -> str:
+        if name in RESERVED_NAMES:
+            raise SpawnDenied(
+                f"Session name {name!r} is reserved (reserved: {sorted(RESERVED_NAMES)})"
+            )
         existing = self._sessions.list(
             {"name": name, "status": {"$nin": ["completed", "closed", "paused"]}}
         )
@@ -805,7 +826,7 @@ class SessionService:
 
     def _wrapup_via_channels(self, session_name: str, session_id: str, pane_id: str) -> bool:
         self._messages.create(
-            os.environ.get("CORTEX_SESSION_NAME", "human"),
+            resolve_actor(),
             session_name,
             "Session wrapup requested. Please run /session-wrapup, update your status, and exit.",
             meta={"type": "lifecycle", "action": "wrapup", "sender_type": "system", "priority": "high"},

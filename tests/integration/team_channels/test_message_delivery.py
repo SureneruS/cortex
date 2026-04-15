@@ -130,7 +130,7 @@ class TestCLIMessageDelivery:
         runner.invoke(cli, ["session", "message", "target-session", "hello"])
 
         doc = patch_db["messages"].find_one({"to": "target-session"})
-        assert doc["from"] == "human"
+        assert doc["from"] == "suren"
 
     def test_cli_message_returns_success_json(self, patch_db, session_repo):
         session_repo.register("s1", {"name": "target-session", "team": "default", "task": "t"})
@@ -143,14 +143,14 @@ class TestCLIMessageDelivery:
         assert output["success"] is True
         assert "msg_id" in output
 
-    def test_cli_message_sets_human_sender_type(self, patch_db, session_repo):
+    def test_cli_message_sets_suren_sender_type(self, patch_db, session_repo):
         session_repo.register("s1", {"name": "target-session", "team": "default", "task": "t"})
 
         runner = CliRunner()
         runner.invoke(cli, ["session", "message", "target-session", "check this"])
 
         doc = patch_db["messages"].find_one({"to": "target-session"})
-        assert doc["meta"]["sender_type"] == "human"
+        assert doc["meta"]["sender_type"] == "suren"
 
     def test_pending_messages_queryable_before_delivery(self, mongo_db: Database, session_repo):
         session_repo.register("s1", {"name": "target", "team": "default", "task": "t"})

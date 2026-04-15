@@ -69,7 +69,7 @@ def test_billing_error_blocks_session_and_escalates(monkeypatch):
 
     with patch("nova.hooks.stop_failure._cortex_cli", side_effect=fake_cli), \
          patch("nova.hooks.stop_failure._notify", side_effect=fake_notify), \
-         patch("nova.hooks.stop_failure._send_human_message", side_effect=fake_human):
+         patch("nova.hooks.stop_failure._send_suren_message", side_effect=fake_human):
         handle_stop_failure({"error": "billing_error", "error_details": "Payment required"})
 
     # Should block
@@ -94,7 +94,7 @@ def test_auth_error_blocks_and_escalates(monkeypatch):
 
     with patch("nova.hooks.stop_failure._cortex_cli", side_effect=fake_cli), \
          patch("nova.hooks.stop_failure._notify"), \
-         patch("nova.hooks.stop_failure._send_human_message"):
+         patch("nova.hooks.stop_failure._send_suren_message"):
         handle_stop_failure({"error": "authentication_failed"})
 
     update_call = _find_update_call(cli_calls)
@@ -139,7 +139,7 @@ def test_error_details_truncated(monkeypatch):
 
     with patch("nova.hooks.stop_failure._cortex_cli", side_effect=fake_cli), \
          patch("nova.hooks.stop_failure._notify"), \
-         patch("nova.hooks.stop_failure._send_human_message"):
+         patch("nova.hooks.stop_failure._send_suren_message"):
         handle_stop_failure({
             "error": "server_error",
             "error_details": "x" * 1000,

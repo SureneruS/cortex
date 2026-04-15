@@ -83,12 +83,14 @@ def session_repo(mongo_db: Database) -> MongoSessionRepo:
 
 @pytest.fixture
 def patch_db(mongo_db):
-    """Route all CLI get_db() calls to the test database and simulate human operator."""
+    """Route all CLI get_db() calls to the test database and simulate Suren running the CLI."""
     import os
     from cortex.container import reset_container
     reset_container()
     old_name = os.environ.pop("CORTEX_SESSION_NAME", None)
     old_id = os.environ.pop("CORTEX_SESSION_ID", None)
+    old_actor = os.environ.get("CORTEX_ACTOR")
+    os.environ["CORTEX_ACTOR"] = "suren"
     with patch("cortex.mongo.get_db", return_value=mongo_db):
         yield mongo_db
     reset_container()
@@ -96,6 +98,10 @@ def patch_db(mongo_db):
         os.environ["CORTEX_SESSION_NAME"] = old_name
     if old_id:
         os.environ["CORTEX_SESSION_ID"] = old_id
+    if old_actor is None:
+        os.environ.pop("CORTEX_ACTOR", None)
+    else:
+        os.environ["CORTEX_ACTOR"] = old_actor
 
 
 @pytest.fixture

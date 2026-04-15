@@ -137,7 +137,22 @@ describe("send_message", () => {
     expect(count).toBe(0);
   });
 
-  test("human reserved keyword bypasses session validation", async () => {
+  test("suren reserved keyword bypasses session validation", async () => {
+    const result = await handlers.sendMessage({
+      to: "suren",
+      content: "Please review",
+    });
+
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.success).toBe(true);
+    expect(parsed.warning).toBeUndefined();
+
+    const doc = await db.collection("messages").findOne({ to: "suren" });
+    expect(doc).not.toBeNull();
+    expect(doc!.status).toBe("pending");
+  });
+
+  test("legacy 'human' recipient is coerced to 'suren' with a warning", async () => {
     const result = await handlers.sendMessage({
       to: "human",
       content: "Please review",
@@ -145,9 +160,12 @@ describe("send_message", () => {
 
     const parsed = JSON.parse(result.content[0].text);
     expect(parsed.success).toBe(true);
+    expect(parsed.warning).toBeDefined();
+    expect(parsed.warning).toContain("deprecated");
 
-    const doc = await db.collection("messages").findOne({ to: "human" });
-    expect(doc).not.toBeNull();
-    expect(doc!.status).toBe("pending");
+    const surenDoc = await db.collection("messages").findOne({ to: "suren" });
+    expect(surenDoc).not.toBeNull();
+    const humanDoc = await db.collection("messages").findOne({ to: "human" });
+    expect(humanDoc).toBeNull();
   });
 });

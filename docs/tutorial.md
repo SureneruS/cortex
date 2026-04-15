@@ -219,14 +219,16 @@ cortex session message <session-name> "Hey, can you check the API response forma
 
 The message is written to MongoDB as `pending` and the target session's channels MCP polls and delivers it as a `<channel>` notification into Claude's context.
 
-### Send a message to the human (Slack)
+### Send a message to Suren (Slack)
 
-Sessions can send messages to `"human"` which routes through the daemon to Slack:
+Sessions can send messages to `"suren"` which routes through the daemon to Slack:
 
 ```
 # Inside a Claude session (via send_message MCP tool):
-send_message(to="human", content="I found a bug in the auth flow, need your input")
+send_message(to="suren", content="I found a bug in the auth flow, need your input")
 ```
+
+`to="human"` is accepted as a deprecated alias — it's coerced to `"suren"` and the response carries a warning.
 
 ### View message history
 
@@ -237,8 +239,8 @@ cortex session messages
 # Messages for a specific session
 cortex session messages my-worker
 
-# Messages to human
-cortex session messages --to human
+# Messages to Suren
+cortex session messages --to suren
 ```
 
 ### How delivery works
@@ -563,7 +565,7 @@ cortex cron delete <job_id>
 ### What the daemon does
 
 - **Cron executor**: runs due cron jobs on schedule
-- **Human message routing**: polls for `send_message(to="human")` every 10s, delivers via Slack
+- **Suren message routing**: polls for `send_message(to="suren")` every 10s, delivers via Slack (accepts legacy `to="human"` alias)
 - **Stale session detection**: flags sessions that haven't heartbeated
 
 ---
@@ -676,7 +678,7 @@ If the session is unresponsive, Cortex falls back to tmux send-keys, then kills 
 
 ```fish
 # Run a long task in the background
-cortex session spawn --name test-runner --workspace background --prompt "Run the full E2E test suite and report results via send_message(to='human')"
+cortex session spawn --name test-runner --workspace background --prompt "Run the full E2E test suite and report results via send_message(to='suren')"
 ```
 
 Background sessions are invisible but still registered and monitored.

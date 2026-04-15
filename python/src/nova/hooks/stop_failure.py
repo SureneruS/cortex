@@ -56,8 +56,8 @@ def _notify(title: str, message: str) -> None:
         pass
 
 
-def _send_human_message(content: str) -> None:
-    _cortex_cli("session", "send", "human", content)
+def _send_suren_message(content: str) -> None:
+    _cortex_cli("session", "send", "suren", content)
 
 
 def handle_stop_failure(hook_input: dict) -> dict:
@@ -91,7 +91,7 @@ def handle_stop_failure(hook_input: dict) -> dict:
     if error_type in ESCALATE_ERRORS:
         msg = f"Session '{name}' hit {error_type} — blocked and needs attention"
         _notify("Error", msg)
-        _send_human_message(msg)
+        _send_suren_message(msg)
     elif error_type in NOTIFY_ERRORS:
         _notify(name, f"{error_type}: {str(error_details)[:100]}")
 

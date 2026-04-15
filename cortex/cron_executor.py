@@ -13,13 +13,22 @@ from pathlib import Path
 
 import structlog
 
+from cortex.domain.routing import (
+    HUMAN_RECIPIENT,
+    HUMAN_SENDER_TYPE,
+    LEGACY_HUMAN_RECIPIENT,
+)
+
 log = structlog.get_logger("cortex.daemon")
 
 POLL_INTERVAL = 60
-HUMAN_MSG_POLL_INTERVAL = 10
+SUREN_MSG_POLL_INTERVAL = 10
 HEALTH_CHECK_INTERVAL = 30
 HEALTH_MISS_THRESHOLD = 5
 ARCHIVE_AFTER_DAYS = 7
+
+FALLBACK_MESSAGES_DIR = Path.home() / ".cortex" / f"{HUMAN_RECIPIENT}-messages"
+LEGACY_FALLBACK_MESSAGES_DIR = Path.home() / ".cortex" / f"{LEGACY_HUMAN_RECIPIENT}-messages"
 
 
 def _log_activity(db, kind: str, summary: str, **details) -> None:
@@ -315,8 +324,8 @@ def _get_session_thread(db, session_name: str) -> tuple[str | None, str | None]:
     return None, None
 
 
-def deliver_human_messages(db) -> None:
-    """Poll for to='human' pending messages and deliver via Arc Slack.
+def deliver_suren_messages(db) -> None:
+    """Poll for messages routed to Suren (to='suren', legacy alias 'human') and deliver via Arc Slack.
 
     Groups messages into one Slack thread per session — first message from a session
     creates a new thread, subsequent messages reply in it.
@@ -325,7 +334,9 @@ def deliver_human_messages(db) -> None:
 
     messages_col = db["messages"]
     pending = list(
-        messages_col.find({"to": "human", "status": "pending"})
+        messages_col.find(
+            {"to": {"$in": [HUMAN_RECIPIENT, LEGACY_HUMAN_RECIPIENT]}, "status": "pending"}
+        )
         .sort("created_at", 1)
         .limit(10)
     )
@@ -362,22 +373,19 @@ def deliver_human_messages(db) -> None:
                         {"$set": {"slack_thread_ts": slack_ts, "slack_channel": channel}},
                     )
                     _thread_session_map[slack_ts] = sender
-                log.info("human_msg_delivered", msg_id=msg["_id"], sender=sender, thread_ts=thread_ts or slack_ts)
+                log.info("suren_msg_delivered", msg_id=msg["_id"], sender=sender, thread_ts=thread_ts or slack_ts)
             except Exception as e:
-                log.error("human_msg_slack_failed", msg_id=msg["_id"], error=str(e))
-                _write_human_message_fallback(msg)
+                log.error("suren_msg_slack_failed", msg_id=msg["_id"], error=str(e))
+                _write_suren_message_fallback(msg)
         else:
-            log.warning("human_msg_no_slack", msg_id=msg["_id"])
-            _write_human_message_fallback(msg)
+            log.warning("suren_msg_no_slack", msg_id=msg["_id"])
+            _write_suren_message_fallback(msg)
 
 
-def _write_human_message_fallback(msg: dict) -> None:
-    """Write undelivered human message to file for manual pickup."""
-    from pathlib import Path
-
-    fallback_dir = Path.home() / ".cortex" / "human-messages"
-    fallback_dir.mkdir(parents=True, exist_ok=True)
-    fallback_file = fallback_dir / f"{msg['_id']}.txt"
+def _write_suren_message_fallback(msg: dict) -> None:
+    """Write undelivered Suren message to file for manual pickup."""
+    FALLBACK_MESSAGES_DIR.mkdir(parents=True, exist_ok=True)
+    fallback_file = FALLBACK_MESSAGES_DIR / f"{msg['_id']}.txt"
     fallback_file.write_text(
         f"From: {msg.get('from', '?')}\n"
         f"Time: {msg.get('created_at', '?')}\n"
@@ -385,7 +393,34 @@ def _write_human_message_fallback(msg: dict) -> None:
         f"---\n"
         f"{msg.get('content', '')}\n"
     )
-    log.info("human_msg_fallback_written", path=str(fallback_file))
+    log.info("suren_msg_fallback_written", path=str(fallback_file))
+
+
+def _migrate_legacy_fallback_dir() -> None:
+    """One-shot migration: move files from ~/.cortex/human-messages/ to ~/.cortex/suren-messages/."""
+    if not LEGACY_FALLBACK_MESSAGES_DIR.is_dir():
+        return
+    FALLBACK_MESSAGES_DIR.mkdir(parents=True, exist_ok=True)
+    moved = 0
+    for src in LEGACY_FALLBACK_MESSAGES_DIR.iterdir():
+        if not src.is_file():
+            continue
+        dst = FALLBACK_MESSAGES_DIR / src.name
+        if dst.exists():
+            continue
+        src.rename(dst)
+        moved += 1
+    try:
+        LEGACY_FALLBACK_MESSAGES_DIR.rmdir()
+    except OSError:
+        pass
+    if moved:
+        log.info(
+            "fallback_dir_migrated",
+            moved=moved,
+            from_=str(LEGACY_FALLBACK_MESSAGES_DIR),
+            to=str(FALLBACK_MESSAGES_DIR),
+        )
 
 
 # ── Inbound: Slack replies → session messages ──────────────────
@@ -415,7 +450,7 @@ def handle_slack_message_event(
     channel: str,
     bot_user_id: str | None,
 ) -> None:
-    """Handle an inbound Slack message event. Creates a from='human' message if it's
+    """Handle an inbound Slack message event. Creates a from='suren' message if it's
     a threaded reply to a known session thread."""
     if not thread_ts:
         return
@@ -435,12 +470,12 @@ def handle_slack_message_event(
 
     db["messages"].insert_one({
         "_id": msg_id,
-        "from": "human",
+        "from": HUMAN_RECIPIENT,
         "to": session_name,
         "content": text,
         "meta": {
             "type": "reply",
-            "sender_type": "human",
+            "sender_type": HUMAN_SENDER_TYPE,
             "priority": "high",
             "slack_ts": ts,
         },
@@ -616,6 +651,7 @@ def run() -> None:
     session_repo = MongoSessionRepo(db)
 
     _sweep_stale_daemons(session_repo)
+    _migrate_legacy_fallback_dir()
 
     _daemon_id = _new_id()
     session_repo.register(
@@ -640,12 +676,12 @@ def run() -> None:
     try:
         while not _shutdown_requested:
             try:
-                deliver_human_messages(db)
+                deliver_suren_messages(db)
             except Exception as e:
-                log.error("human_msg_delivery_error", error=str(e))
+                log.error("suren_msg_delivery_error", error=str(e))
 
             # Health check every HEALTH_CHECK_INTERVAL seconds
-            health_counter += HUMAN_MSG_POLL_INTERVAL
+            health_counter += SUREN_MSG_POLL_INTERVAL
             if health_counter >= HEALTH_CHECK_INTERVAL:
                 health_counter = 0
                 try:
@@ -655,7 +691,7 @@ def run() -> None:
                 except Exception as e:
                     log.error("health_check_error", error=str(e))
 
-            cron_counter += HUMAN_MSG_POLL_INTERVAL
+            cron_counter += SUREN_MSG_POLL_INTERVAL
             if cron_counter >= POLL_INTERVAL:
                 cron_counter = 0
                 try:
@@ -678,7 +714,7 @@ def run() -> None:
                 except Exception as e:
                     log.error("cron_loop_error", error=str(e), exc_info=True)
 
-            time.sleep(HUMAN_MSG_POLL_INTERVAL)
+            time.sleep(SUREN_MSG_POLL_INTERVAL)
     finally:
         log.info("daemon_shutting_down")
         if _socket_mode_client:

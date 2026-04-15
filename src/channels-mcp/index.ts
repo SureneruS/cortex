@@ -10,6 +10,12 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { MongoClient, type Collection, type Db } from "mongodb";
 
+import {
+  AGENT_SENDER_TYPE,
+  canonicalRecipient,
+  isHumanRecipient,
+} from "./routing.js";
+
 // ── Types (keep in sync with cortex/models.py) ──────────────
 
 interface Message {
@@ -176,7 +182,7 @@ const SESSION_ROLE = process.env.CORTEX_SESSION_ROLE || "worker";
 
 const BASE_INSTRUCTIONS = `Messages from other sessions arrive AUTOMATICALLY as <channel source="cortex-team" from="..." type="..." ...> notifications. You do NOT need to poll for them — they are pushed into your context between turns.
 
-Use send_message to communicate with other sessions or the human operator.
+Use send_message to communicate with other sessions or Suren (the operator).
 Use get_status to see who's active and what they're working on.
 Use get_messages ONLY to recover messages you might have missed (e.g. after context compaction). Do NOT use it to wait for replies — replies arrive as channel notifications automatically.
 
@@ -197,7 +203,7 @@ Message priority:
 Reporting:
 - If you have a parent session (CORTEX_PARENT_NAME is set), report to your parent via send_message.
 - Otherwise, report progress, blockers, and completion to the control session via send_message.
-- For urgent issues needing human attention, use send_message(to="human") — delivered via Slack.
+- For urgent issues needing Suren's attention, use send_message(to="suren") — delivered via Slack.
 
 Sub-workers:
 - You can spawn sub-workers with \`cortex session spawn --name <name> --repo <repo> --prompt "..."\`
@@ -212,9 +218,9 @@ When you receive a message while working:
 
 const CONTROL_INSTRUCTIONS = `${BASE_INSTRUCTIONS}
 
-You are the CONTROL session — the coordinator between the human and all worker sessions.
+You are the CONTROL session — the coordinator between Suren and all worker sessions.
 
-CRITICAL: You NEVER do implementation work. No reading code, no writing code, no running tests, no exploring codebases. When the human asks for any task, your FIRST action is to spawn a worker session for it.
+CRITICAL: You NEVER do implementation work. No reading code, no writing code, no running tests, no exploring codebases. When Suren asks for any task, your FIRST action is to spawn a worker session for it.
 
 Your only actions:
 - Spawn workers: ALWAYS use \`cortex session spawn\` — never use the Agent tool or \`claude -p\`
@@ -229,10 +235,10 @@ Spawn + prompt delivery:
 - Only retry once. If still no reply after the second attempt, report the issue.
 
 Message handling:
-- Worker status updates: track progress, relay to human if noteworthy
-- Worker questions: answer if you can, escalate to human via send_message(to="human") if not
+- Worker status updates: track progress, relay to Suren if noteworthy
+- Worker questions: answer if you can, escalate to Suren via send_message(to="suren") if not
 - Worker blockers: help unblock or reassign work
-- Human messages: translate into worker instructions and spawn/message workers`;
+- Messages from Suren: translate into worker instructions and spawn/message workers`;
 
 const INSTRUCTIONS = SESSION_ROLE === "control" ? CONTROL_INSTRUCTIONS : WORKER_INSTRUCTIONS;
 
@@ -255,13 +261,13 @@ const TOOLS = [
   {
     name: "send_message",
     description:
-      "Send a message to a specific team session or to 'human' for the human operator",
+      "Send a message to a specific team session or to 'suren' to reach Suren (the operator). 'human' is accepted as a deprecated alias.",
     inputSchema: {
       type: "object" as const,
       properties: {
         to: {
           type: "string",
-          description: "Target session name, or 'human' for the human operator",
+          description: "Target session name, or 'suren' to reach Suren via Slack. ('human' is a deprecated alias for 'suren'.)",
         },
         content: {
           type: "string",
@@ -368,10 +374,11 @@ async function handleSendMessage(args: Record<string, unknown>) {
     };
   }
 
-  // Validate recipient: "human" is reserved, otherwise check session registry
-  if (to !== "human") {
+  // Coerce legacy "human" → "suren"; "suren" is reserved, otherwise check session registry
+  const { canonical, warning } = canonicalRecipient(to);
+  if (!isHumanRecipient(canonical)) {
     const target = await sessions.findOne({
-      name: to,
+      name: canonical,
       status: { $nin: ["completed", "closed"] },
     });
     if (!target) {
@@ -381,7 +388,7 @@ async function handleSendMessage(args: Record<string, unknown>) {
             type: "text",
             text: JSON.stringify({
               success: false,
-              error: `Session '${to}' not found among active sessions`,
+              error: `Session '${canonical}' not found among active sessions`,
             }),
           },
         ],
@@ -395,11 +402,11 @@ async function handleSendMessage(args: Record<string, unknown>) {
   const doc: Message = {
     _id: msgId,
     from: SESSION_NAME!,
-    to,
+    to: canonical,
     content,
     meta: {
       type: "notification",
-      sender_type: "agent",
+      sender_type: AGENT_SENDER_TYPE,
       priority: "normal",
       ...meta,
     },
@@ -409,12 +416,15 @@ async function handleSendMessage(args: Record<string, unknown>) {
   };
 
   await messages.insertOne(doc);
-  log("info", "Message sent", { msg_id: msgId, to, content_len: content.length });
+  log("info", "Message sent", { msg_id: msgId, to: canonical, content_len: content.length });
+  if (warning) {
+    log("warn", "Deprecated recipient alias", { requested: to, canonical });
+  }
 
+  const payload: Record<string, unknown> = { success: true, msg_id: msgId };
+  if (warning) payload.warning = warning;
   return {
-    content: [
-      { type: "text", text: JSON.stringify({ success: true, msg_id: msgId }) },
-    ],
+    content: [{ type: "text", text: JSON.stringify(payload) }],
   };
 }
 

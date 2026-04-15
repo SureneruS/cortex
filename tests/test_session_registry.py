@@ -494,7 +494,7 @@ def _seed_session_with_pane(cli_db):
 
 
 def _no_session_env():
-    """Remove CORTEX_SESSION_ID so close permission check sees 'human' (always allowed)."""
+    """Remove CORTEX_SESSION_ID so close permission check sees Suren (always allowed)."""
     env = {k: v for k, v in os.environ.items() if k != "CORTEX_SESSION_ID"}
     return patch.dict(os.environ, env, clear=True)
 
@@ -901,9 +901,23 @@ class TestSpawnLimit:
         assert code == 0
 
 
+class TestReservedSessionNames:
+    def test_spawn_rejects_suren_name(self, _patch_cli_db, cli_db):
+        with patch("cortex.adapters.tmux.TmuxAdapter.pane_exists", return_value=False):
+            code, output = _run_cli(["session", "spawn", "--name", "suren"])
+        assert code == 1
+        assert "reserved" in output["error"].lower()
+
+    def test_spawn_rejects_legacy_human_name(self, _patch_cli_db, cli_db):
+        with patch("cortex.adapters.tmux.TmuxAdapter.pane_exists", return_value=False):
+            code, output = _run_cli(["session", "spawn", "--name", "human"])
+        assert code == 1
+        assert "reserved" in output["error"].lower()
+
+
 class TestClosePermission:
-    def test_human_can_close_any(self, _patch_cli_db, _seed_session):
-        """No CORTEX_SESSION_ID means human — can close any session."""
+    def test_suren_can_close_any(self, _patch_cli_db, _seed_session):
+        """No CORTEX_SESSION_ID means Suren is running the CLI — can close any session."""
         with (
             _no_session_env(),
             patch("cortex.adapters.tmux.TmuxAdapter.pane_exists", return_value=False),

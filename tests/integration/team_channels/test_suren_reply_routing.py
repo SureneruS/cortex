@@ -1,9 +1,9 @@
 """
-Test: human reply routing via Slack.
+Test: Suren reply routing via Slack.
 
-Covers bidirectional human<->session messaging:
+Covers bidirectional Suren<->session messaging:
 - Outbound: session messages grouped into one Slack thread per session
-- Inbound: human replies in Slack thread routed back to originating session
+- Inbound: Suren's Slack replies routed back to the originating session as from='suren'
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ import pytest
 from pymongo.database import Database
 
 from cortex.cron_executor import (
-    deliver_human_messages,
+    deliver_suren_messages,
     handle_slack_message_event,
     _thread_session_map,
 )
@@ -43,6 +43,9 @@ def mock_slack():
         yield poster
 
 
+FAKE_SUREN_USER_ID = "U_SUREN"
+
+
 class TestOutboundThreading:
     """First message from a session creates a new Slack thread; subsequent messages reuse it."""
 
@@ -50,9 +53,9 @@ class TestOutboundThreading:
         self, mongo_db: Database, session_repo: MongoSessionRepo, mock_slack
     ):
         session_repo.register("s1", {"name": "worker-1", "status": "active"})
-        _insert_message(mongo_db, from_="worker-1", to="human", content="First message")
+        _insert_message(mongo_db, from_="worker-1", to="suren", content="First message")
 
-        deliver_human_messages(mongo_db)
+        deliver_suren_messages(mongo_db)
 
         mock_slack.post_notification.assert_called_once()
         call_kwargs = mock_slack.post_notification.call_args
@@ -62,9 +65,9 @@ class TestOutboundThreading:
         self, mongo_db: Database, session_repo: MongoSessionRepo, mock_slack
     ):
         session_repo.register("s1", {"name": "worker-1", "status": "active"})
-        _insert_message(mongo_db, from_="worker-1", to="human", content="First message")
+        _insert_message(mongo_db, from_="worker-1", to="suren", content="First message")
 
-        deliver_human_messages(mongo_db)
+        deliver_suren_messages(mongo_db)
 
         session = session_repo.resolve("worker-1")
         assert session["slack_thread_ts"] == FAKE_SLACK_TS
@@ -77,9 +80,9 @@ class TestOutboundThreading:
         # Simulate first message already delivered — session has thread_ts
         session_repo.update("s1", {"slack_thread_ts": FAKE_SLACK_TS, "slack_channel": FAKE_SLACK_CHANNEL})
 
-        _insert_message(mongo_db, from_="worker-1", to="human", content="Second message")
+        _insert_message(mongo_db, from_="worker-1", to="suren", content="Second message")
 
-        deliver_human_messages(mongo_db)
+        deliver_suren_messages(mongo_db)
 
         mock_slack.post_notification.assert_called_once()
         call_kwargs = mock_slack.post_notification.call_args
@@ -93,10 +96,10 @@ class TestOutboundThreading:
 
         mock_slack.post_notification.side_effect = ["1712345678.000100", "1712345678.000200"]
 
-        _insert_message(mongo_db, from_="worker-1", to="human", content="From worker 1")
-        _insert_message(mongo_db, from_="worker-2", to="human", content="From worker 2")
+        _insert_message(mongo_db, from_="worker-1", to="suren", content="From worker 1")
+        _insert_message(mongo_db, from_="worker-2", to="suren", content="From worker 2")
 
-        deliver_human_messages(mongo_db)
+        deliver_suren_messages(mongo_db)
 
         s1 = session_repo.resolve("worker-1")
         s2 = session_repo.resolve("worker-2")
@@ -106,22 +109,22 @@ class TestOutboundThreading:
         self, mongo_db: Database, session_repo: MongoSessionRepo, mock_slack
     ):
         session_repo.register("s1", {"name": "worker-1", "status": "active"})
-        _insert_message(mongo_db, from_="worker-1", to="human", content="First")
+        _insert_message(mongo_db, from_="worker-1", to="suren", content="First")
 
-        deliver_human_messages(mongo_db)
+        deliver_suren_messages(mongo_db)
 
         assert _thread_session_map.get(FAKE_SLACK_TS) == "worker-1"
 
 
 class TestInboundRouting:
-    """Human replies in Slack thread are routed back to the originating session."""
+    """Suren's Slack thread replies are routed back to the originating session."""
 
     def test_threaded_reply_creates_pending_message(self, mongo_db: Database):
         _thread_session_map[FAKE_SLACK_TS] = "worker-1"
 
         handle_slack_message_event(
             mongo_db,
-            user="U_HUMAN",
+            user=FAKE_SUREN_USER_ID,
             text="Yes, go ahead",
             thread_ts=FAKE_SLACK_TS,
             ts="1712345680.000200",
@@ -129,12 +132,12 @@ class TestInboundRouting:
             bot_user_id=FAKE_BOT_USER_ID,
         )
 
-        reply = mongo_db["messages"].find_one({"from": "human", "to": "worker-1"})
+        reply = mongo_db["messages"].find_one({"from": "suren", "to": "worker-1"})
         assert reply is not None
         assert reply["content"] == "Yes, go ahead"
         assert reply["status"] == "pending"
         assert reply["meta"]["type"] == "reply"
-        assert reply["meta"]["sender_type"] == "human"
+        assert reply["meta"]["sender_type"] == "suren"
         assert reply["meta"]["priority"] == "high"
 
     def test_bot_replies_ignored(self, mongo_db: Database):
@@ -150,13 +153,13 @@ class TestInboundRouting:
             bot_user_id=FAKE_BOT_USER_ID,
         )
 
-        replies = list(mongo_db["messages"].find({"from": "human"}))
+        replies = list(mongo_db["messages"].find({"from": "suren"}))
         assert len(replies) == 0
 
     def test_non_threaded_message_ignored(self, mongo_db: Database):
         handle_slack_message_event(
             mongo_db,
-            user="U_HUMAN",
+            user=FAKE_SUREN_USER_ID,
             text="Random DM",
             thread_ts=None,
             ts="1712345680.000200",
@@ -164,13 +167,13 @@ class TestInboundRouting:
             bot_user_id=FAKE_BOT_USER_ID,
         )
 
-        replies = list(mongo_db["messages"].find({"from": "human"}))
+        replies = list(mongo_db["messages"].find({"from": "suren"}))
         assert len(replies) == 0
 
     def test_unknown_thread_ignored(self, mongo_db: Database):
         handle_slack_message_event(
             mongo_db,
-            user="U_HUMAN",
+            user=FAKE_SUREN_USER_ID,
             text="Reply to unknown thread",
             thread_ts="9999999999.000000",
             ts="1712345680.000200",
@@ -178,7 +181,7 @@ class TestInboundRouting:
             bot_user_id=FAKE_BOT_USER_ID,
         )
 
-        replies = list(mongo_db["messages"].find({"from": "human"}))
+        replies = list(mongo_db["messages"].find({"from": "suren"}))
         assert len(replies) == 0
 
     def test_cache_miss_falls_back_to_db(
@@ -194,7 +197,7 @@ class TestInboundRouting:
 
         handle_slack_message_event(
             mongo_db,
-            user="U_HUMAN",
+            user=FAKE_SUREN_USER_ID,
             text="Reply after restart",
             thread_ts=FAKE_SLACK_TS,
             ts="1712345680.000200",
@@ -202,7 +205,7 @@ class TestInboundRouting:
             bot_user_id=FAKE_BOT_USER_ID,
         )
 
-        reply = mongo_db["messages"].find_one({"from": "human", "to": "worker-1"})
+        reply = mongo_db["messages"].find_one({"from": "suren", "to": "worker-1"})
         assert reply is not None
         # Cache should be repopulated
         assert _thread_session_map[FAKE_SLACK_TS] == "worker-1"
@@ -213,7 +216,7 @@ class TestInboundRouting:
         for i, ts in enumerate(["1712345680.000200", "1712345680.000300"]):
             handle_slack_message_event(
                 mongo_db,
-                user="U_HUMAN",
+                user=FAKE_SUREN_USER_ID,
                 text=f"Reply {i}",
                 thread_ts=FAKE_SLACK_TS,
                 ts=ts,
@@ -221,5 +224,5 @@ class TestInboundRouting:
                 bot_user_id=FAKE_BOT_USER_ID,
             )
 
-        replies = list(mongo_db["messages"].find({"from": "human", "to": "worker-1"}))
+        replies = list(mongo_db["messages"].find({"from": "suren", "to": "worker-1"}))
         assert len(replies) == 2

@@ -16,7 +16,7 @@
 ## Message Schema
 
 - **`from` exists at two levels.** Top-level in the MongoDB document (for query efficiency) AND copied into channel notification meta attributes at delivery time. The document is the source of truth.
-- **`"human"` is a reserved `to` value.** Bypasses session registry validation. Daemon polls for these and delivers via Slack.
+- **`"suren"` is the reserved `to` value.** Bypasses session registry validation. Daemon polls for these and delivers via Slack. `"human"` is accepted as a deprecated alias — coerced to `"suren"` on write, response carries a `warning`.
 - **`"expired"` status for cancelled messages**, not `"delivered"`. Use when killing sessions or sweeping stale ones — distinguishes "reached recipient" from "cancelled."
 - **10KB content limit.** For larger payloads, write to shared memory or a file and send the path.
 - **Meta keys: letters, digits, underscores only.** CC silently drops hyphens. Validate before emitting.

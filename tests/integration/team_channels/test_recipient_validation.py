@@ -103,17 +103,34 @@ class TestRecipientValidation:
         # raw-sess-id is the _id, not the name — should fail validation
         assert result.exit_code != 0
 
-    def test_human_reserved_keyword_bypasses_validation(self, patch_db):
-        """Sending to 'human' must not require a registered session."""
+    def test_suren_reserved_keyword_bypasses_validation(self, patch_db):
+        """Sending to 'suren' must not require a registered session."""
+        runner = CliRunner()
+        result = runner.invoke(cli, ["session", "message", "suren", "please review this"])
+
+        assert result.exit_code == 0
+
+    def test_legacy_human_keyword_is_accepted_and_coerced(self, patch_db):
+        """Legacy 'human' still bypasses validation (it's coerced to 'suren')."""
         runner = CliRunner()
         result = runner.invoke(cli, ["session", "message", "human", "please review this"])
 
         assert result.exit_code == 0
 
-    def test_human_message_written_to_mongodb(self, patch_db):
+    def test_suren_message_written_to_mongodb(self, patch_db):
         runner = CliRunner()
-        runner.invoke(cli, ["session", "message", "human", "check on the build please"])
+        runner.invoke(cli, ["session", "message", "suren", "check on the build please"])
 
-        doc = patch_db["messages"].find_one({"to": "human"})
+        doc = patch_db["messages"].find_one({"to": "suren"})
         assert doc is not None
         assert doc["content"] == "check on the build please"
+
+    def test_legacy_human_message_rewritten_to_suren(self, patch_db):
+        """A `to='human'` write lands as `to='suren'` in MongoDB."""
+        runner = CliRunner()
+        runner.invoke(cli, ["session", "message", "human", "legacy build ping"])
+
+        assert patch_db["messages"].find_one({"to": "human"}) is None
+        doc = patch_db["messages"].find_one({"to": "suren"})
+        assert doc is not None
+        assert doc["content"] == "legacy build ping"

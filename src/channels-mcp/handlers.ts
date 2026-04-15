@@ -10,6 +10,12 @@
 
 import type { Db } from "mongodb";
 
+import {
+  AGENT_SENDER_TYPE,
+  canonicalRecipient,
+  isHumanRecipient,
+} from "./routing.js";
+
 export interface Transport {
   deliver(content: string, meta: Record<string, string>): Promise<void>;
 }
@@ -67,13 +73,15 @@ export function buildHandlers(db: Db, sessionName: string, sessionId?: string) {
       );
     }
 
-    if (to !== "human") {
+    const { canonical, warning } = canonicalRecipient(to);
+
+    if (!isHumanRecipient(canonical)) {
       const target = await sessions.findOne({
-        name: to,
+        name: canonical,
         status: { $nin: ["completed", "closed"] },
       });
       if (!target) {
-        return err(`Session '${to}' not found among active sessions`);
+        return err(`Session '${canonical}' not found among active sessions`);
       }
     }
 
@@ -83,11 +91,11 @@ export function buildHandlers(db: Db, sessionName: string, sessionId?: string) {
     const doc = {
       _id: msgId,
       from: sessionName,
-      to,
+      to: canonical,
       content,
       meta: {
         type: "notification",
-        sender_type: "agent",
+        sender_type: AGENT_SENDER_TYPE,
         priority: "normal",
         ...meta,
       },
@@ -97,7 +105,9 @@ export function buildHandlers(db: Db, sessionName: string, sessionId?: string) {
     };
 
     await messages.insertOne(doc);
-    return ok({ success: true, msg_id: msgId });
+    const payload: Record<string, unknown> = { success: true, msg_id: msgId };
+    if (warning) payload.warning = warning;
+    return ok(payload);
   }
 
   async function deliverPending(transport: Transport): Promise<void> {

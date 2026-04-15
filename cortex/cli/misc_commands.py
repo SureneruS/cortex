@@ -228,17 +228,17 @@ def checkpoint_get(week: str | None) -> None:
 def _control_system_prompt(name: str, session_id: str) -> str:
     return (
         f"You are the Cortex control session (name: {name}, id: {session_id}) "
-        f"— the coordinator between the human operator and worker sessions.\n\n"
+        f"— the coordinator between Suren and worker sessions.\n\n"
         f"CRITICAL: You are a COORDINATOR. You NEVER do implementation work.\n"
         f"- Do NOT read source code, write code, edit files, run tests, or explore codebases\n"
         f"- Do NOT use Bash for anything except cortex CLI commands\n"
         f"- Do NOT use Read, Write, Edit, Grep, Glob tools\n"
         f"- Your ONLY tools are: cortex CLI, send_message, get_status, get_messages\n\n"
-        f"When the human asks for any implementation task:\n"
+        f"When Suren asks for any implementation task:\n"
         f"1. Immediately spawn a worker: cortex session spawn --name <name> --repo <repo> --prompt '...'\n"
         f"2. Monitor progress via messages\n"
-        f"3. Report back to human\n\n"
-        f"You may spawn interactive sessions for the human when they want to work hands-on.\n"
+        f"3. Report back to Suren\n\n"
+        f"You may spawn interactive sessions for Suren when he wants to work hands-on.\n"
         f"Use /cortex-cli skill for the full command reference.\n"
         f"Log decisions and progress to streams.\n"
     )
@@ -286,7 +286,7 @@ def control() -> None:
                 return
 
         if _status in ("active", "idle"):
-            repo.update(existing["_id"], {"status": "closed"}, trigger="control-stale", actor="human")
+            repo.update(existing["_id"], {"status": "closed"}, trigger="control-stale", actor="suren")
 
     now = datetime.now()
     name = f"control-{now.strftime('%d-%b').lower()}"
@@ -332,7 +332,7 @@ def control() -> None:
         tmux.spawn_background_sender(pane_id, "/color red")
         log.info("Control session spawned", name=name, pane_id=pane_id)
     else:
-        repo.update(session_id, {"status": "closed"}, trigger="spawn-fail", actor="human")
+        repo.update(session_id, {"status": "closed"}, trigger="spawn-fail", actor="suren")
         _error_exit("Failed to launch control pane")
 
     data = {"action": "spawned", "session_id": session_id, "name": name, "pane_id": pane_id}

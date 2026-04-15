@@ -141,7 +141,7 @@ No sidebar navigation. No traditional SPA pages. The UI is a **layered stack** â
 - Session scoping: click a session to see only its events
 - Compose bar with recipient dropdown
 
-**Message sending**: Always as "human" â€” the operator. Recipient picker shows all active sessions + "all" broadcast.
+**Message sending**: Always as "suren" â€” the operator. Recipient picker shows all active sessions + "all" broadcast.
 
 ### 4. Settings
 
@@ -171,7 +171,7 @@ No sidebar navigation. No traditional SPA pages. The UI is a **layered stack** â
 - Teleport to any layer from anywhere
 
 ### Notifications
-- Toast notifications for real-time events: session died, message received for human, alert triggered
+- Toast notifications for real-time events: session died, message received for Suren, alert triggered
 - Notification icon with badge count
 
 ### Status Bar
