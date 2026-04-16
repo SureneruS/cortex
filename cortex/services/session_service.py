@@ -788,6 +788,19 @@ class SessionService:
 
     def _deliver_prompt(self, session_id: str, session_name: str, prompt: str) -> None:
         """Deliver prompt via channels with readiness gate and reply verification."""
+        spawned_by = os.environ.get("CORTEX_SESSION_NAME", "cli")
+        sent_at = datetime.now(timezone.utc).isoformat()
+
+        # Queue the prompt immediately. The TS MCP's 1s post-oninitialized delay
+        # covers the silent-drop race, so writing before channel_status=ready is
+        # safe and ensures the prompt survives slow CC startups that exceed the
+        # readiness-gate timeout below.
+        self._messages.create(
+            spawned_by, session_name, prompt,
+            meta={"type": "prompt", "sender_type": "system", "priority": "high"},
+        )
+        log.info("Prompt sent via channels", session=session_name)
+
         # Wait for channel_status="ready" (set by channels MCP on oninitialized)
         for _ in range(60):
             doc = self._sessions.get(session_id)
@@ -795,17 +808,11 @@ class SessionService:
                 break
             time.sleep(1)
         else:
-            log.warning("Channel readiness timeout", session=session_name)
+            log.info(
+                "MCP readiness pending — prompt queued, TS MCP will deliver when ready",
+                session=session_name,
+            )
             return
-
-        spawned_by = os.environ.get("CORTEX_SESSION_NAME", "cli")
-        sent_at = datetime.now(timezone.utc).isoformat()
-
-        self._messages.create(
-            spawned_by, session_name, prompt,
-            meta={"type": "prompt", "sender_type": "system", "priority": "high"},
-        )
-        log.info("Prompt sent via channels", session=session_name)
 
         # Wait for reply to confirm delivery
         for _ in range(15):

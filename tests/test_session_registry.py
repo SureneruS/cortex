@@ -901,6 +901,96 @@ class TestSpawnLimit:
         assert code == 0
 
 
+class TestSpawnPromptDelivery:
+    """Spawn must queue --prompt in MongoDB even if the spawned MCP is slow to initialize."""
+
+    def test_prompt_queued_when_mcp_readiness_times_out(self, _patch_cli_db, cli_db):
+        # Simulates a cold CC spawn where MCP takes longer than the readiness gate
+        # to signal channel_status=ready. The prompt must still be queued in MongoDB
+        # so the TS MCP can deliver it once CC finishes starting.
+        with (
+            patch("cortex.adapters.tmux.TmuxAdapter.create_interactive_pane", return_value="%99"),
+            patch("cortex.adapters.tmux.TmuxAdapter.send_text"),
+            patch("cortex.adapters.tmux.TmuxAdapter.send_keys"),
+            patch("cortex.adapters.tmux.TmuxAdapter.spawn_background_sender"),
+            patch("cortex.adapters.tmux.TmuxAdapter.pane_exists", return_value=True),
+            patch("time.sleep"),
+        ):
+            code, output = _run_cli([
+                "session", "spawn",
+                "--name", "slow-mcp-worker",
+                "--prompt", "hello from test",
+            ])
+
+        assert code == 0, f"Spawn failed: {output}"
+
+        msgs = list(cli_db["messages"].find({"to": "slow-mcp-worker"}))
+        cli_db.drop_collection("messages")
+        assert len(msgs) == 1, f"Expected 1 prompt message, got {len(msgs)}: {msgs}"
+        assert msgs[0]["meta"]["type"] == "prompt"
+        assert msgs[0]["content"] == "hello from test"
+        assert msgs[0]["status"] == "pending"
+
+    def test_prompt_confirmed_when_mcp_ready_and_reply_arrives(self, _patch_cli_db, cli_db, monkeypatch):
+        # When MCP signals ready and the worker replies after the prompt is written,
+        # has_replies finds the reply and no resend happens.
+        import uuid
+        from cortex.domain.utils import _now
+
+        # Spawner runs as "cli" (no parent session env vars), so the worker's
+        # confirming reply should target "cli".
+        monkeypatch.delenv("CORTEX_SESSION_NAME", raising=False)
+        monkeypatch.delenv("CORTEX_SESSION_ID", raising=False)
+        cli_db.drop_collection("messages")
+
+        state = {"ready": False, "replied": False}
+        reply_id = "reply-" + uuid.uuid4().hex[:8]
+
+        def _simulate_ready_and_reply(_ignored):
+            if not state["ready"]:
+                cli_db["session_registry"].update_one(
+                    {"name": "fast-worker"}, {"$set": {"channel_status": "ready"}}
+                )
+                state["ready"] = True
+                return
+            if state["replied"]:
+                return
+            if cli_db["messages"].find_one({"to": "fast-worker", "meta.type": "prompt"}):
+                cli_db["messages"].insert_one({
+                    "_id": reply_id,
+                    "from": "fast-worker",
+                    "to": "cli",
+                    "content": "ack",
+                    "meta": {"type": "status_update"},
+                    "status": "delivered",
+                    "created_at": _now(),
+                    "delivered_at": _now(),
+                })
+                state["replied"] = True
+
+        with (
+            patch("cortex.adapters.tmux.TmuxAdapter.create_interactive_pane", return_value="%99"),
+            patch("cortex.adapters.tmux.TmuxAdapter.send_text"),
+            patch("cortex.adapters.tmux.TmuxAdapter.send_keys"),
+            patch("cortex.adapters.tmux.TmuxAdapter.spawn_background_sender"),
+            patch("cortex.adapters.tmux.TmuxAdapter.pane_exists", return_value=True),
+            patch("time.sleep", side_effect=_simulate_ready_and_reply),
+        ):
+            runner = CliRunner()
+            result = runner.invoke(cli, [
+                "session", "spawn",
+                "--name", "fast-worker",
+                "--prompt", "go",
+            ])
+            code = result.exit_code
+
+        assert code == 0, f"Spawn failed: stdout={result.output!r} exc={result.exception!r}"
+        msgs = list(cli_db["messages"].find({"to": "fast-worker", "meta.type": "prompt"}))
+        cli_db.drop_collection("messages")
+        assert len(msgs) == 1, f"Expected single prompt (no resend), got {len(msgs)}"
+        assert "Sending again" not in msgs[0]["content"]
+
+
 class TestReservedSessionNames:
     def test_spawn_rejects_suren_name(self, _patch_cli_db, cli_db):
         with patch("cortex.adapters.tmux.TmuxAdapter.pane_exists", return_value=False):
