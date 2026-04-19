@@ -53,6 +53,17 @@ def emit_paused_banner_if_any() -> None:
         )
 
 
+def _step(msg: str) -> None:
+    """Emit a progress line while pause/resume work is in flight.
+
+    Skipped in JSON mode so programmatic callers still get clean stdout.
+    """
+    from cortex.cli import _wants_json
+
+    if not _wants_json():
+        click.echo(f"  - {msg}")
+
+
 def _read_settings() -> dict:
     if not SETTINGS_PATH.exists():
         _error_exit(f"Claude Code settings not found at {SETTINGS_PATH}")
@@ -95,6 +106,7 @@ def pause(force: bool) -> None:
     if is_paused():
         _error_exit("Cortex is already paused.")
 
+    _step("Checking active sessions...")
     active = _active_sessions()
     if active and not force:
         click.echo(f"Warning: {len(active)} active session(s):")
@@ -109,8 +121,10 @@ def pause(force: bool) -> None:
         if not click.confirm("Continue pausing?", default=False):
             raise SystemExit(0)
 
+    _step("Disabling cortex@cortex plugin in ~/.claude/settings.json...")
     plugin_changed = _set_plugin_enabled(False)
 
+    _step("Stopping launchd daemon...")
     from cortex import daemon as daemon_mod
     try:
         daemon_mod.stop()
@@ -118,6 +132,7 @@ def pause(force: bool) -> None:
     except RuntimeError:
         daemon_stopped = False
 
+    _step("Writing pause marker...")
     PAUSED_MARKER.parent.mkdir(parents=True, exist_ok=True)
     PAUSED_MARKER.write_text(
         json.dumps({"paused_at": datetime.now().isoformat()}, indent=2) + "\n"
@@ -153,8 +168,10 @@ def resume() -> None:
     if not is_paused():
         _error_exit("Cortex is not paused.")
 
+    _step("Enabling cortex@cortex plugin in ~/.claude/settings.json...")
     plugin_changed = _set_plugin_enabled(True)
 
+    _step("Starting launchd daemon...")
     from cortex import daemon as daemon_mod
     try:
         daemon_mod.start()
@@ -164,6 +181,7 @@ def resume() -> None:
         daemon_started = False
         daemon_error = str(e)
 
+    _step("Removing pause marker...")
     PAUSED_MARKER.unlink(missing_ok=True)
 
     data = {
