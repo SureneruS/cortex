@@ -160,9 +160,13 @@ def _truncate(s: str, n: int) -> str:
 def _fetch_sessions(include_done: bool = False) -> list[dict]:
     db = get_db()
     if include_done:
+        # 'a' toggle — show everything except the tombstone state.
         filt = {"status": {"$nin": ["dead"]}}
     else:
-        filt = {"status": {"$nin": ["completed", "closed", "dead"]}}
+        # Default view is the live working set only. Paused accumulates
+        # over 7 days before auto-archiving; hide it here so the list
+        # stays focused on sessions someone might actually interact with.
+        filt = {"status": {"$in": ["active", "idle", "blocked"]}}
     return list(db.session_registry.find(filt).sort("created_at", -1))
 
 
@@ -1038,11 +1042,11 @@ class CortexDashboard(App):
 
         active_count = sum(1 for s in sessions if s.get("status") not in ("completed", "closed", "dead"))
         working_count = sum(1 for s in sessions if s.get("runtime") == "working")
-        total_label = "all" if self.show_all else "active"
+        total_label = "all" if self.show_all else "live"
         self.query_one("#sessions-title", Static).update(
             Text.from_markup(
                 f"[bold #58a6ff]▸ Sessions[/]  "
-                f"[dim]{active_count} {total_label}[/]  "
+                f"[dim]{len(sessions)} {total_label}[/]  "
                 f"[#3fb950]{working_count} working[/]"
             )
         )
