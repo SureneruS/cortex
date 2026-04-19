@@ -5,6 +5,14 @@
   "author": { "name": "Suren" },
   "skills": "./skills/",
   "agents": ["./agents/dream.md", "./agents/meditate.md"],
+  "mcpServers": {
+    "cortex-team": {
+      "type": "stdio",
+      "command": "bun",
+      "args": ["run", "${CLAUDE_PLUGIN_ROOT}/../src/channels-mcp/index.ts"],
+      "env": {}
+    }
+  },
   "hooks": {
     "SessionStart": [
       {
@@ -72,6 +80,57 @@
           {
             "type": "command",
             "command": "cortex-hook-post-compact"
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cortex-hook-pre-compact"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cortex-hook-stop"
+          }
+        ]
+      }
+    ],
+    "StopFailure": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cortex-hook-stop-failure"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cortex-hook-session-end"
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "matcher": "permission_prompt|idle_prompt",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh ${CLAUDE_PLUGIN_ROOT}/hooks/notification.sh"
           }
         ]
       }

@@ -186,6 +186,9 @@ Use send_message to communicate with other sessions or Suren (the operator).
 Use get_status to see who's active and what they're working on.
 Use get_messages ONLY to recover messages you might have missed (e.g. after context compaction). Do NOT use it to wait for replies — replies arrive as channel notifications automatically.
 
+IMPORTANT — Do not use Arc MCP (send_dm) to reach Suren:
+send_message(to="suren") is the ONLY channel that routes replies back to this session. Arc's send_dm posts directly to Slack, bypassing the Cortex daemon's thread-to-session mapping — when Suren replies in the Slack thread, the daemon can't route the reply back and the reply is lost. Arc DMs are acceptable only for one-way announcements where no reply is expected.
+
 IMPORTANT — Immediate reply on new topics:
 When you receive a channel message about a NEW topic (not a continuation of something already in your conversation), you MUST immediately reply to the sender via send_message BEFORE doing any work. A short acknowledgment is enough (e.g., "Got it, working on this now."). This confirms message delivery — the sender is waiting for your reply to verify you received it. Do not skip this step.
 
