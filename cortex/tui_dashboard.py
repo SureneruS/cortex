@@ -187,7 +187,7 @@ def _fetch_events(limit: int = 30) -> list[dict]:
     db = get_db()
     cutoff = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
     pipeline = [
-        {"$match": {"events": {"$exists": True, "$ne": []}}},
+        {"$match": {"events": {"$exists": True, "$ne": []}, "role": {"$ne": "daemon"}}},
         {"$unwind": "$events"},
         {"$match": {"events.at": {"$gt": cutoff}, "events.field": "status"}},
         {"$sort": {"events.at": -1}},
