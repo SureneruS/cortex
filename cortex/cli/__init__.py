@@ -29,7 +29,10 @@ def cli(ctx: click.Context, json_output: bool) -> None:
     ctx.obj["json"] = json_output
 
     from cortex.cli.toggle_commands import emit_paused_banner_if_any
-    emit_paused_banner_if_any()
+    # resume clears the paused marker mid-command, and mode prints the
+    # state explicitly — skip the banner there so it doesn't misdirect.
+    if ctx.invoked_subcommand not in ("resume", "mode"):
+        emit_paused_banner_if_any()
 
 
 def _cli_log():
