@@ -7,6 +7,7 @@ from pathlib import Path
 import click
 
 from cortex.cli import JsonGroup, _cli_log, _error_exit, _json_out, _output, get_container
+from cortex.cli.toggle_commands import require_not_paused
 from cortex.services.session_service import ClosePermissionDenied, SessionNotFound, SpawnDenied
 
 
@@ -80,6 +81,7 @@ def spawn(
     custom_command: str | None,
 ) -> None:
     """Spawn a new Claude Code session in a tmux pane."""
+    require_not_paused("spawn")
     log = _cli_log()
     log.info("CLI spawn called", name=name, goal=bool(goal), prompt=bool(prompt), workspace=workspace)
 
@@ -402,6 +404,7 @@ def link_cc(session_id: str, cc_session_id: str, data: str | None) -> None:
 @click.option("--meta", "meta_json", default=None, help="JSON object of extra meta fields")
 def message(session_name: str, content: str, thread_id: str | None, meta_json: str | None) -> None:
     """Send a message to a session via channels."""
+    require_not_paused("message")
     extra_meta = None
     if meta_json:
         try:

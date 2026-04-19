@@ -28,6 +28,9 @@ def cli(ctx: click.Context, json_output: bool) -> None:
     ctx.ensure_object(dict)
     ctx.obj["json"] = json_output
 
+    from cortex.cli.toggle_commands import emit_paused_banner_if_any
+    emit_paused_banner_if_any()
+
 
 def _cli_log():
     return structlog.get_logger("cortex.cli")
@@ -93,6 +96,7 @@ from cortex.cli.pr_commands import pr  # noqa: E402
 from cortex.cli.misc_commands import register_misc_commands  # noqa: E402
 from cortex.cli.docs_commands import docs  # noqa: E402
 from cortex.cli.knowledge_commands import dream, meditate  # noqa: E402
+from cortex.cli.toggle_commands import pause, resume, mode_cmd  # noqa: E402
 
 cli.add_command(stream)
 cli.add_command(session)
@@ -101,6 +105,9 @@ cli.add_command(pr)
 cli.add_command(docs)
 cli.add_command(dream)
 cli.add_command(meditate)
+cli.add_command(pause)
+cli.add_command(resume)
+cli.add_command(mode_cmd)
 register_misc_commands(cli)
 
 
