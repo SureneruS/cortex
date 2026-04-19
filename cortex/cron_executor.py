@@ -532,8 +532,6 @@ def start_socket_listener(db) -> None:
 _socket_mode_client = None
 
 
-# Daemon ID stored at module level for signal handler access
-_daemon_id: str | None = None
 _shutdown_requested = False
 
 
@@ -544,26 +542,14 @@ def _shutdown_handler(signum, frame) -> None:
     _shutdown_requested = True
 
 
-def _cleanup_registry() -> None:
-    if not _daemon_id:
-        return
-    try:
-        from cortex.session_registry import MongoSessionRepo
-        from cortex.mongo import get_db
-        db = get_db()
-        session_repo = MongoSessionRepo(db)
-        session_repo.update(_daemon_id, {"status": "completed"}, trigger="shutdown", actor="daemon")
-        log.info("daemon_registry_cleaned", daemon_id=_daemon_id)
-    except Exception as e:
-        log.error("daemon_registry_cleanup_failed", error=str(e))
-
-
-def _sweep_stale_daemons(session_repo) -> None:
-    """Mark any previously active daemon entries as closed."""
-    stale = session_repo.list({"role": "daemon", "status": "active"})
-    for s in stale:
-        session_repo.update(s["_id"], {"status": "closed"}, trigger="stale-sweep", actor="daemon")
-        log.info("stale_daemon_swept", daemon_id=s["_id"])
+def _purge_legacy_daemon_entries(db) -> None:
+    """One-time migration: remove daemon self-registrations left by older
+    daemons that stored themselves in session_registry. Liveness is tracked
+    by launchctl now, not by a session entry, so these docs only add noise
+    to dashboards and session lists."""
+    result = db["session_registry"].delete_many({"role": "daemon"})
+    if result.deleted_count:
+        log.info("purged_legacy_daemon_entries", count=result.deleted_count)
 
 
 def _ping_health(session_id: str) -> bool:
@@ -630,8 +616,6 @@ def run_health_check(session_repo) -> int:
 
 
 def run() -> None:
-    global _daemon_id
-
     from cortex.observability import setup_logging
     setup_logging("daemon", force=True)
 
@@ -646,24 +630,12 @@ def run() -> None:
     db["activity"].create_index("timestamp", expireAfterSeconds=7 * 86400)
     cron = CronManager(db)
 
-    from cortex.session_registry import MongoSessionRepo, _new_id
+    from cortex.session_registry import MongoSessionRepo
 
     session_repo = MongoSessionRepo(db)
 
-    _sweep_stale_daemons(session_repo)
+    _purge_legacy_daemon_entries(db)
     _migrate_legacy_fallback_dir()
-
-    _daemon_id = _new_id()
-    session_repo.register(
-        _daemon_id,
-        {
-            "name": "cortex-daemon",
-            "role": "daemon",
-            "goal": "Background cron executor — polls and executes scheduled jobs",
-            "status": "active",
-        },
-    )
-    log.info("daemon_registered", daemon_id=_daemon_id)
 
     try:
         start_socket_listener(db)
@@ -723,7 +695,6 @@ def run() -> None:
                 log.info("socket_listener_stopped")
             except Exception as e:
                 log.error("socket_listener_stop_failed", error=str(e))
-        _cleanup_registry()
         log.info("daemon_stopped")
         sys.exit(0)
 

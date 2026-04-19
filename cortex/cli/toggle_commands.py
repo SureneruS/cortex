@@ -10,6 +10,7 @@ refuse operations that require the plugin (spawn, message) when we're paused.
 from __future__ import annotations
 
 import json
+import os
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -30,6 +31,10 @@ _GUARDED_ACTIONS = {
 
 
 def is_paused() -> bool:
+    # Tests set CORTEX_TESTING=1 so CLI invocations aren't blocked by the
+    # user's real ~/.cortex/paused marker (which leaks into test runs).
+    if os.environ.get("CORTEX_TESTING") == "1":
+        return False
     return PAUSED_MARKER.exists()
 
 

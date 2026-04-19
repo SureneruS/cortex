@@ -483,18 +483,10 @@ def daemon_cleanup(dry_run: bool) -> None:
             if not dry_run:
                 path.unlink()
 
-    # Stale daemon entries in MongoDB
-    repo = get_container().sessions
-    stale = repo.list({"role": "daemon", "status": {"$in": ["active", "closed"]}})
-    stale_ids = [s["_id"] for s in stale]
-    if stale_ids and not dry_run:
-        repo.delete_by_ids(stale_ids)
-
     data = {
         "dry_run": dry_run,
         "files_cleaned": cleaned_files,
         "freed_mb": round(freed_bytes / 1024 / 1024, 1),
-        "stale_daemon_entries": len(stale_ids),
     }
 
     def _fmt(d: dict) -> None:
@@ -508,8 +500,6 @@ def daemon_cleanup(dry_run: bool) -> None:
                 console.print(f"  {f['file']}  [dim]({f['size_mb']}MB)[/]")
         else:
             console.print(f"{prefix}No files to clean.")
-        if d["stale_daemon_entries"]:
-            console.print(f"  Removed {d['stale_daemon_entries']} stale daemon entries")
 
     _output(data, _fmt)
 

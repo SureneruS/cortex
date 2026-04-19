@@ -16,6 +16,11 @@ from pymongo import MongoClient
 # See cortex/observability.py::setup_logging.
 os.environ["CORTEX_DISABLE_ERROR_SINK"] = "1"
 
+# Treat the session as non-paused regardless of ~/.cortex/paused — tests
+# exercise spawn/message commands that would otherwise refuse to run while
+# the user's real cortex is paused. See cortex/cli/toggle_commands.py.
+os.environ["CORTEX_TESTING"] = "1"
+
 from cortex.container import Container, reset_container  # noqa: E402
 
 
