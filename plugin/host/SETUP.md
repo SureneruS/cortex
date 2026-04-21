@@ -5,19 +5,4 @@ Symlink to the **source repo**, not the plugin cache — cache gets overwritten 
 
 ## Dependencies
 
-| Source | Target | Used by |
-|--------|--------|---------|
-| `host/fish/dev-server.fish` | `~/.config/fish/functions/dev-server.fish` | `dev-server` skill |
-
-## Install
-
-```bash
-# From the cortex repo root:
-ln -sf "$PWD/plugin/host/fish/dev-server.fish" ~/.config/fish/functions/dev-server.fish
-```
-
-## Verify
-
-```bash
-type -q dev-server && echo "installed" || echo "missing"
-```
+_No host dependencies currently ship from this plugin. The `dev-server` fish function and skill were migrated to `~/.claude/skills/dev-server/` (user skill)._
